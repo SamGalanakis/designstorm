@@ -30,13 +30,18 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgPool, postgres::PgPoolOptions};
+use sqlx::{
+    FromRow, PgPool,
+    postgres::{PgConnectOptions, PgPoolOptions},
+};
 use std::{
     collections::HashMap,
     env,
     net::SocketAddr,
     path::{Component, Path as StdPath, PathBuf},
+    str::FromStr,
     sync::Arc,
+    time::Duration,
 };
 use thiserror::Error;
 use time::OffsetDateTime;
@@ -845,14 +850,26 @@ async fn main() -> Result<(), AppError> {
     init_tracing();
 
     let config = Arc::new(Config::from_env()?);
+    info!("ensuring workspace root exists");
     tokio::fs::create_dir_all(&config.workspace_root).await?;
 
-    let db = PgPoolOptions::new()
+    info!("connecting to postgres");
+    let connect_options = PgConnectOptions::from_str(&config.database_url)
+        .map_err(|error| AppError::Internal(format!("invalid DATABASE_URL: {error}")))?;
+    let db = tokio::time::timeout(
+        Duration::from_secs(10),
+        PgPoolOptions::new()
         .max_connections(5)
-        .connect(&config.database_url)
-        .await?;
+        .acquire_timeout(Duration::from_secs(15))
+        .connect_with(connect_options),
+    )
+    .await
+    .map_err(|_| AppError::Internal("Timed out connecting to postgres".to_string()))??;
+    info!("postgres connection established");
 
+    info!("running sql migrations");
     sqlx::migrate!("./migrations").run(&db).await?;
+    info!("sql migrations completed");
 
     let state = AppState {
         db,
@@ -889,17 +906,18 @@ async fn main() -> Result<(), AppError> {
         .route("/settings/provider/logout", post(disconnect_provider))
         .route("/api/storms", get(list_storms).post(create_storm))
         .route("/preview/{run_id}", get(preview_index))
-        .route("/preview/{run_id}/*path", get(preview_asset))
+        .route("/preview/{run_id}/{*path}", get(preview_asset))
         .nest_service("/static", ServeDir::new("static"))
         .nest_service("/docs", ServeDir::new("docs"))
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 
     let address = SocketAddr::from(([0, 0, 0, 0], state.config.port));
-    info!("listening on {}", address);
+    info!("binding axum listener on {}", address);
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;
+    info!("axum listener ready");
     axum::serve(listener, router)
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;

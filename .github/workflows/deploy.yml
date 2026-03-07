@@ -116,4 +116,9 @@ jobs:
       - name: Health check
         run: |
           set -euo pipefail
-          curl -fsS --retry 10 --retry-delay 3 "${FLY_APP_URL}/healthz"
+          curl -fsS \
+            --retry 10 \
+            --retry-delay 3 \
+            --connect-timeout 5 \
+            --max-time 10 \
+            "${FLY_APP_URL}/healthz"
