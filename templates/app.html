@@ -24,61 +24,61 @@
       >
         <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
       </button>
-
-      <div id="account-backdrop" class="popover-backdrop" hidden></div>
-
-      <section id="account-sheet" class="account-sheet" hidden>
-        <div class="account-sheet-header">
-          <span class="eyebrow">Account</span>
-          <h2>{{ viewer.name }}</h2>
-          <p>{{ viewer.secondary_line() }}</p>
-        </div>
-
-        <button
-          id="settings-trigger"
-          class="account-settings-link"
-          type="button"
-          aria-haspopup="dialog"
-          aria-expanded="false"
-          aria-controls="settings-sheet"
-        >
-          <span class="settings-link-copy">
-            <span class="eyebrow">Settings</span>
-            <strong>Runtime Provider</strong>
-          </span>
-          <span class="settings-link-chevron" aria-hidden="true">&rsaquo;</span>
-        </button>
-
-        <div class="account-section account-actions">
-          <button class="button button-secondary" type="button" data-action="close-account-sheet">Close</button>
-          <button class="button button-primary" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
-        </div>
-      </section>
-
-      <section id="settings-sheet" class="settings-sheet" hidden>
-        <div class="settings-sheet-header">
-          <button id="settings-back" class="settings-back-button" type="button" aria-label="Back to account">
-            <span aria-hidden="true">&lsaquo;</span>
-          </button>
-          <div>
-            <span class="eyebrow">Settings</span>
-            <h2>Runtime Provider</h2>
-          </div>
-        </div>
-
-        <div class="account-note">
-          <strong>Provider</strong>
-          <p>Connect Codex here, then generate storms from the canvas.</p>
-        </div>
-
-        {{ provider_panel|safe }}
-
-        <div class="account-section account-actions">
-          <button class="button button-secondary" type="button" data-action="close-settings-sheet">Close</button>
-        </div>
-      </section>
     </div>
   </header>
+
+  <div id="account-backdrop" class="popover-backdrop" hidden></div>
+
+  <section id="account-sheet" class="account-sheet" role="dialog" aria-label="Account" hidden>
+    <div class="account-sheet-header">
+      <span class="eyebrow">Account</span>
+      <h2>{{ viewer.name }}</h2>
+      <p>{{ viewer.secondary_line() }}</p>
+    </div>
+
+    <button
+      id="settings-trigger"
+      class="account-settings-link"
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded="false"
+      aria-controls="settings-sheet"
+    >
+      <span class="settings-link-copy">
+        <span class="eyebrow">Settings</span>
+        <strong>Runtime Provider</strong>
+      </span>
+      <span class="settings-link-chevron" aria-hidden="true">&rsaquo;</span>
+    </button>
+
+    <div class="account-section account-actions">
+      <button class="button button-secondary" type="button" data-action="close-account-sheet">Close</button>
+      <button class="button button-primary" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
+    </div>
+  </section>
+
+  <section id="settings-sheet" class="settings-sheet" role="dialog" aria-label="Settings" hidden>
+    <div class="settings-sheet-header">
+      <button id="settings-back" class="settings-back-button" type="button" aria-label="Back to account">
+        <span aria-hidden="true">&lsaquo;</span>
+      </button>
+      <div>
+        <span class="eyebrow">Settings</span>
+        <h2>Runtime Provider</h2>
+      </div>
+    </div>
+
+    <div class="account-note">
+      <strong>Provider</strong>
+      <p>Connect Codex here, then generate storms from the canvas.</p>
+    </div>
+
+    {{ provider_panel|safe }}
+
+    <div class="account-section account-actions">
+      <button class="button button-secondary" type="button" data-action="close-settings-sheet">Close</button>
+    </div>
+  </section>
 
   <main class="storm-workspace">
     <section class="storm-canvas-shell">
@@ -156,7 +156,7 @@
 
         <article class="stage-note">
           <strong>Seed</strong>
-          <div id="inspector-prompt">The selected artifact’s original seed will appear here.</div>
+          <div id="inspector-prompt">The selected artifact's original seed will appear here.</div>
         </article>
 
         <article class="stage-note">

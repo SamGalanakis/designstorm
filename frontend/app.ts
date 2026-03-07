@@ -1071,15 +1071,26 @@ function bindAppChrome(): void {
   });
 
   const settingsTrigger = document.getElementById("settings-trigger");
-  settingsTrigger?.addEventListener("click", () => openSettingsSheet());
+  settingsTrigger?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    openSettingsSheet();
+  });
 
   const settingsBack = document.getElementById("settings-back");
-  settingsBack?.addEventListener("click", () => closeSettingsSheet());
+  settingsBack?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeSettingsSheet();
+  });
 
   const backdrop = document.getElementById("account-backdrop");
-  backdrop?.addEventListener("click", () => closeAllPopovers());
+  backdrop?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeAllPopovers();
+  });
 
+  // Prevent clicks inside sheets from propagating to document handler
   accountSheet?.addEventListener("click", (event) => {
+    event.stopPropagation();
     const target = event.target as HTMLElement;
     if (target.closest("[data-action='close-account-sheet']")) {
       closeAccountSheet();
@@ -1088,20 +1099,14 @@ function bindAppChrome(): void {
 
   const settingsSheet = document.getElementById("settings-sheet");
   settingsSheet?.addEventListener("click", (event) => {
+    event.stopPropagation();
     const target = event.target as HTMLElement;
     if (target.closest("[data-action='close-settings-sheet']")) {
-      closeSettingsSheet();
+      closeAllPopovers();
     }
   });
 
-  document.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement;
-    if (
-      target.closest("#account-sheet") ||
-      target.closest("#settings-sheet") ||
-      target.closest("#avatar-button") ||
-      target.closest("#account-backdrop")
-    ) return;
+  document.addEventListener("click", () => {
     closeAllPopovers();
   });
 

@@ -3,1503 +3,1445 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Design Storm / Entropic Atlas</title>
+  <title>Design Storm / Indigo Design System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg: #081018;
-      --bg-deep: #050a11;
-      --surface: rgba(12, 21, 32, 0.78);
-      --surface-strong: rgba(15, 26, 39, 0.94);
-      --surface-soft: rgba(17, 32, 49, 0.58);
-      --text: #d3dde8;
-      --muted: rgba(211, 221, 232, 0.58);
-      --border: rgba(211, 221, 232, 0.11);
-      --accent: #55d6c2;
-      --accent-soft: rgba(85, 214, 194, 0.18);
-      --signal: #80a7ff;
-      --signal-soft: rgba(128, 167, 255, 0.18);
-      --warm: #e7b56c;
-      --warm-soft: rgba(231, 181, 108, 0.18);
-      --danger: #ff8574;
-      --shadow: 0 30px 80px rgba(0, 0, 0, 0.42);
-      --radius: 22px;
-      --radius-tight: 14px;
-      --grid: minmax(0, 1fr);
-    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    * {
-      box-sizing: border-box;
+    :root {
+      --bg: #0b1120;
+      --bg-rgb: 11, 17, 32;
+      --surface: #131d2e;
+      --surface-rgb: 19, 29, 46;
+      --surface-strong: #1a2740;
+      --surface-strong-rgb: 26, 39, 64;
+      --text: #dce4ed;
+      --text-rgb: 220, 228, 237;
+      --text-soft: #8d9bab;
+      --text-soft-rgb: 141, 155, 171;
+      --muted: #6b7a8d;
+      --muted-rgb: 107, 122, 141;
+      --line: #283548;
+      --line-rgb: 40, 53, 72;
+      --accent: #7ba3b8;
+      --accent-rgb: 123, 163, 184;
+      --accent-soft: #1e3040;
+      --accent-soft-rgb: 30, 48, 64;
+      --accent-2: #a08b72;
+      --accent-2-rgb: 160, 139, 114;
+      --mark: #1e2b3f;
+      --mark-rgb: 30, 43, 63;
+      --shadow-rgb: 3, 6, 12;
+      --ambient:
+        radial-gradient(circle at 20% 12%, rgba(78, 107, 136, 0.22) 0%, rgba(78, 107, 136, 0) 26%),
+        radial-gradient(circle at 78% 14%, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 20%),
+        radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0) 36%);
     }
 
     html {
+      font-size: 16px;
       scroll-behavior: smooth;
     }
 
     body {
-      margin: 0;
-      font-family: "Lexend", system-ui, sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(circle at 20% 20%, rgba(85, 214, 194, 0.10), transparent 0 24rem),
-        radial-gradient(circle at 85% 18%, rgba(128, 167, 255, 0.12), transparent 0 20rem),
-        radial-gradient(circle at 50% 120%, rgba(231, 181, 108, 0.10), transparent 0 26rem),
-        linear-gradient(180deg, #081018 0%, #060b12 42%, #05090f 100%);
       min-height: 100vh;
-      line-height: 1.5;
+      font-family: 'Manrope', sans-serif;
+      background:
+        radial-gradient(circle at 14% 12%, rgba(var(--accent-rgb), 0.14), transparent 18rem),
+        radial-gradient(circle at 84% 18%, rgba(255, 255, 255, 0.04), transparent 16rem),
+        linear-gradient(180deg, #0e1628 0%, #0b1120 56%, #080d18 100%);
+      color: var(--text);
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
       overflow-x: hidden;
     }
 
     body::before,
     body::after {
-      content: "";
+      content: '';
       position: fixed;
       inset: 0;
       pointer-events: none;
-      z-index: -2;
     }
 
     body::before {
-      background:
-        repeating-radial-gradient(ellipse 62% 42% at 28% 36%, transparent 0 36px, rgba(85, 214, 194, 0.028) 36px 38px, transparent 38px 76px),
-        repeating-radial-gradient(ellipse 52% 56% at 68% 45%, transparent 0 48px, rgba(128, 167, 255, 0.022) 48px 50px, transparent 50px 94px),
-        repeating-radial-gradient(ellipse 42% 52% at 54% 70%, transparent 0 30px, rgba(231, 181, 108, 0.018) 30px 32px, transparent 32px 68px);
-      opacity: 0.9;
-      animation: drift 28s ease-in-out infinite;
+      z-index: 0;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='720'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.62' numOctaves='5' stitchTiles='stitch' seed='9'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='720' height='720' filter='url(%23grain)' opacity='0.07'/%3E%3C/svg%3E");
+      background-repeat: repeat;
     }
 
     body::after {
-      background:
-        linear-gradient(90deg, rgba(211, 221, 232, 0.025) 1px, transparent 1px),
-        linear-gradient(rgba(211, 221, 232, 0.02) 1px, transparent 1px);
-      background-size: 72px 72px;
-      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 92%);
-      z-index: -1;
+      z-index: 0;
+      background: var(--ambient);
     }
 
-    a {
-      color: inherit;
+    ::selection {
+      background: rgba(var(--accent-rgb), 0.22);
+      color: var(--text);
     }
 
-    .topbar {
+    /* ─── Navigation ─── */
+
+    .direction-nav {
       position: sticky;
       top: 0;
-      z-index: 10;
+      z-index: 1000;
       display: flex;
       align-items: center;
-      gap: 18px;
-      padding: 16px 24px;
-      border-bottom: 1px solid rgba(211, 221, 232, 0.08);
-      background: rgba(8, 16, 24, 0.82);
-      backdrop-filter: blur(22px);
+      gap: 16px;
+      padding: 14px 24px;
+      background: rgba(var(--bg-rgb), 0.82);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(var(--line-rgb), 0.6);
+      box-shadow: 0 8px 28px rgba(var(--shadow-rgb), 0.12);
     }
 
-    .brand {
-      display: flex;
+    .direction-nav a {
+      color: rgba(var(--text-rgb), 0.5);
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      padding: 6px 12px;
+      border-radius: 999px;
+      transition: color 0.25s ease, background 0.25s ease;
+    }
+
+    .direction-nav a:hover {
+      color: rgba(var(--text-rgb), 0.88);
+      background: rgba(var(--text-rgb), 0.06);
+    }
+
+    .nav-title {
+      flex: 1;
+      text-align: center;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(var(--text-rgb), 0.5);
+    }
+
+    .nav-home {
+      padding-right: 18px;
+      margin-right: 2px;
+      border-right: 1px solid rgba(var(--line-rgb), 0.8);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    /* ─── Direction shell ─── */
+
+    .direction {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+    }
+
+    .direction-header,
+    .direction-showcase,
+    .direction-rationale {
+      position: relative;
+      z-index: 1;
+      width: min(1180px, calc(100vw - 48px));
+      margin: 0 auto;
+    }
+
+    .direction-header {
+      padding: 96px 0 44px;
+    }
+
+    .direction-number {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(var(--muted-rgb), 0.8);
+      margin-bottom: 10px;
+    }
+
+    .direction-tag {
+      display: inline-flex;
       align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      padding: 8px 14px;
+      border-radius: 999px;
+      background: rgba(var(--surface-rgb), 0.8);
+      border: 1px solid rgba(var(--line-rgb), 0.85);
+      box-shadow: 0 14px 40px rgba(var(--shadow-rgb), 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(var(--text-rgb), 0.6);
+    }
+
+    .direction-name {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(4.2rem, 10vw, 7.4rem);
+      font-weight: 600;
+      line-height: 0.92;
+      letter-spacing: -0.035em;
+      color: rgba(var(--text-rgb), 0.96);
+      margin-bottom: 10px;
+    }
+
+    .direction-subtitle {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(1.45rem, 3vw, 2.1rem);
+      font-style: italic;
+      letter-spacing: 0.04em;
+      color: rgba(var(--accent-rgb), 0.88);
+      margin-bottom: 28px;
+    }
+
+    .header-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
+      gap: 28px;
+      align-items: start;
+    }
+
+    .direction-desc {
+      max-width: 680px;
+      font-size: 17px;
+      line-height: 1.95;
+      color: rgba(var(--text-soft-rgb), 0.96);
+    }
+
+    .direction-aside {
+      display: grid;
+      gap: 14px;
+    }
+
+    .aside-card {
+      padding: 18px 18px 16px;
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.88), rgba(var(--surface-strong-rgb), 0.75));
+      border: 1px solid rgba(var(--line-rgb), 0.8);
+      box-shadow: 0 22px 45px rgba(var(--shadow-rgb), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .meta-label {
+      display: inline-block;
+      margin-bottom: 10px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(var(--muted-rgb), 0.9);
+    }
+
+    .aside-card p {
+      font-size: 13px;
+      line-height: 1.8;
+      color: rgba(var(--text-soft-rgb), 0.92);
+    }
+
+    /* ─── Divider ─── */
+
+    .quiet-divider {
+      width: min(1180px, calc(100vw - 48px));
+      margin: 0 auto 22px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .quiet-divider span {
+      width: min(260px, 42vw);
+      height: 1px;
+      background: linear-gradient(90deg, rgba(var(--line-rgb), 0) 0%, rgba(var(--line-rgb), 0.9) 50%, rgba(var(--line-rgb), 0) 100%);
+      position: relative;
+    }
+
+    .quiet-divider span::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 9px;
+      height: 9px;
+      transform: translate(-50%, -50%);
+      border-radius: 999px;
+      background: rgba(var(--accent-rgb), 0.38);
+      box-shadow: 0 0 0 8px rgba(var(--accent-rgb), 0.06);
+    }
+
+    /* ─── Showcase panels ─── */
+
+    .direction-showcase {
+      padding: 18px 0 36px;
+    }
+
+    .showcase-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 24px;
+    }
+
+    .showcase-panel {
+      position: relative;
+      overflow: hidden;
+      min-height: 280px;
+      padding: 30px;
+      border-radius: 30px;
+      background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.9), rgba(var(--surface-strong-rgb), 0.78));
+      border: 1px solid rgba(var(--line-rgb), 0.82);
+      box-shadow:
+        0 30px 80px rgba(var(--shadow-rgb), 0.18),
+        0 8px 22px rgba(var(--shadow-rgb), 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      animation: panel-rise 0.7s ease both;
+    }
+
+    .showcase-panel::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(155deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0) 42%),
+        radial-gradient(circle at 100% 0%, rgba(var(--accent-rgb), 0.06), rgba(var(--accent-rgb), 0) 34%);
+      pointer-events: none;
+    }
+
+    .showcase-panel:nth-child(2) { animation-delay: 0.06s; }
+    .showcase-panel:nth-child(3) { animation-delay: 0.12s; }
+    .showcase-panel:nth-child(4) { animation-delay: 0.18s; }
+    .showcase-panel:nth-child(5) { animation-delay: 0.24s; }
+    .showcase-panel:nth-child(6) { animation-delay: 0.3s; }
+    .showcase-panel:nth-child(7) { animation-delay: 0.36s; }
+
+    @keyframes panel-rise {
+      from {
+        opacity: 0;
+        transform: translateY(18px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .showcase-label {
+      position: relative;
+      z-index: 1;
+      margin-bottom: 24px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(var(--muted-rgb), 0.9);
+    }
+
+    .panel-surface { grid-column: span 7; }
+    .panel-interval { grid-column: span 5; overflow: visible; }
+    .panel-workspace { grid-column: span 12; }
+    .panel-controls,
+    .panel-atlas { grid-column: span 6; }
+    .panel-layout,
+    .panel-type { grid-column: span 6; }
+
+    /* ─── Surface specimen ─── */
+
+    .surface-layout {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(220px, 0.7fr);
+      gap: 28px;
+      align-items: end;
+      min-height: 100%;
+    }
+
+    .quiet-quote {
+      max-width: 460px;
+      margin-bottom: 16px;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: clamp(2rem, 4vw, 3.4rem);
+      font-weight: 500;
+      line-height: 1.04;
+      letter-spacing: -0.02em;
+      color: rgba(var(--text-rgb), 0.94);
+    }
+
+    .surface-copy {
+      max-width: 540px;
+      font-size: 14px;
+      line-height: 1.9;
+      color: rgba(var(--text-soft-rgb), 0.94);
+    }
+
+    .material-stack {
+      display: grid;
       gap: 12px;
-      min-width: 0;
     }
 
-    .brand-mark {
+    .material-card {
+      padding: 16px;
+      border-radius: 22px;
+      background: rgba(var(--mark-rgb), 0.65);
+      border: 1px solid rgba(var(--line-rgb), 0.72);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .material-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+      font-weight: 700;
+      color: rgba(var(--text-rgb), 0.9);
+    }
+
+    .material-card p {
+      font-size: 12px;
+      line-height: 1.75;
+      color: rgba(var(--text-soft-rgb), 0.84);
+    }
+
+    /* ─── Swatches ─── */
+
+    .swatch-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
+    .swatch {
+      display: grid;
+      gap: 6px;
+      justify-items: center;
+    }
+
+    .swatch-dot {
       width: 34px;
       height: 34px;
-      border-radius: 11px;
-      border: 1px solid rgba(85, 214, 194, 0.24);
-      background:
-        radial-gradient(circle at 35% 35%, rgba(85, 214, 194, 0.48), transparent 0 48%),
-        linear-gradient(145deg, rgba(128, 167, 255, 0.18), rgba(10, 18, 28, 0.72));
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+      border-radius: 999px;
+      border: 1px solid rgba(var(--line-rgb), 0.7);
+      box-shadow:
+        0 6px 14px rgba(var(--shadow-rgb), 0.14),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
     }
 
-    .brand-copy {
+    .swatch span {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(var(--muted-rgb), 0.9);
+    }
+
+    /* ─── Interval / spacing ─── */
+
+    .interval-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      align-items: end;
+      min-height: calc(100% - 36px);
+      overflow: visible;
+    }
+
+    .interval-state {
+      display: grid;
+      gap: 16px;
+      justify-items: center;
+      text-align: center;
+    }
+
+    .interval-pair {
       display: flex;
-      flex-direction: column;
-      gap: 1px;
-      min-width: 0;
+      align-items: center;
+      height: 88px;
     }
 
-    .eyebrow,
-    .micro,
-    .token-label,
-    .chip,
-    .nav a,
-    .panel-note,
-    .card-index {
-      font-family: "IBM Plex Mono", monospace;
+    .interval-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(var(--text-rgb), 0.2);
+      box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.08);
+    }
+
+    .interval-tight .interval-pair { gap: 6px; }
+    .interval-held .interval-pair { gap: 22px; }
+    .interval-breathing .interval-pair { gap: 54px; }
+    .interval-distant .interval-pair { gap: 72px; }
+
+    .interval-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: rgba(var(--text-rgb), 0.86);
+    }
+
+    .interval-note {
+      max-width: 120px;
+      font-size: 12px;
+      line-height: 1.7;
+      color: rgba(var(--text-soft-rgb), 0.86);
+    }
+
+    /* ─── Controls ─── */
+
+    .controls-shell {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      gap: 22px;
+    }
+
+    .button-row,
+    .chip-row,
+    .segmented {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .quiet-btn,
+    .quiet-chip,
+    .segment {
+      border: 1px solid rgba(var(--line-rgb), 0.82);
+      background: rgba(var(--surface-rgb), 0.7);
+      color: rgba(var(--text-rgb), 0.72);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .quiet-btn {
+      padding: 12px 18px;
+      border-radius: 999px;
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
+    }
+
+    .quiet-btn:hover {
+      transform: translateY(-1px);
+      background: rgba(var(--surface-strong-rgb), 0.92);
+      color: rgba(var(--text-rgb), 0.92);
+    }
+
+    .quiet-btn.primary {
+      background: rgba(var(--accent-rgb), 0.14);
+      color: rgba(var(--accent-rgb), 0.96);
+      border-color: rgba(var(--accent-rgb), 0.22);
+    }
+
+    .quiet-btn.secondary {
+      background: rgba(var(--accent-2-rgb), 0.12);
+      color: rgba(var(--accent-2-rgb), 0.96);
+      border-color: rgba(var(--accent-2-rgb), 0.2);
+    }
+
+    .quiet-chip {
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
 
-    .eyebrow {
+    .segmented {
+      padding: 6px;
+      width: fit-content;
+      border-radius: 999px;
+      background: rgba(var(--surface-rgb), 0.72);
+      border: 1px solid rgba(var(--line-rgb), 0.75);
+    }
+
+    .segment {
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border-color: transparent;
+    }
+
+    .segment.active {
+      background: rgba(var(--text-rgb), 0.08);
+      color: rgba(var(--text-rgb), 0.96);
+    }
+
+    /* ─── Fields ─── */
+
+    .field-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .field-label {
+      font-family: 'IBM Plex Mono', monospace;
       font-size: 10px;
-      color: rgba(211, 221, 232, 0.42);
-    }
-
-    .brand-copy strong {
-      font-size: 14px;
-      font-weight: 500;
-      white-space: nowrap;
-    }
-
-    .nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-left: auto;
-    }
-
-    .nav a {
-      text-decoration: none;
-      color: rgba(211, 221, 232, 0.48);
-      font-size: 11px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      border: 1px solid transparent;
-      transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
-    }
-
-    .nav a:hover,
-    .nav a:focus-visible {
-      color: var(--text);
-      border-color: rgba(85, 214, 194, 0.24);
-      background: rgba(85, 214, 194, 0.08);
-      outline: none;
-    }
-
-    main {
-      width: min(1380px, calc(100vw - 40px));
-      margin: 0 auto;
-      padding: 28px 0 80px;
-    }
-
-    section {
-      margin-bottom: 24px;
-    }
-
-    .hero {
-      display: grid;
-      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.8fr);
-      gap: 24px;
-      align-items: stretch;
-    }
-
-    .hero-card,
-    .manifesto,
-    .specimen-shell,
-    .section-card,
-    .token-card,
-    .principle-card,
-    .gallery-card {
-      border: 1px solid var(--border);
-      background: linear-gradient(180deg, rgba(16, 26, 38, 0.84), rgba(10, 17, 26, 0.92));
-      box-shadow: var(--shadow);
-    }
-
-    .hero-card {
-      position: relative;
-      padding: 34px;
-      border-radius: calc(var(--radius) + 6px);
-      overflow: hidden;
-    }
-
-    .hero-card::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background:
-        linear-gradient(120deg, rgba(85, 214, 194, 0.06), transparent 35%),
-        radial-gradient(circle at 78% 22%, rgba(128, 167, 255, 0.18), transparent 0 24%);
-      pointer-events: none;
-    }
-
-    .hero h1 {
-      position: relative;
-      margin: 14px 0 18px;
-      font-size: clamp(3rem, 5vw, 5.5rem);
-      line-height: 0.96;
-      letter-spacing: -0.05em;
-      max-width: 9ch;
-    }
-
-    .hero p {
-      position: relative;
-      max-width: 62ch;
-      color: var(--muted);
-      font-size: 17px;
-      margin: 0 0 24px;
-    }
-
-    .hero-badges,
-    .manifesto-list,
-    .chip-row,
-    .panel-stack,
-    .token-grid,
-    .principle-grid,
-    .gallery-grid {
-      display: grid;
-      gap: 12px;
-    }
-
-    .hero-badges {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      position: relative;
-    }
-
-    .badge {
-      padding: 16px;
-      border-radius: var(--radius-tight);
-      border: 1px solid rgba(211, 221, 232, 0.09);
-      background: rgba(6, 14, 22, 0.44);
-    }
-
-    .badge strong {
-      display: block;
-      font-size: 14px;
-      font-weight: 500;
-      margin-top: 6px;
-    }
-
-    .badge span {
-      display: block;
-      color: var(--muted);
-      font-size: 13px;
-      margin-top: 5px;
-    }
-
-    .manifesto {
-      border-radius: calc(var(--radius) + 6px);
-      padding: 28px;
-    }
-
-    .manifesto h2,
-    .section-card h2 {
-      margin: 10px 0 18px;
-      font-size: 28px;
-      line-height: 1.05;
-      letter-spacing: -0.03em;
-    }
-
-    .manifesto-list {
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .manifesto-list li {
-      padding: 14px 0;
-      border-top: 1px solid rgba(211, 221, 232, 0.07);
-    }
-
-    .manifesto-list li:first-child {
-      border-top: 0;
-      padding-top: 0;
-    }
-
-    .manifesto-list strong {
-      display: block;
-      font-size: 14px;
-      font-weight: 500;
-      margin-bottom: 4px;
-    }
-
-    .manifesto-list span {
-      color: var(--muted);
-      font-size: 14px;
-    }
-
-    .section-card {
-      padding: 28px;
-      border-radius: var(--radius);
-    }
-
-    .section-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 18px;
-      align-items: end;
-      margin-bottom: 18px;
-    }
-
-    .section-head p {
-      margin: 0;
-      max-width: 56ch;
-      color: var(--muted);
-    }
-
-    .specimen-shell {
-      padding: 18px;
-      border-radius: 30px;
-      background:
-        linear-gradient(180deg, rgba(18, 31, 44, 0.84), rgba(8, 14, 22, 0.96));
-    }
-
-    .specimen-frame {
-      display: grid;
-      grid-template-columns: 240px minmax(0, 1fr) 288px;
-      gap: 16px;
-      min-height: 720px;
-    }
-
-    .rail,
-    .inspector,
-    .stage-wrap,
-    .gallery-rail {
-      border-radius: 24px;
-      border: 1px solid rgba(211, 221, 232, 0.08);
-      background: rgba(7, 13, 20, 0.7);
-      overflow: hidden;
-    }
-
-    .rail,
-    .inspector {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-    }
-
-    .rail-header,
-    .inspector-header,
-    .gallery-rail header {
-      padding: 18px 18px 14px;
-      border-bottom: 1px solid rgba(211, 221, 232, 0.07);
-      background: rgba(255, 255, 255, 0.015);
-    }
-
-    .rail-header h3,
-    .inspector-header h3,
-    .gallery-rail h3,
-    .principle-card h3,
-    .token-card h3,
-    .gallery-card h3 {
-      margin: 6px 0 0;
-      font-size: 16px;
-      font-weight: 500;
-      letter-spacing: -0.02em;
-    }
-
-    .rail-body,
-    .inspector-body,
-    .gallery-rail .gallery-strip {
-      padding: 16px;
-    }
-
-    .panel-stack {
-      grid-auto-rows: min-content;
-    }
-
-    .mini-card {
-      padding: 14px;
-      border-radius: 18px;
-      border: 1px solid rgba(211, 221, 232, 0.08);
-      background:
-        linear-gradient(180deg, rgba(20, 34, 49, 0.74), rgba(10, 18, 28, 0.9));
-    }
-
-    .mini-card strong {
-      display: block;
-      margin-top: 6px;
-      font-size: 14px;
-      font-weight: 500;
-    }
-
-    .mini-card p,
-    .inspector-body p,
-    .token-card p,
-    .principle-card p,
-    .gallery-card p,
-    .meta-list li {
-      margin: 0;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .chip-row {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .chip {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 44px;
-      padding: 10px 12px;
-      border-radius: 14px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(211, 221, 232, 0.07);
-      color: rgba(211, 221, 232, 0.68);
-      font-size: 11px;
-    }
-
-    .chip.accent {
-      border-color: rgba(85, 214, 194, 0.22);
-      color: rgba(85, 214, 194, 0.88);
-      background: rgba(85, 214, 194, 0.08);
-    }
-
-    .chip.signal {
-      border-color: rgba(128, 167, 255, 0.22);
-      color: rgba(128, 167, 255, 0.9);
-      background: rgba(128, 167, 255, 0.08);
-    }
-
-    .chip.warm {
-      border-color: rgba(231, 181, 108, 0.22);
-      color: rgba(231, 181, 108, 0.88);
-      background: rgba(231, 181, 108, 0.08);
-    }
-
-    .stage-wrap {
-      display: grid;
-      grid-template-rows: minmax(0, 1fr) 180px;
-      gap: 16px;
-      padding: 16px;
-    }
-
-    .stage {
-      position: relative;
-      min-height: 500px;
-      border-radius: 26px;
-      overflow: hidden;
-      border: 1px solid rgba(211, 221, 232, 0.08);
-      background:
-        radial-gradient(circle at 30% 30%, rgba(85, 214, 194, 0.08), transparent 0 20rem),
-        radial-gradient(circle at 70% 26%, rgba(128, 167, 255, 0.10), transparent 0 20rem),
-        linear-gradient(180deg, rgba(5, 9, 14, 0.74), rgba(8, 13, 18, 0.9));
-    }
-
-    #storm-canvas {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      display: block;
-    }
-
-    .stage-overlay {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-    }
-
-    .stage-label,
-    .floating-card,
-    .dock-card,
-    .orbit-label,
-    .focus-badge {
-      position: absolute;
-      border-radius: 18px;
-      border: 1px solid rgba(211, 221, 232, 0.08);
-      background: rgba(9, 15, 23, 0.72);
-      backdrop-filter: blur(18px);
-      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
-    }
-
-    .stage-label {
-      top: 18px;
-      left: 18px;
-      padding: 14px 16px;
-      max-width: 250px;
-    }
-
-    .stage-label strong,
-    .floating-card strong,
-    .dock-card strong,
-    .focus-badge strong {
-      display: block;
-      font-size: 14px;
-      font-weight: 500;
-      margin-top: 6px;
-    }
-
-    .stage-label span,
-    .floating-card span,
-    .dock-card span,
-    .focus-badge span {
-      display: block;
-      color: var(--muted);
-      font-size: 12px;
-      margin-top: 4px;
-    }
-
-    .orbit-label {
-      padding: 9px 12px;
-      border-radius: 999px;
-      font-size: 11px;
-      color: rgba(211, 221, 232, 0.7);
-    }
-
-    .floating-card {
-      width: 176px;
-      padding: 14px;
-    }
-
-    .floating-card.seed {
-      left: 18%;
-      top: 22%;
-      border-color: rgba(85, 214, 194, 0.22);
-      background: rgba(8, 21, 22, 0.72);
-    }
-
-    .floating-card.ref {
-      left: 64%;
-      top: 16%;
-      border-color: rgba(128, 167, 255, 0.22);
-    }
-
-    .floating-card.clip {
-      left: 60%;
-      top: 58%;
-      border-color: rgba(231, 181, 108, 0.22);
-    }
-
-    .dock-card {
-      width: 220px;
-      padding: 16px;
-      bottom: 26px;
-    }
-
-    .dock-card.left {
-      left: 14%;
-    }
-
-    .dock-card.mid {
-      left: 39%;
-    }
-
-    .dock-card.right {
-      right: 10%;
-    }
-
-    .focus-badge {
-      padding: 12px 14px;
-      right: 18px;
-      top: 18px;
-      max-width: 220px;
-      border-color: rgba(85, 214, 194, 0.18);
-    }
-
-    .gallery-rail {
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-    }
-
-    .gallery-strip {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 12px;
-      height: 100%;
-    }
-
-    .gallery-thumb {
-      position: relative;
-      overflow: hidden;
-      border-radius: 18px;
-      border: 1px solid rgba(211, 221, 232, 0.08);
-      padding: 12px;
-      min-height: 128px;
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
-        radial-gradient(circle at top left, rgba(85, 214, 194, 0.16), transparent 0 48%),
-        rgba(8, 15, 22, 0.88);
-    }
-
-    .gallery-thumb.blue {
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
-        radial-gradient(circle at top left, rgba(128, 167, 255, 0.18), transparent 0 50%),
-        rgba(8, 15, 22, 0.88);
-    }
-
-    .gallery-thumb.warm {
-      background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
-        radial-gradient(circle at top left, rgba(231, 181, 108, 0.18), transparent 0 50%),
-        rgba(8, 15, 22, 0.88);
-    }
-
-    .gallery-thumb::before {
-      content: "";
-      position: absolute;
-      inset: 12px;
-      border-radius: 14px;
-      border: 1px solid rgba(211, 221, 232, 0.07);
-      background:
-        linear-gradient(90deg, rgba(211, 221, 232, 0.06) 1px, transparent 1px),
-        linear-gradient(rgba(211, 221, 232, 0.05) 1px, transparent 1px);
-      background-size: 26px 26px;
-    }
-
-    .gallery-thumb strong,
-    .gallery-thumb span {
-      position: relative;
-      display: block;
-      z-index: 1;
-    }
-
-    .gallery-thumb strong {
-      margin-top: 44px;
-      font-size: 14px;
-      font-weight: 500;
-    }
-
-    .gallery-thumb span {
-      margin-top: 4px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .meta-list {
-      list-style: none;
-      margin: 14px 0 0;
-      padding: 0;
-      display: grid;
-      gap: 10px;
-    }
-
-    .meta-list li {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      padding-top: 10px;
-      border-top: 1px solid rgba(211, 221, 232, 0.07);
-    }
-
-    .meta-list strong {
-      font-size: 11px;
-      font-weight: 500;
-      color: rgba(211, 221, 232, 0.5);
+      letter-spacing: 0.12em;
       text-transform: uppercase;
-      letter-spacing: 0.07em;
+      color: rgba(var(--muted-rgb), 0.92);
     }
 
-    .tokens {
+    .quiet-input,
+    .quiet-textarea {
+      width: 100%;
+      border: 1px solid rgba(var(--line-rgb), 0.82);
+      border-radius: 18px;
+      background: rgba(var(--mark-rgb), 0.7);
+      color: rgba(var(--text-rgb), 0.9);
+      padding: 14px 16px;
+      font: inherit;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .quiet-textarea {
+      min-height: 112px;
+      resize: vertical;
+    }
+
+    .quiet-input:focus,
+    .quiet-textarea:focus {
+      border-color: rgba(var(--accent-rgb), 0.5);
+      box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.08);
+    }
+
+    /* ─── Typography ─── */
+
+    .type-panel-copy {
+      position: relative;
+      z-index: 1;
       display: grid;
-      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-      gap: 24px;
-    }
-
-    .token-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .token-card {
-      padding: 22px;
-      border-radius: 20px;
-    }
-
-    .swatch-row {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      margin-top: 16px;
-    }
-
-    .swatch {
-      padding: 10px;
-      border-radius: 14px;
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      min-height: 90px;
-      display: flex;
-      flex-direction: column;
-      justify-content: end;
-      gap: 5px;
-      font-family: "IBM Plex Mono", monospace;
-      font-size: 11px;
-    }
-
-    .swatch.bg {
-      background: #081018;
-    }
-
-    .swatch.surface {
-      background: #101c29;
-    }
-
-    .swatch.accent {
-      background: #55d6c2;
-      color: #08201f;
-    }
-
-    .swatch.signal {
-      background: #80a7ff;
-      color: #09152f;
-    }
-
-    .swatch.warm {
-      background: #e7b56c;
-      color: #281b08;
+      gap: 22px;
     }
 
     .type-sample {
-      padding-top: 18px;
-      border-top: 1px solid rgba(211, 221, 232, 0.08);
-      margin-top: 18px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid rgba(var(--line-rgb), 0.5);
     }
 
-    .type-sample .display {
-      font-size: clamp(2rem, 4vw, 3.4rem);
-      line-height: 0.92;
-      letter-spacing: -0.05em;
-      margin-bottom: 12px;
+    .type-sample:last-child {
+      padding-bottom: 0;
+      border-bottom: 0;
     }
 
-    .type-sample .mono {
-      font-family: "IBM Plex Mono", monospace;
-      color: rgba(85, 214, 194, 0.88);
-      font-size: 12px;
+    .type-sample strong {
+      display: block;
       margin-bottom: 8px;
+      font-family: 'Cormorant Garamond', serif;
+      color: rgba(var(--text-rgb), 0.92);
     }
 
-    .principle-grid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+    .type-sample.lead strong {
+      font-size: clamp(2rem, 3vw, 2.8rem);
+      line-height: 0.95;
+      letter-spacing: -0.03em;
     }
 
-    .principle-card,
-    .gallery-card {
-      padding: 22px;
-      border-radius: 20px;
-      min-height: 100%;
+    .type-sample.measure strong {
+      font-size: 1.45rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
     }
 
-    .gallery-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+    .type-sample.whisper strong {
+      font-size: 1.16rem;
+      font-weight: 500;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+      color: rgba(var(--text-rgb), 0.48);
     }
 
-    .gallery-card .mock-track {
-      margin-top: 18px;
-      height: 126px;
-      border-radius: 18px;
-      border: 1px solid rgba(211, 221, 232, 0.08);
-      background:
-        linear-gradient(90deg, rgba(211, 221, 232, 0.06) 1px, transparent 1px),
-        linear-gradient(rgba(211, 221, 232, 0.05) 1px, transparent 1px),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
-      background-size: 22px 22px, 22px 22px, auto;
+    .type-sample p {
+      font-size: 12px;
+      line-height: 1.8;
+      color: rgba(var(--text-soft-rgb), 0.86);
+    }
+
+    .type-note {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: rgba(var(--muted-rgb), 0.92);
+      margin-top: 8px;
+    }
+
+    /* ─── Layout specimens ─── */
+
+    .layout-grid {
       position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .layout-card {
+      padding: 18px;
+      border-radius: 22px;
+      border: 1px solid rgba(var(--line-rgb), 0.82);
+      background: rgba(var(--mark-rgb), 0.52);
+    }
+
+    .layout-card h3 {
+      margin-bottom: 12px;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.7rem;
+      font-weight: 600;
+      color: rgba(var(--text-rgb), 0.9);
+    }
+
+    .layout-frame {
+      display: grid;
+      gap: 8px;
+      margin-bottom: 14px;
+      min-height: 150px;
+    }
+
+    .layout-block {
+      border-radius: 14px;
+      background: rgba(var(--text-rgb), 0.06);
+    }
+
+    .layout-card[data-layout='stack'] .layout-frame {
+      grid-template-rows: 28px 1fr 38px;
+    }
+
+    .layout-card[data-layout='gallery'] .layout-frame {
+      grid-template-columns: 1fr 0.8fr;
+      grid-template-rows: 44px 1fr;
+    }
+
+    .layout-card[data-layout='gallery'] .layout-block:first-child {
+      grid-column: 1 / -1;
+    }
+
+    .layout-card[data-layout='editorial'] .layout-frame {
+      grid-template-columns: 28px 1fr;
+      grid-template-rows: 44px 52px 1fr;
+    }
+
+    .layout-card[data-layout='editorial'] .layout-block:nth-child(1) {
+      grid-row: 1 / -1;
+    }
+
+    .layout-card p {
+      font-size: 12px;
+      line-height: 1.75;
+      color: rgba(var(--text-soft-rgb), 0.86);
+    }
+
+    /* ─── Atlas / canvas specimen ─── */
+
+    .atlas-grid {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 180px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .atlas-stage {
+      position: relative;
+      min-height: 300px;
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at 18% 24%, rgba(var(--accent-rgb), 0.12) 0%, rgba(var(--accent-rgb), 0) 26%),
+        linear-gradient(180deg, rgba(var(--mark-rgb), 0.82), rgba(var(--surface-strong-rgb), 0.72));
+      border: 1px solid rgba(var(--line-rgb), 0.74);
       overflow: hidden;
     }
 
-    .gallery-card .mock-track::before,
-    .gallery-card .mock-track::after {
-      content: "";
+    .atlas-stage::before {
+      content: '';
       position: absolute;
+      inset: 18px;
+      border: 1px solid rgba(var(--line-rgb), 0.3);
+      border-radius: 20px;
+      pointer-events: none;
+    }
+
+    .atlas-shape {
+      position: absolute;
+      background: rgba(var(--text-rgb), 0.08);
+      box-shadow: 0 18px 24px rgba(var(--shadow-rgb), 0.14);
+    }
+
+    .atlas-shape.circle {
+      top: 62px;
+      left: 64px;
+      width: 80px;
+      height: 80px;
       border-radius: 999px;
-      inset: auto;
+      background: rgba(var(--accent-rgb), 0.14);
     }
 
-    .gallery-card .mock-track::before {
-      width: 46%;
+    .atlas-shape.arch {
+      top: 116px;
+      left: 190px;
+      width: 92px;
+      height: 128px;
+      border-radius: 92px 92px 16px 16px;
+      background: rgba(var(--accent-2-rgb), 0.14);
+    }
+
+    .atlas-shape.line {
+      left: 148px;
+      top: 100px;
+      width: 84px;
+      height: 2px;
+      border-radius: 999px;
+      background: rgba(var(--text-rgb), 0.12);
+      box-shadow: none;
+      transform: rotate(12deg);
+    }
+
+    .atlas-shape.tile {
+      right: 58px;
+      top: 82px;
+      width: 112px;
+      height: 70px;
+      border-radius: 24px;
+      background: rgba(var(--text-rgb), 0.06);
+    }
+
+    .atlas-shape.dot {
+      right: 86px;
+      bottom: 78px;
+      width: 18px;
       height: 18px;
-      left: 10%;
-      top: 34px;
-      background: rgba(85, 214, 194, 0.24);
-      box-shadow: 0 0 0 1px rgba(85, 214, 194, 0.22);
+      border-radius: 999px;
+      background: rgba(var(--text-rgb), 0.18);
     }
 
-    .gallery-card .mock-track::after {
-      width: 28%;
-      height: 18px;
-      right: 12%;
-      bottom: 30px;
-      background: rgba(128, 167, 255, 0.24);
-      box-shadow: 0 0 0 1px rgba(128, 167, 255, 0.22);
+    .atlas-caption {
+      position: absolute;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(var(--muted-rgb), 0.9);
     }
 
-    .footer-note {
-      padding: 18px 4px 0;
-      color: rgba(211, 221, 232, 0.44);
+    .atlas-caption.caption-a { top: 154px; left: 58px; }
+    .atlas-caption.caption-b { top: 254px; left: 182px; }
+    .atlas-caption.caption-c { top: 164px; right: 62px; }
+
+    .atlas-notes {
+      display: grid;
+      gap: 12px;
+    }
+
+    .atlas-note {
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(var(--line-rgb), 0.78);
+      background: rgba(var(--mark-rgb), 0.58);
+    }
+
+    .atlas-note strong {
+      display: block;
+      margin-bottom: 6px;
       font-size: 13px;
-      text-align: center;
+      font-weight: 700;
+      color: rgba(var(--text-rgb), 0.88);
     }
 
-    @keyframes drift {
-      0% {
-        transform: translate3d(0, 0, 0) scale(1);
+    .atlas-note p {
+      font-size: 12px;
+      line-height: 1.72;
+      color: rgba(var(--text-soft-rgb), 0.86);
+    }
+
+    /* ─── Workspace specimen ─── */
+
+    .workspace-stage {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .workspace-rail,
+    .workspace-main {
+      border-radius: 24px;
+      border: 1px solid rgba(var(--line-rgb), 0.8);
+      background: rgba(var(--mark-rgb), 0.5);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    }
+
+    .workspace-rail {
+      padding: 22px 18px;
+      display: grid;
+      gap: 16px;
+      align-content: start;
+    }
+
+    .workspace-main {
+      padding: 22px;
+    }
+
+    .rail-line {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(var(--text-rgb), 0.06);
+    }
+
+    .rail-line.short { width: 54%; }
+    .rail-line.mid { width: 72%; }
+
+    .workspace-topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 18px;
+      align-items: center;
+    }
+
+    .workspace-title {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 2rem;
+      font-weight: 600;
+      color: rgba(var(--text-rgb), 0.92);
+    }
+
+    .workspace-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .workspace-pill {
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(var(--text-rgb), 0.06);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: rgba(var(--text-rgb), 0.56);
+    }
+
+    .workspace-pill.active {
+      background: rgba(var(--accent-rgb), 0.14);
+      color: rgba(var(--accent-rgb), 0.94);
+    }
+
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .workspace-card {
+      padding: 18px;
+      border-radius: 22px;
+      border: 1px solid rgba(var(--line-rgb), 0.72);
+      background: rgba(var(--surface-rgb), 0.52);
+      display: grid;
+      gap: 12px;
+    }
+
+    .workspace-card-preview {
+      height: 92px;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 30% 40%, rgba(var(--accent-rgb), 0.08), transparent 50%),
+        linear-gradient(180deg, rgba(8, 12, 18, 0.82), rgba(6, 9, 14, 0.92));
+      border: 1px solid rgba(var(--line-rgb), 0.6);
+    }
+
+    .workspace-card h4 {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: rgba(var(--text-rgb), 0.88);
+    }
+
+    .workspace-card p {
+      font-size: 12px;
+      line-height: 1.7;
+      color: rgba(var(--text-soft-rgb), 0.8);
+    }
+
+    /* ─── Rationale / principles ─── */
+
+    .direction-rationale {
+      padding: 44px 0 96px;
+    }
+
+    .rationale-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .rationale-card {
+      padding: 24px;
+      border-radius: 24px;
+      border: 1px solid rgba(var(--line-rgb), 0.8);
+      background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.86), rgba(var(--surface-strong-rgb), 0.72));
+      box-shadow: 0 20px 48px rgba(var(--shadow-rgb), 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    }
+
+    .rationale-card h3 {
+      margin-bottom: 14px;
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 1.8rem;
+      font-weight: 600;
+      line-height: 0.96;
+      color: rgba(var(--text-rgb), 0.92);
+    }
+
+    .rationale-card p {
+      font-size: 14px;
+      line-height: 1.85;
+      color: rgba(var(--text-soft-rgb), 0.92);
+    }
+
+    /* ─── Responsive ─── */
+
+    @media (max-width: 1024px) {
+      .header-grid {
+        grid-template-columns: 1fr;
       }
-      50% {
-        transform: translate3d(-10px, 6px, 0) scale(1.015);
+      .showcase-grid {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
       }
-      100% {
-        transform: translate3d(0, 0, 0) scale(1);
+      .panel-surface,
+      .panel-interval,
+      .panel-controls,
+      .panel-atlas,
+      .panel-layout,
+      .panel-type { grid-column: span 6; }
+      .panel-workspace { grid-column: span 6; }
+      .workspace-stage {
+        grid-template-columns: 1fr;
+      }
+      .workspace-rail {
+        display: none;
+      }
+      .rationale-grid {
+        grid-template-columns: 1fr;
       }
     }
 
-    @media (max-width: 1180px) {
-      .hero,
-      .tokens {
-        grid-template-columns: 1fr;
-      }
-
-      .specimen-frame {
-        grid-template-columns: 220px minmax(0, 1fr);
-      }
-
-      .inspector {
-        grid-column: 1 / -1;
-      }
-
-      .principle-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .gallery-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-
-    @media (max-width: 840px) {
-      .topbar {
-        align-items: flex-start;
-        flex-direction: column;
-      }
-
-      main {
-        width: min(100vw - 24px, 1380px);
-        padding-top: 18px;
-      }
-
-      .hero-card,
-      .manifesto,
-      .section-card {
-        padding: 22px;
-      }
-
-      .hero h1 {
-        max-width: 12ch;
-      }
-
-      .hero-badges,
-      .token-grid,
-      .principle-grid,
-      .gallery-strip {
-        grid-template-columns: 1fr;
-      }
-
-      .specimen-shell {
-        padding: 12px;
-      }
-
-      .specimen-frame {
-        grid-template-columns: 1fr;
-        min-height: auto;
-      }
-
-      .stage-wrap {
-        order: -1;
-        grid-template-rows: minmax(420px, 62vh) 200px;
-      }
-
-      .dock-card.left,
-      .dock-card.mid,
-      .dock-card.right {
-        width: 180px;
-      }
-
-      .dock-card.left {
-        left: 4%;
-      }
-
-      .dock-card.mid {
-        left: 34%;
-      }
-
-      .dock-card.right {
-        right: 4%;
-      }
-    }
-
-    @media (max-width: 620px) {
-      .nav {
-        margin-left: 0;
-      }
-
-      .section-head {
-        flex-direction: column;
-        align-items: start;
-      }
-
-      .stage {
-        min-height: 420px;
-      }
-
-      .floating-card {
-        width: 150px;
-      }
-
-      .dock-card {
-        position: absolute;
-        width: 150px;
-        padding: 12px;
-      }
-
-      .dock-card.left {
-        left: 3%;
-      }
-
-      .dock-card.mid {
-        left: calc(50% - 75px);
-      }
-
-      .dock-card.right {
-        right: 3%;
-      }
+    @media (max-width: 640px) {
+      .direction-header { padding: 56px 0 28px; }
+      .showcase-grid { grid-template-columns: 1fr; }
+      .panel-surface,
+      .panel-interval,
+      .panel-controls,
+      .panel-atlas,
+      .panel-layout,
+      .panel-type,
+      .panel-workspace { grid-column: span 1; }
+      .surface-layout { grid-template-columns: 1fr; }
+      .atlas-grid { grid-template-columns: 1fr; }
+      .layout-grid { grid-template-columns: 1fr; }
+      .workspace-grid { grid-template-columns: 1fr; }
+      .interval-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .direction-nav { gap: 8px; padding: 10px 16px; }
+      .direction-nav a { font-size: 10px; padding: 5px 8px; }
     }
   </style>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark" aria-hidden="true"></div>
-      <div class="brand-copy">
-        <span class="eyebrow">Design Language / Product Surface</span>
-        <strong>Design Storm / Entropic Atlas</strong>
-      </div>
-    </div>
-    <nav class="nav" aria-label="Page">
-      <a href="#overview">Overview</a>
-      <a href="#specimen">Canvas Specimen</a>
-      <a href="#tokens">Tokens</a>
-      <a href="#grammar">Interaction Grammar</a>
-      <a href="#gallery">Gallery System</a>
-    </nav>
-  </header>
+  <nav class="direction-nav">
+    <span class="nav-home">Design Storm</span>
+    <span class="nav-title">Indigo Design System</span>
+    <a href="#surface">Surface</a>
+    <a href="#spacing">Spacing</a>
+    <a href="#controls">Controls</a>
+    <a href="#type">Type</a>
+    <a href="#layout">Layout</a>
+    <a href="#canvas">Canvas</a>
+    <a href="#workspace">Workspace</a>
+  </nav>
 
-  <main>
-    <section class="hero" id="overview">
-      <article class="hero-card">
-        <span class="eyebrow">Direction 01 / Scientific Drift</span>
-        <h1>Design Storm as a navigable field of influence.</h1>
-        <p>
-          This direction treats the product as a dark creative instrument rather than a dashboard. Users do not fill out a form and wait. They drop a seed into a live canvas, introduce entropy sources, then watch design language documents branch outward as spatial artifacts with visible lineage.
+  <article class="direction">
+    <header class="direction-header">
+      <div class="direction-number">Design System 001</div>
+      <div class="direction-tag">Indigo Variation &middot; Dark Mode</div>
+      <h1 class="direction-name">Indigo</h1>
+      <p class="direction-subtitle">Quiet confidence in deep space</p>
+
+      <div class="header-grid">
+        <p class="direction-desc">
+          A design system for creative instruments that work at the speed of thought. Deep indigo
+          surfaces provide a stage where content can breathe. Layered shadows give elements material
+          presence. Generous negative space creates rhythm. Every interaction carries weight without
+          heaviness &mdash; tactile, precise, emotionally resonant.
         </p>
-        <div class="hero-badges">
-          <div class="badge">
-            <span class="micro">Core Metaphor</span>
-            <strong>Creative weather map</strong>
-            <span>Seeds, disturbances, and resulting language systems occupy a shared plane.</span>
+
+        <div class="direction-aside">
+          <div class="aside-card">
+            <span class="meta-label">Philosophy</span>
+            <p>Design as atmosphere. Interface as instrument. The tool should feel like an extension
+              of creative intent, not a barrier to it. Deep indigo creates a nocturnal studio
+              &mdash; calm, focused, infinite.</p>
           </div>
-          <div class="badge">
-            <span class="micro">Primary Value</span>
-            <strong>Divergence you can read</strong>
-            <span>Every generated direction exposes what contaminated it and why it changed.</span>
+          <div class="aside-card">
+            <span class="meta-label">Typography Stack</span>
+            <p>Cormorant Garamond for display and headings. Manrope for body. IBM Plex Mono for
+              labels, metadata, and structural notation.</p>
           </div>
-          <div class="badge">
-            <span class="micro">Output Shape</span>
-            <strong>Design language docs</strong>
-            <span>Each result is a codified visual world, not a brittle one-off screen mock.</span>
-          </div>
-        </div>
-      </article>
-
-      <aside class="manifesto">
-        <span class="eyebrow">Product Read</span>
-        <h2>How this page is framed</h2>
-        <ul class="manifesto-list">
-          <li>
-            <strong>Not a functional prototype</strong>
-            <span>The page establishes visual logic, spatial rules, and interface temperament for the product.</span>
-          </li>
-          <li>
-            <strong>Adapted to Design Storm</strong>
-            <span>The canvas centers seed inputs, entropy injections, branching docs, and gallery navigation in one scene.</span>
-          </li>
-          <li>
-            <strong>Reference carried forward</strong>
-            <span>Topographic overlays, coordinate-grid atmosphere, mono annotations, and cyan-blue-amber signal colors stay intact from the phase reference.</span>
-          </li>
-        </ul>
-      </aside>
-    </section>
-
-    <section class="section-card" id="specimen">
-      <div class="section-head">
-        <div>
-          <span class="eyebrow">Primary Specimen</span>
-          <h2>2D canvas interface for storming design languages</h2>
-        </div>
-        <p>
-          The central stage acts as a live atlas: left rail for seed material and entropy tools, center for the influence field, right rail for doc inspection, and a lower band for the resulting gallery states.
-        </p>
-      </div>
-
-      <div class="specimen-shell">
-        <div class="specimen-frame">
-          <aside class="rail">
-            <div class="rail-header">
-              <span class="eyebrow">Inputs</span>
-              <h3>Seed + Entropy</h3>
-            </div>
-            <div class="rail-body">
-              <div class="panel-stack">
-                <div class="mini-card">
-                  <span class="eyebrow">Seed Core</span>
-                  <strong>New creative tooling for AI-assisted visual exploration</strong>
-                  <p>Accepts text briefs, image URLs, and stray references without collapsing into one prompt box.</p>
-                </div>
-                <div class="mini-card">
-                  <span class="eyebrow">Source Pack</span>
-                  <strong>3 image URLs + one editorial note</strong>
-                  <p>Inputs remain visible objects in the scene instead of disappearing into configuration UI.</p>
-                </div>
-                <div class="mini-card">
-                  <span class="eyebrow">Entropy Deck</span>
-                  <div class="chip-row">
-                    <span class="chip accent">Random Wiki</span>
-                    <span class="chip signal">Transit Diagram</span>
-                    <span class="chip warm">Newsprint Scan</span>
-                    <span class="chip">Constraint: No Hero</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </aside>
-
-          <div class="stage-wrap">
-            <div class="stage" aria-label="Design Storm spatial specimen">
-              <canvas id="storm-canvas"></canvas>
-              <div class="stage-overlay">
-                <div class="stage-label">
-                  <span class="eyebrow">Canvas Logic</span>
-                  <strong>Influence is spatial.</strong>
-                  <span>Nearness implies contamination, collision implies mutation, and distance preserves clarity.</span>
-                </div>
-
-                <div class="focus-badge">
-                  <span class="eyebrow">Current Storm</span>
-                  <strong>Atlas Run / 06 outputs</strong>
-                  <span>Entropy calibrated for divergence, not novelty theater.</span>
-                </div>
-
-                <div class="floating-card seed">
-                  <span class="eyebrow">Seed Node</span>
-                  <strong>Creative Weather Map</strong>
-                  <span>Brief + images + audience tone</span>
-                </div>
-
-                <div class="floating-card ref">
-                  <span class="eyebrow">Found Influence</span>
-                  <strong>Municipal signage atlas</strong>
-                  <span>Imported as structure, not decoration</span>
-                </div>
-
-                <div class="floating-card clip">
-                  <span class="eyebrow">Artifact Injection</span>
-                  <strong>1968 newspaper clipping</strong>
-                  <span>Noise, edge wear, and density bias</span>
-                </div>
-
-                <div class="orbit-label" style="left: 33%; top: 10%;">Temporal shift</div>
-                <div class="orbit-label" style="left: 72%; top: 42%;">Semantic drift</div>
-                <div class="orbit-label" style="left: 22%; top: 70%;">Constraint sabotage</div>
-
-                <div class="dock-card left">
-                  <span class="eyebrow">DL-01</span>
-                  <strong>Institutional Bloom</strong>
-                  <span>Civic systems, precise labels, warm archival grain.</span>
-                </div>
-
-                <div class="dock-card mid">
-                  <span class="eyebrow">DL-02</span>
-                  <strong>Signal Garden</strong>
-                  <span>Soft network field with luminous typography and sparse panels.</span>
-                </div>
-
-                <div class="dock-card right">
-                  <span class="eyebrow">DL-03</span>
-                  <strong>Clipped Orbit</strong>
-                  <span>Newsprint density, cropped modules, angular wayfinding.</span>
-                </div>
-              </div>
-            </div>
-
-            <section class="gallery-rail" aria-label="Gallery strip">
-              <header>
-                <span class="eyebrow">Gallery Rail</span>
-                <h3>Generated design language documents</h3>
-              </header>
-              <div class="gallery-strip">
-                <article class="gallery-thumb">
-                  <span class="eyebrow">Pinned / Divergence 62</span>
-                  <strong>Institutional Bloom</strong>
-                  <span>Precise, civic, structural.</span>
-                </article>
-                <article class="gallery-thumb blue">
-                  <span class="eyebrow">Fork / Divergence 74</span>
-                  <strong>Signal Garden</strong>
-                  <span>Airier, luminous, more orbital.</span>
-                </article>
-                <article class="gallery-thumb warm">
-                  <span class="eyebrow">Fork / Divergence 89</span>
-                  <strong>Clipped Orbit</strong>
-                  <span>Printed matter bias with aggressive density.</span>
-                </article>
-              </div>
-            </section>
-          </div>
-
-          <aside class="inspector">
-            <div class="inspector-header">
-              <span class="eyebrow">Inspection</span>
-              <h3>Selected design language</h3>
-            </div>
-            <div class="inspector-body">
-              <div class="mini-card">
-                <span class="eyebrow">Selected</span>
-                <strong>Institutional Bloom</strong>
-                <p>The design language reads like a public systems archive that accidentally became elegant. Information density is high, but softened with atmospheric contouring.</p>
-                <ul class="meta-list">
-                  <li><strong>Lineage</strong><span>Seed, signage atlas, warm clipping</span></li>
-                  <li><strong>Tension</strong><span>Calm grid vs contaminated texture</span></li>
-                  <li><strong>Use case</strong><span>Gallery, editorial, product shell</span></li>
-                  <li><strong>Status</strong><span>Worth branching into higher fidelity</span></li>
-                </ul>
-              </div>
-              <div class="mini-card">
-                <span class="eyebrow">Reading Rules</span>
-                <strong>How the interface behaves</strong>
-                <p>Inputs are visible objects, entropy is represented as attractors, and outputs settle into browseable docs rather than vanishing into a list.</p>
-              </div>
-            </div>
-          </aside>
         </div>
       </div>
-    </section>
+    </header>
 
-    <section class="tokens" id="tokens">
-      <article class="section-card">
-        <div class="section-head">
-          <div>
-            <span class="eyebrow">Visual Tokens</span>
-            <h2>Palette and atmosphere</h2>
+    <div class="quiet-divider"><span></span></div>
+
+    <section class="direction-showcase">
+      <div class="showcase-grid">
+
+        <!-- Surface -->
+        <div id="surface" class="showcase-panel panel-surface">
+          <div class="showcase-label">01 / Surface &amp; Material</div>
+          <div class="surface-layout">
+            <div>
+              <h2 class="quiet-quote">The surface breathes. Light arrives from above.</h2>
+              <p class="surface-copy">
+                Cards use linear gradient backgrounds moving from surface to surface-strong,
+                creating subtle depth. Multi-layer shadows include an inset highlight at the
+                top edge &mdash; simulating light falling on a physical material. A grain texture
+                overlay at low opacity prevents digital flatness.
+              </p>
+
+              <div class="swatch-row">
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--bg);"></div>
+                  <span>BG</span>
+                </div>
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--surface);"></div>
+                  <span>Surface</span>
+                </div>
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--surface-strong);"></div>
+                  <span>Strong</span>
+                </div>
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--mark);"></div>
+                  <span>Mark</span>
+                </div>
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--accent);"></div>
+                  <span>Accent</span>
+                </div>
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--accent-2);"></div>
+                  <span>Warm</span>
+                </div>
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--text);"></div>
+                  <span>Text</span>
+                </div>
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--text-soft);"></div>
+                  <span>Soft</span>
+                </div>
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--muted);"></div>
+                  <span>Muted</span>
+                </div>
+                <div class="swatch">
+                  <div class="swatch-dot" style="background: var(--line);"></div>
+                  <span>Line</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="material-stack">
+              <div class="material-card">
+                <strong>Grain Texture</strong>
+                <p>SVG noise at 7% opacity across the viewport. Creates analog film quality
+                  that prevents the interface from feeling sterile.</p>
+              </div>
+              <div class="material-card">
+                <strong>Ambient Lighting</strong>
+                <p>Radial gradients positioned at top-left (cool blue), top-right (warm
+                  highlight), and bottom (dark vignette). Simulates environmental light.</p>
+              </div>
+              <div class="material-card">
+                <strong>Inset Highlights</strong>
+                <p>Every elevated surface carries a 1px top inset with 3&ndash;5% white opacity.
+                  This catches the ambient light and gives cards their material edge.</p>
+              </div>
+            </div>
           </div>
-          <p>The page stays dark and analytic, but the accent system gives different classes of influence their own signal color.</p>
         </div>
-        <div class="token-grid">
-          <div class="token-card">
-            <span class="eyebrow">Core Palette</span>
-            <h3>Surface and signal</h3>
-            <div class="swatch-row">
-              <div class="swatch bg">#081018<br>background</div>
-              <div class="swatch surface">#101c29<br>surface</div>
-              <div class="swatch accent">#55d6c2<br>entropy</div>
-              <div class="swatch signal">#80a7ff<br>lineage</div>
+
+        <!-- Spacing -->
+        <div id="spacing" class="showcase-panel panel-interval">
+          <div class="showcase-label">02 / Emotional Spacing</div>
+          <div class="interval-grid">
+            <div class="interval-state interval-tight">
+              <div class="interval-pair">
+                <div class="interval-dot"></div>
+                <div class="interval-dot"></div>
+              </div>
+              <div class="interval-title">Tight</div>
+              <div class="interval-note">Related elements. Labels to values. 4&ndash;8px.</div>
             </div>
-            <div class="swatch-row" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
-              <div class="swatch warm">#e7b56c<br>artifact</div>
-              <div class="swatch surface" style="background:#d3dde8;color:#081018;">#d3dde8<br>text</div>
+            <div class="interval-state interval-held">
+              <div class="interval-pair">
+                <div class="interval-dot"></div>
+                <div class="interval-dot"></div>
+              </div>
+              <div class="interval-title">Held</div>
+              <div class="interval-note">Grouped siblings. Cards in a row. 12&ndash;16px.</div>
+            </div>
+            <div class="interval-state interval-breathing">
+              <div class="interval-pair">
+                <div class="interval-dot"></div>
+                <div class="interval-dot"></div>
+              </div>
+              <div class="interval-title">Breathing</div>
+              <div class="interval-note">Between sections. Panel to panel. 22&ndash;30px.</div>
+            </div>
+            <div class="interval-state interval-distant">
+              <div class="interval-pair">
+                <div class="interval-dot"></div>
+                <div class="interval-dot"></div>
+              </div>
+              <div class="interval-title">Distant</div>
+              <div class="interval-note">Major landmarks. Header to body. 44&ndash;96px.</div>
             </div>
           </div>
-          <div class="token-card">
-            <span class="eyebrow">Surface Behavior</span>
-            <h3>Depth by layer, not chrome</h3>
-            <p>Panels are translucent and slightly blurred, with contour overlays and measured borders. The goal is instrument-panel clarity, not glassmorphism.</p>
+        </div>
+
+        <!-- Controls -->
+        <div id="controls" class="showcase-panel panel-controls">
+          <div class="showcase-label">03 / Controls &amp; Inputs</div>
+          <div class="controls-shell">
+            <div class="button-row">
+              <button class="quiet-btn primary">Generate Storm</button>
+              <button class="quiet-btn secondary">Fork Branch</button>
+              <button class="quiet-btn">Cancel</button>
+            </div>
+
+            <div class="chip-row">
+              <span class="quiet-chip">Draft</span>
+              <span class="quiet-chip">Submitted</span>
+              <span class="quiet-chip">Canvas</span>
+            </div>
+
+            <div class="segmented">
+              <span class="segment active">Board</span>
+              <span class="segment">List</span>
+              <span class="segment">Timeline</span>
+            </div>
+
+            <div class="field-row">
+              <div class="field">
+                <label class="field-label">Seed Prompt</label>
+                <input class="quiet-input" type="text" placeholder="Describe a design system..." />
+              </div>
+              <div class="field">
+                <label class="field-label">Branch Name</label>
+                <input class="quiet-input" type="text" value="indigo-editorial" />
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label">Notes</label>
+              <textarea class="quiet-textarea" placeholder="Dense, diagrammatic, slightly uncanny..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Atlas / Canvas -->
+        <div id="canvas" class="showcase-panel panel-atlas">
+          <div class="showcase-label">04 / Canvas &amp; Composition</div>
+          <div class="atlas-grid">
+            <div class="atlas-stage">
+              <div class="atlas-shape circle"></div>
+              <div class="atlas-shape line"></div>
+              <div class="atlas-shape arch"></div>
+              <div class="atlas-shape tile"></div>
+              <div class="atlas-shape dot"></div>
+              <span class="atlas-caption caption-a">Origin</span>
+              <span class="atlas-caption caption-b">Branch</span>
+              <span class="atlas-caption caption-c">Node</span>
+            </div>
+            <div class="atlas-notes">
+              <div class="atlas-note">
+                <strong>Infinite Canvas</strong>
+                <p>Pan, zoom, and drag artifacts freely. Connections flow as dashed curves between related nodes.</p>
+              </div>
+              <div class="atlas-note">
+                <strong>Fork &amp; Combine</strong>
+                <p>Any artifact can branch into a new direction or hybridize with another. The graph grows organically.</p>
+              </div>
+              <div class="atlas-note">
+                <strong>Spatial Memory</strong>
+                <p>Position encodes meaning. Cluster similar branches, isolate experiments, trace lineage visually.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Layout -->
+        <div id="layout" class="showcase-panel panel-layout">
+          <div class="showcase-label">05 / Layout Archetypes</div>
+          <div class="layout-grid">
+            <div class="layout-card" data-layout="stack">
+              <h3>Stack</h3>
+              <div class="layout-frame">
+                <div class="layout-block"></div>
+                <div class="layout-block"></div>
+                <div class="layout-block"></div>
+              </div>
+              <p>Vertical rhythm. Inspector panels, form fields, card content. The default composition.</p>
+            </div>
+            <div class="layout-card" data-layout="gallery">
+              <h3>Gallery</h3>
+              <div class="layout-frame">
+                <div class="layout-block"></div>
+                <div class="layout-block"></div>
+                <div class="layout-block"></div>
+              </div>
+              <p>Grid of artifacts on the stormboard. Masonry-like placement with spatial freedom.</p>
+            </div>
+            <div class="layout-card" data-layout="editorial">
+              <h3>Editorial</h3>
+              <div class="layout-frame">
+                <div class="layout-block"></div>
+                <div class="layout-block"></div>
+                <div class="layout-block"></div>
+              </div>
+              <p>Sidebar + main content. The inspector alongside the canvas. Anchored navigation.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Typography -->
+        <div id="type" class="showcase-panel panel-type">
+          <div class="showcase-label">06 / Typography</div>
+          <div class="type-panel-copy">
+            <div class="type-sample lead">
+              <strong>The surface breathes</strong>
+              <p>Cormorant Garamond at display scale. Tight line-height (0.88&ndash;0.96), negative letter-spacing (-0.03em to -0.05em). Used for page titles, card headings, and the landing mark.</p>
+              <div class="type-note">Cormorant Garamond / 600 / Display</div>
+            </div>
+            <div class="type-sample measure">
+              <strong>Stormboard</strong>
+              <p>Cormorant Garamond at measure scale. Uppercase with wide letter-spacing. Section headers, panel titles. Formal but warm.</p>
+              <div class="type-note">Cormorant Garamond / 600 / Measure</div>
+            </div>
+            <div class="type-sample whisper">
+              <strong>Indigo Runtime</strong>
+              <p>Cormorant Garamond at whisper scale. Maximum letter-spacing, reduced opacity. Eyebrow labels, metadata. Structural typography that recedes.</p>
+              <div class="type-note">Cormorant Garamond / 500 / Whisper</div>
+            </div>
             <div class="type-sample">
-              <div class="mono">annotation / ibm plex mono / 11-12px</div>
-              <div class="display">Design languages as atmospheric systems.</div>
-              <p>Lexend handles display and body because it stays geometric under dense information without becoming cold.</p>
+              <strong style="font-family: 'Manrope', sans-serif; font-size: 1rem; font-weight: 500; letter-spacing: 0;">Body text in Manrope carries the readable weight</strong>
+              <p>Manrope for all body text. 16px base, line-height 1.65. Clean geometric sans with humanist warmth. Weights 400&ndash;700.</p>
+              <div class="type-note">Manrope / 400&ndash;700 / Body</div>
+            </div>
+            <div class="type-sample">
+              <strong style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase;">Seed Composer &middot; Canvas &middot; Draft</strong>
+              <p>IBM Plex Mono for labels, chips, pills, and metadata. 9&ndash;11px, letter-spacing 0.08&ndash;0.16em, always uppercase. Structural and precise.</p>
+              <div class="type-note">IBM Plex Mono / 400&ndash;600 / Label</div>
             </div>
           </div>
         </div>
-      </article>
 
-      <article class="section-card">
-        <div class="section-head">
-          <div>
-            <span class="eyebrow">Product Personality</span>
-            <h2>Principles for the whole surface</h2>
+        <!-- Workspace -->
+        <div id="workspace" class="showcase-panel panel-workspace">
+          <div class="showcase-label">07 / Workspace Specimen</div>
+          <div class="workspace-stage">
+            <div class="workspace-rail">
+              <div class="rail-line"></div>
+              <div class="rail-line short"></div>
+              <div class="rail-line mid"></div>
+              <div class="rail-line"></div>
+              <div class="rail-line short"></div>
+              <div class="rail-line mid"></div>
+              <div class="rail-line"></div>
+              <div class="rail-line short"></div>
+            </div>
+            <div class="workspace-main">
+              <div class="workspace-topbar">
+                <h3 class="workspace-title">Stormboard</h3>
+                <div class="workspace-pills">
+                  <span class="workspace-pill active">Board</span>
+                  <span class="workspace-pill">Inspector</span>
+                  <span class="workspace-pill">History</span>
+                </div>
+              </div>
+              <div class="workspace-grid">
+                <div class="workspace-card">
+                  <div class="workspace-card-preview"></div>
+                  <h4>Nocturne Atlas</h4>
+                  <p>Deep-space editorial with diagrammatic density and environmental grain.</p>
+                </div>
+                <div class="workspace-card">
+                  <div class="workspace-card-preview"></div>
+                  <h4>Chromatic Drift</h4>
+                  <p>Spectral color bleeding through layered transparency and ambient glow.</p>
+                </div>
+                <div class="workspace-card">
+                  <div class="workspace-card-preview"></div>
+                  <h4>Mineral Quiet</h4>
+                  <p>Stone-like surfaces, volcanic shadow, and whispered typographic hierarchy.</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="principle-grid">
-          <article class="principle-card">
-            <span class="card-index eyebrow">01</span>
-            <h3>Show provenance</h3>
-            <p>Every design doc should expose what fed it, what mutated it, and how far it drifted from the seed.</p>
-          </article>
-          <article class="principle-card">
-            <span class="card-index eyebrow">02</span>
-            <h3>Let distance mean something</h3>
-            <p>The 2D plane is not decorative. Spatial relationships carry meaning about contamination, kinship, and branch depth.</p>
-          </article>
-          <article class="principle-card">
-            <span class="card-index eyebrow">03</span>
-            <h3>Reward browsing</h3>
-            <p>The gallery should feel archival and exploratory, with pinned branches, comparison states, and re-entry into old storms.</p>
-          </article>
-          <article class="principle-card">
-            <span class="card-index eyebrow">04</span>
-            <h3>Stay legible under weirdness</h3>
-            <p>The product earns trust by making unusual results inspectable instead of mysterious.</p>
-          </article>
-        </div>
-      </article>
-    </section>
 
-    <section class="section-card" id="grammar">
-      <div class="section-head">
-        <div>
-          <span class="eyebrow">Interaction Grammar</span>
-          <h2>Visual vocabulary for the product</h2>
-        </div>
-        <p>These are the recurring interface moves that should define Design Storm across the canvas, docs, and gallery.</p>
-      </div>
-      <div class="principle-grid">
-        <article class="principle-card">
-          <span class="eyebrow">Node Type</span>
-          <h3>Seeds</h3>
-          <p>Heavier cards with calm glow. They anchor the map and remain stable while the storm forms around them.</p>
-        </article>
-        <article class="principle-card">
-          <span class="eyebrow">Node Type</span>
-          <h3>Entropy sources</h3>
-          <p>Smaller attractors with sharper color signatures. They should feel volatile, contaminating, and modular.</p>
-        </article>
-        <article class="principle-card">
-          <span class="eyebrow">Node Type</span>
-          <h3>Design language docs</h3>
-          <p>Docked results that feel collectible. They are stable endpoints, but always forkable back into the field.</p>
-        </article>
-        <article class="principle-card">
-          <span class="eyebrow">Motion</span>
-          <h3>Slow drift, precise response</h3>
-          <p>Ambient motion should imply an active system, while user interactions stay crisp and exact.</p>
-        </article>
       </div>
     </section>
 
-    <section class="section-card" id="gallery">
-      <div class="section-head">
-        <div>
-          <span class="eyebrow">Gallery System</span>
-          <h2>Browsing the resulting worlds</h2>
+    <div class="quiet-divider"><span></span></div>
+
+    <section class="direction-rationale">
+      <div class="rationale-grid">
+        <div class="rationale-card">
+          <h3>Material Presence</h3>
+          <p>Every surface has weight. Gradients simulate depth, inset highlights catch
+            ambient light, and multi-layer shadows anchor elements to the canvas. Nothing
+            floats without reason. The interface has the tactile quality of a well-made
+            instrument.</p>
         </div>
-        <p>The gallery should feel like a design archive with lineage, not a folder of outputs.</p>
-      </div>
-      <div class="gallery-grid">
-        <article class="gallery-card">
-          <span class="eyebrow">Mode 01</span>
-          <h3>Poster wall</h3>
-          <p>High-speed browse for visual scanning. Dense labels, influence chips, and strong typographic titles keep it editorial.</p>
-          <div class="mock-track"></div>
-        </article>
-        <article class="gallery-card">
-          <span class="eyebrow">Mode 02</span>
-          <h3>Lineage map</h3>
-          <p>A branch graph reveals which docs share ancestry, which got contaminated, and which mutations produced the strongest departures.</p>
-          <div class="mock-track"></div>
-        </article>
-        <article class="gallery-card">
-          <span class="eyebrow">Mode 03</span>
-          <h3>Compare rail</h3>
-          <p>Pin two to four design languages and inspect differences in density, tone, motion rules, and source contamination.</p>
-          <div class="mock-track"></div>
-        </article>
+        <div class="rationale-card">
+          <h3>Emotional Spacing</h3>
+          <p>Spacing is not just functional &mdash; it carries tone. Tight gaps create
+            intimacy between related elements. Breathing room between sections creates
+            calm. Distant landmarks give the eye places to rest. The rhythm is musical,
+            not mechanical.</p>
+        </div>
+        <div class="rationale-card">
+          <h3>Quiet Confidence</h3>
+          <p>The interface never shouts. Accent colors appear at reduced opacity. Animations
+            are swift and purposeful. Labels are small, uppercase, spaced &mdash; they
+            orient without demanding attention. Confidence is in the restraint, not the
+            volume.</p>
+        </div>
       </div>
     </section>
-
-    <p class="footer-note">Design Storm should feel like an instrument for steering creative divergence, not a polite AI form with prettier output cards.</p>
-  </main>
-
-  <script>
-    (function () {
-      const canvas = document.getElementById("storm-canvas");
-      if (!canvas) return;
-
-      const context = canvas.getContext("2d");
-      const stage = canvas.parentElement;
-      const pointer = { x: 0.5, y: 0.5 };
-      const colors = {
-        accent: "rgba(85, 214, 194, 0.72)",
-        accentSoft: "rgba(85, 214, 194, 0.12)",
-        signal: "rgba(128, 167, 255, 0.62)",
-        signalSoft: "rgba(128, 167, 255, 0.11)",
-        warm: "rgba(231, 181, 108, 0.58)",
-        warmSoft: "rgba(231, 181, 108, 0.10)",
-        line: "rgba(211, 221, 232, 0.10)"
-      };
-
-      const attractors = [
-        { x: 0.24, y: 0.28, color: colors.accentSoft, radius: 150 },
-        { x: 0.72, y: 0.24, color: colors.signalSoft, radius: 150 },
-        { x: 0.66, y: 0.68, color: colors.warmSoft, radius: 180 }
-      ];
-
-      const nodes = Array.from({ length: 26 }, (_, index) => {
-        const band = index % 3;
-        return {
-          x: 0.18 + Math.random() * 0.64,
-          y: 0.16 + Math.random() * 0.56,
-          vx: (Math.random() - 0.5) * 0.0008,
-          vy: (Math.random() - 0.5) * 0.0008,
-          type: band === 0 ? "accent" : band === 1 ? "signal" : "warm",
-          size: 1.6 + Math.random() * 2.8
-        };
-      });
-
-      function resize() {
-        const rect = stage.getBoundingClientRect();
-        canvas.width = Math.floor(rect.width * window.devicePixelRatio);
-        canvas.height = Math.floor(rect.height * window.devicePixelRatio);
-        canvas.style.width = rect.width + "px";
-        canvas.style.height = rect.height + "px";
-        context.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
-      }
-
-      function drawGrid(width, height, time) {
-        context.save();
-        context.strokeStyle = "rgba(211, 221, 232, 0.05)";
-        context.lineWidth = 1;
-        const step = 34;
-        const offsetX = (time * 8) % step;
-        const offsetY = (time * 5) % step;
-
-        for (let x = -step; x < width + step; x += step) {
-          context.beginPath();
-          context.moveTo(x + offsetX, 0);
-          context.lineTo(x + offsetX, height);
-          context.stroke();
-        }
-
-        for (let y = -step; y < height + step; y += step) {
-          context.beginPath();
-          context.moveTo(0, y + offsetY);
-          context.lineTo(width, y + offsetY);
-          context.stroke();
-        }
-        context.restore();
-      }
-
-      function drawContours(width, height, time) {
-        const pulse = 0.5 + Math.sin(time * 0.7) * 0.5;
-        attractors.forEach((attractor, index) => {
-          const x = attractor.x * width;
-          const y = attractor.y * height;
-          for (let ring = 0; ring < 4; ring += 1) {
-            context.beginPath();
-            context.strokeStyle = attractor.color;
-            context.lineWidth = 1;
-            context.ellipse(
-              x,
-              y,
-              attractor.radius - ring * 24 + pulse * 6 + index * 6,
-              attractor.radius * 0.58 - ring * 14 + pulse * 4,
-              time * 0.05 + ring * 0.2,
-              0,
-              Math.PI * 2
-            );
-            context.stroke();
-          }
-        });
-      }
-
-      function drawConnections(width, height) {
-        for (let i = 0; i < nodes.length; i += 1) {
-          const a = nodes[i];
-          const ax = a.x * width;
-          const ay = a.y * height;
-          for (let j = i + 1; j < nodes.length; j += 1) {
-            const b = nodes[j];
-            const bx = b.x * width;
-            const by = b.y * height;
-            const dx = ax - bx;
-            const dy = ay - by;
-            const distance = Math.hypot(dx, dy);
-            if (distance < 110) {
-              context.beginPath();
-              context.strokeStyle = "rgba(211, 221, 232," + (0.10 - distance / 1400).toFixed(3) + ")";
-              context.lineWidth = 1;
-              context.moveTo(ax, ay);
-              context.lineTo(bx, by);
-              context.stroke();
-            }
-          }
-        }
-      }
-
-      function drawNodes(width, height, time) {
-        nodes.forEach((node) => {
-          node.x += node.vx;
-          node.y += node.vy;
-
-          if (node.x < 0.12 || node.x > 0.88) node.vx *= -1;
-          if (node.y < 0.12 || node.y > 0.82) node.vy *= -1;
-
-          const px = node.x * width;
-          const py = node.y * height;
-          const dx = px - pointer.x * width;
-          const dy = py - pointer.y * height;
-          const glow = Math.max(0, 1 - Math.hypot(dx, dy) / 180);
-
-          const fill =
-            node.type === "accent"
-              ? colors.accent
-              : node.type === "signal"
-                ? colors.signal
-                : colors.warm;
-
-          context.beginPath();
-          context.fillStyle = fill;
-          context.arc(px, py, node.size + glow * 2.2 + Math.sin(time * 2 + px * 0.01) * 0.5, 0, Math.PI * 2);
-          context.fill();
-
-          context.beginPath();
-          context.strokeStyle =
-            node.type === "accent"
-              ? "rgba(85, 214, 194, 0.12)"
-              : node.type === "signal"
-                ? "rgba(128, 167, 255, 0.12)"
-                : "rgba(231, 181, 108, 0.12)";
-          context.arc(px, py, 12 + glow * 10, 0, Math.PI * 2);
-          context.stroke();
-        });
-      }
-
-      function drawPointerField(width, height) {
-        const x = pointer.x * width;
-        const y = pointer.y * height;
-        const gradient = context.createRadialGradient(x, y, 10, x, y, 170);
-        gradient.addColorStop(0, "rgba(255, 255, 255, 0.10)");
-        gradient.addColorStop(0.3, "rgba(128, 167, 255, 0.06)");
-        gradient.addColorStop(1, "rgba(128, 167, 255, 0)");
-        context.fillStyle = gradient;
-        context.beginPath();
-        context.arc(x, y, 170, 0, Math.PI * 2);
-        context.fill();
-      }
-
-      function render(timeStamp) {
-        const time = timeStamp * 0.001;
-        const width = canvas.clientWidth;
-        const height = canvas.clientHeight;
-
-        context.clearRect(0, 0, width, height);
-        drawGrid(width, height, time);
-        drawContours(width, height, time);
-        drawConnections(width, height);
-        drawPointerField(width, height);
-        drawNodes(width, height, time);
-
-        requestAnimationFrame(render);
-      }
-
-      stage.addEventListener("pointermove", (event) => {
-        const rect = stage.getBoundingClientRect();
-        pointer.x = (event.clientX - rect.left) / rect.width;
-        pointer.y = (event.clientY - rect.top) / rect.height;
-      });
-
-      stage.addEventListener("pointerleave", () => {
-        pointer.x = 0.5;
-        pointer.y = 0.5;
-      });
-
-      resize();
-      window.addEventListener("resize", resize);
-      requestAnimationFrame(render);
-    }());
-  </script>
+  </article>
 </body>
 </html>
