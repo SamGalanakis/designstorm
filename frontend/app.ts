@@ -853,18 +853,61 @@ async function submitStorm(event: Event): Promise<void> {
   }
 }
 
+function closeAllPopovers(): void {
+  const accountSheet = document.getElementById("account-sheet");
+  const settingsSheet = document.getElementById("settings-sheet");
+  const backdrop = document.getElementById("account-backdrop");
+  const avatarButton = document.getElementById("avatar-button");
+  const settingsTrigger = document.getElementById("settings-trigger");
+
+  if (accountSheet) accountSheet.hidden = true;
+  if (settingsSheet) settingsSheet.hidden = true;
+  if (backdrop) backdrop.hidden = true;
+  if (avatarButton) avatarButton.setAttribute("aria-expanded", "false");
+  if (settingsTrigger) settingsTrigger.setAttribute("aria-expanded", "false");
+}
+
 function toggleAccountSheet(force?: boolean): void {
   const sheet = document.getElementById("account-sheet");
+  const backdrop = document.getElementById("account-backdrop");
   const button = document.getElementById("avatar-button");
   if (!sheet || !button) return;
 
   const nextOpen = force ?? sheet.hidden;
+
+  // Close settings if switching back to account
+  const settingsSheet = document.getElementById("settings-sheet");
+  if (settingsSheet) settingsSheet.hidden = true;
+  const settingsTrigger = document.getElementById("settings-trigger");
+  if (settingsTrigger) settingsTrigger.setAttribute("aria-expanded", "false");
+
   sheet.hidden = !nextOpen;
+  if (backdrop) backdrop.hidden = !nextOpen;
   button.setAttribute("aria-expanded", nextOpen ? "true" : "false");
 }
 
 function closeAccountSheet(): void {
-  toggleAccountSheet(false);
+  closeAllPopovers();
+}
+
+function openSettingsSheet(): void {
+  const accountSheet = document.getElementById("account-sheet");
+  const settingsSheet = document.getElementById("settings-sheet");
+  const settingsTrigger = document.getElementById("settings-trigger");
+  if (!settingsSheet) return;
+
+  if (accountSheet) accountSheet.hidden = true;
+  settingsSheet.hidden = false;
+  if (settingsTrigger) settingsTrigger.setAttribute("aria-expanded", "true");
+}
+
+function closeSettingsSheet(): void {
+  const settingsSheet = document.getElementById("settings-sheet");
+  const accountSheet = document.getElementById("account-sheet");
+  if (!settingsSheet) return;
+
+  settingsSheet.hidden = true;
+  if (accountSheet) accountSheet.hidden = false;
 }
 
 function resetView(): void {
@@ -1027,6 +1070,15 @@ function bindAppChrome(): void {
     toggleAccountSheet();
   });
 
+  const settingsTrigger = document.getElementById("settings-trigger");
+  settingsTrigger?.addEventListener("click", () => openSettingsSheet());
+
+  const settingsBack = document.getElementById("settings-back");
+  settingsBack?.addEventListener("click", () => closeSettingsSheet());
+
+  const backdrop = document.getElementById("account-backdrop");
+  backdrop?.addEventListener("click", () => closeAllPopovers());
+
   accountSheet?.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
     if (target.closest("[data-action='close-account-sheet']")) {
@@ -1034,10 +1086,23 @@ function bindAppChrome(): void {
     }
   });
 
+  const settingsSheet = document.getElementById("settings-sheet");
+  settingsSheet?.addEventListener("click", (event) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-action='close-settings-sheet']")) {
+      closeSettingsSheet();
+    }
+  });
+
   document.addEventListener("click", (event) => {
     const target = event.target as HTMLElement;
-    if (target.closest("#account-sheet") || target.closest("#avatar-button")) return;
-    closeAccountSheet();
+    if (
+      target.closest("#account-sheet") ||
+      target.closest("#settings-sheet") ||
+      target.closest("#avatar-button") ||
+      target.closest("#account-backdrop")
+    ) return;
+    closeAllPopovers();
   });
 
   overlay?.addEventListener("click", (event) => {
@@ -1067,7 +1132,13 @@ function bindAppChrome(): void {
         closeFullscreen();
         return;
       }
-      closeAccountSheet();
+      // Close settings first, then account
+      const settingsOpen = !document.getElementById("settings-sheet")?.hidden;
+      if (settingsOpen) {
+        closeSettingsSheet();
+        return;
+      }
+      closeAllPopovers();
     }
   });
 
