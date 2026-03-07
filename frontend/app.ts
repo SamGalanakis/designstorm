@@ -39,6 +39,12 @@ function getConfig(): AppConfig {
   return JSON.parse(element.textContent) as AppConfig;
 }
 
+function redirectToApp(): void {
+  if (window.location.pathname !== "/app") {
+    window.location.href = "/app";
+  }
+}
+
 async function ensureClerk(): Promise<ClerkLike | null> {
   const config = getConfig();
   if (!config.clerkPublishableKey) {
@@ -52,9 +58,10 @@ async function ensureClerk(): Promise<ClerkLike | null> {
   await instance.load();
   instance.addListener(async ({ session }) => {
     if (!session) return;
+    if (getConfig().hasServerSession) return;
     const synced = await syncServerSession();
     if (synced) {
-      window.location.href = "/app";
+      redirectToApp();
     }
   });
   clerk = instance;
@@ -111,7 +118,7 @@ async function signIn(): Promise<void> {
   if (!instance) return;
   const synced = await syncServerSession();
   if (synced) {
-    window.location.href = "/app";
+    redirectToApp();
     return;
   }
   instance.openSignIn();
@@ -149,7 +156,7 @@ async function bootstrap(): Promise<void> {
   if (!authState.authenticated && instance.session) {
     const synced = await syncServerSession();
     if (synced && getConfig().currentPath === "/") {
-      window.location.href = "/app";
+      redirectToApp();
     }
   }
 }
@@ -162,4 +169,3 @@ window.designstormAuth = {
 };
 
 void bootstrap();
-
