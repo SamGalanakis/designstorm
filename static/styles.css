@@ -79,6 +79,39 @@ button {
   padding: 22px 0 56px;
 }
 
+.landing-minimal {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.landing-card {
+  width: min(560px, 100%);
+  display: grid;
+  gap: 16px;
+  padding: 40px 32px 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, rgba(12, 22, 33, 0.9), rgba(8, 15, 23, 0.96));
+  box-shadow: var(--shadow);
+  text-align: center;
+}
+
+.landing-card h1 {
+  margin: 0;
+  font-size: clamp(3.25rem, 9vw, 5.5rem);
+  line-height: 0.9;
+  letter-spacing: -0.06em;
+}
+
+.landing-copy {
+  margin: 0 auto;
+  max-width: 28ch;
+  color: var(--muted);
+  font-size: 16px;
+}
+
 .site-header {
   display: flex;
   align-items: center;
@@ -300,10 +333,17 @@ strong {
 
 .auth-panel {
   padding: 28px;
+  text-align: left;
 }
 
 .auth-panel p {
   margin: 0 0 18px;
+}
+
+.landing-card .auth-panel {
+  margin-top: 8px;
+  background: rgba(8, 16, 24, 0.48);
+  box-shadow: none;
 }
 
 .link-button {
@@ -442,5 +482,8 @@ strong {
     font-size: clamp(2.5rem, 13vw, 4rem);
     max-width: 12ch;
   }
-}
 
+  .landing-card {
+    padding: 32px 22px 22px;
+  }
+}

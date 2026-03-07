@@ -25,7 +25,7 @@ use uuid::Uuid;
 
 const SESSION_COOKIE_NAME: &str = "designstorm_session";
 const DATSTAR_CDN: &str =
-    "https://cdn.jsdelivr.net/gh/starfederation/[email protected]/bundles/datastar.js";
+    "https://cdn.jsdelivr.net/gh/starfederation/datastar@main/bundles/datastar.js";
 
 #[derive(Clone)]
 struct AppState {

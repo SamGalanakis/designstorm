@@ -9,13 +9,11 @@
     </div>
   {% else %}
     <span class="eyebrow">Clerk Access</span>
-    <h2>Login for the first working build.</h2>
-    <p>Use Clerk to create a session, then the Rust backend signs its own cookie and persists your user in Postgres.</p>
+    <h2>Sign in</h2>
+    <p>Use Clerk to enter the app.</p>
     <div class="auth-actions">
       <button class="button button-primary" data-on:click="window.designstormAuth.signIn()">Sign in</button>
       <button class="button button-secondary" data-on:click="window.designstormAuth.signUp()">Create account</button>
     </div>
   {% endif %}
-  <button class="link-button" data-on:click="@get('/partials/auth-panel')">Refresh access panel</button>
 </section>
-
