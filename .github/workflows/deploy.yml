@@ -68,6 +68,17 @@ jobs:
           set -euo pipefail
           flyctl apps create "${FLY_APP_NAME}" || true
 
+      - name: Auth to Fly registry
+        run: |
+          set -euo pipefail
+          flyctl auth docker
+
+      - name: Build and push image
+        run: |
+          set -euo pipefail
+          docker build -t "registry.fly.io/${FLY_APP_NAME}:${GITHUB_SHA}" .
+          docker push "registry.fly.io/${FLY_APP_NAME}:${GITHUB_SHA}"
+
       - name: Set Fly secrets
         run: |
           set -euo pipefail
@@ -92,7 +103,7 @@ jobs:
           set -euo pipefail
           for attempt in 1 2 3; do
             echo "flyctl deploy (attempt ${attempt})"
-            if flyctl deploy --config fly.toml --app "${FLY_APP_NAME}" --remote-only; then
+            if flyctl deploy --config fly.toml --app "${FLY_APP_NAME}" --image "registry.fly.io/${FLY_APP_NAME}:${GITHUB_SHA}"; then
               exit 0
             fi
             sleep $((attempt * 10))
