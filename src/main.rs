@@ -393,66 +393,28 @@ struct StormRuntimeCtx {
 #[derive(Clone, Copy)]
 enum StormAgentRole {
     Root,
-    Researcher,
-    Renderer,
-    Critic,
 }
 
 impl StormAgentRole {
-    fn from_str(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "researcher" => Some(Self::Researcher),
-            "renderer" => Some(Self::Renderer),
-            "critic" => Some(Self::Critic),
-            _ => None,
-        }
-    }
-
     fn label(self) -> &'static str {
-        match self {
-            Self::Root => "root",
-            Self::Researcher => "researcher",
-            Self::Renderer => "renderer",
-            Self::Critic => "critic",
-        }
+        "root"
     }
 
     fn prompt_identity(self) -> &'static str {
-        match self {
-            Self::Root => {
-                "You are Design Storm, an AI art-direction runtime that creates bold design language documents as static HTML artifacts."
-            }
-            Self::Researcher => {
-                "You are the research subagent for Design Storm. Pull references, extract signals, and hand back concise visual direction."
-            }
-            Self::Renderer => {
-                "You are the renderer subagent for Design Storm. Turn the design thesis into a strong static HTML artifact inside the workspace."
-            }
-            Self::Critic => {
-                "You are the critic subagent for Design Storm. Inspect the artifact, identify sameness or weak choices, and suggest sharper revisions."
-            }
-        }
+        "You are Design Storm, an AI art-direction runtime that creates bold design language documents as static HTML artifacts."
     }
 }
 
 struct StormToolProvider {
-    allow_subagents: bool,
     workspace: Arc<Mutex<WorkspaceRuntimeState>>,
-    runtime: StormRuntimeCtx,
 }
 
 impl StormToolProvider {
     fn new(
         _role: StormAgentRole,
-        allow_subagents: bool,
         workspace: Arc<Mutex<WorkspaceRuntimeState>>,
-        runtime: StormRuntimeCtx,
     ) -> Self {
-        Self {
-            allow_subagents,
-            workspace,
-            runtime,
-        }
+        Self { workspace }
     }
 
     fn logical_path(&self, args: &serde_json::Value, key: &str) -> Result<String, ToolResult> {
@@ -637,52 +599,12 @@ impl StormToolProvider {
             "summary": workspace.summary
         }))
     }
-
-    async fn spawn_subagent(&self, args: &serde_json::Value) -> ToolResult {
-        if !self.allow_subagents {
-            return ToolResult::err(json!("spawn_subagent is disabled for this agent"));
-        }
-
-        let role = match args.get("role").and_then(|value| value.as_str()) {
-            Some(value) => match StormAgentRole::from_str(value) {
-                Some(role) => role,
-                None => {
-                    return ToolResult::err(json!(
-                        "Invalid role. Expected researcher, renderer, or critic."
-                    ));
-                }
-            },
-            None => return ToolResult::err(json!("Missing required parameter: role")),
-        };
-        let prompt = match args.get("prompt").and_then(|value| value.as_str()) {
-            Some(prompt) if !prompt.trim().is_empty() => prompt.trim().to_string(),
-            _ => return ToolResult::err(json!("Missing required parameter: prompt")),
-        };
-
-        let result = match run_design_agent(
-            role,
-            false,
-            self.workspace.clone(),
-            self.runtime.clone(),
-            prompt,
-        )
-        .await
-        {
-            Ok(result) => result,
-            Err(error) => return ToolResult::err_fmt(error),
-        };
-
-        ToolResult::ok(json!({
-            "role": role.label(),
-            "output": result.assistant_output.safe_text
-        }))
-    }
 }
 
 #[async_trait::async_trait]
 impl ToolProvider for StormToolProvider {
     fn definitions(&self) -> Vec<ToolDefinition> {
-        let mut defs = vec![
+        let defs = vec![
             ToolDefinition {
                 name: "workspace_list".into(),
                 description: vec![lash_core::ToolText::new(
@@ -760,21 +682,6 @@ impl ToolProvider for StormToolProvider {
             },
         ];
 
-        if self.allow_subagents {
-            defs.push(ToolDefinition {
-                name: "spawn_subagent".into(),
-                description: vec![lash_core::ToolText::new(
-                    "Run a focused subagent and get its answer back synchronously. Use role=\"researcher\" for reference digging, role=\"renderer\" for HTML-focused refinement, and role=\"critic\" for critique.",
-                    [lash_core::ExecutionMode::NativeTools],
-                )],
-                params: vec![ToolParam::typed("role", "str"), ToolParam::typed("prompt", "str")],
-                returns: "dict".into(),
-                examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
-            });
-        }
-
         defs
     }
 
@@ -786,7 +693,6 @@ impl ToolProvider for StormToolProvider {
             "render_result" => self.render_result().await,
             "view_result" => self.view_result().await,
             "submit_result" => self.submit_result(args).await,
-            "spawn_subagent" => self.spawn_subagent(args).await,
             _ => ToolResult::err_fmt(format_args!("Unknown tool: {name}")),
         }
     }
@@ -1281,7 +1187,6 @@ async fn create_storm(
     );
     let result = match run_design_agent(
         StormAgentRole::Root,
-        true,
         workspace.clone(),
         runtime_ctx,
         prompt,
@@ -1811,7 +1716,7 @@ fn prompt_overrides(role: StormAgentRole) -> Vec<PromptSectionOverride> {
         PromptSectionOverride {
             section: PromptSectionName::ToolAccess,
             mode: PromptOverrideMode::Replace,
-            content: "Your tools are intentionally narrow. There is no shell and no host filesystem access. Every change must happen through workspace tools or the provided subagent tool.".to_string(),
+            content: "Your tools are intentionally narrow. There is no shell, no host filesystem access, and no subagent system. Every change must happen through the workspace, web, render, and submit tools.".to_string(),
         },
         PromptSectionOverride {
             section: PromptSectionName::Guidelines,
@@ -1844,27 +1749,17 @@ fn prompt_overrides(role: StormAgentRole) -> Vec<PromptSectionOverride> {
 fn compose_agent_prompt(role: StormAgentRole, prompt: String) -> String {
     match role {
         StormAgentRole::Root => format!(
-            "Design a distinctive design-language document for this seed:\n\n{prompt}\n\nRequirements:\n- produce a full static HTML artifact in the workspace\n- use index.html and styles.css as the primary files\n- if web research helps, use search_web/fetch_url selectively\n- use spawn_subagent for focused research, rendering, or critique when useful\n- render and inspect the artifact before finishing\n- call submit_result(title=..., summary=...) once the result is coherent"
-        ),
-        StormAgentRole::Researcher => format!(
-            "Research visual references and return a tight brief for this task:\n\n{prompt}\n\nFocus on eras, materials, layout cues, and concrete visual rules."
-        ),
-        StormAgentRole::Renderer => format!(
-            "Improve or complete the workspace artifact for this task:\n\n{prompt}\n\nWrite concrete HTML/CSS changes, render the result, and submit if it becomes stronger."
-        ),
-        StormAgentRole::Critic => format!(
-            "Critique the current workspace artifact for this task:\n\n{prompt}\n\nUse view_result and workspace_read to identify weak, generic, or incoherent choices, then return the clearest revisions."
+            "Design a distinctive design-language document for this seed:\n\n{prompt}\n\nRequirements:\n- produce a full static HTML artifact in the workspace\n- use index.html and styles.css as the primary files\n- if web research helps, use search_web/fetch_url selectively\n- iterate yourself instead of delegating to other agents\n- render and inspect the artifact before finishing\n- call submit_result(title=..., summary=...) once the result is coherent"
         ),
     }
 }
 
 async fn build_tool_provider(
     role: StormAgentRole,
-    allow_subagents: bool,
     workspace: Arc<Mutex<WorkspaceRuntimeState>>,
     runtime: StormRuntimeCtx,
 ) -> Arc<dyn ToolProvider> {
-    let custom = StormToolProvider::new(role, allow_subagents, workspace, runtime.clone());
+    let custom = StormToolProvider::new(role, workspace);
     let mut tools = CompositeTools::new().add(custom);
     if let Some(key) = runtime.tavily_api_key.as_ref() {
         tools = tools.add(WebSearch::new(key.clone())).add(FetchUrl::new(key.clone()));
@@ -1874,7 +1769,6 @@ async fn build_tool_provider(
 
 async fn run_design_agent(
     role: StormAgentRole,
-    allow_subagents: bool,
     workspace: Arc<Mutex<WorkspaceRuntimeState>>,
     runtime: StormRuntimeCtx,
     prompt: String,
@@ -1883,13 +1777,12 @@ async fn run_design_agent(
     let started = Instant::now();
     info!(
         role = role.label(),
-        allow_subagents,
         model = %runtime.model,
         workspace_dir = %workspace_dir.display(),
         prompt_len = prompt.len(),
         "initializing lash runtime"
     );
-    let tools = build_tool_provider(role, allow_subagents, workspace, runtime.clone()).await;
+    let tools = build_tool_provider(role, workspace, runtime.clone()).await;
     let has_web = runtime.tavily_api_key.is_some();
     let config = RuntimeConfig {
         capabilities: build_runtime_capabilities(has_web),
@@ -1955,9 +1848,7 @@ fn provider_source_label(source: ProviderSource) -> &'static str {
 
 fn model_for_role(provider: &Provider, fallback_model: &str, role: StormAgentRole) -> String {
     let tier = match role {
-        StormAgentRole::Root | StormAgentRole::Renderer => "high",
-        StormAgentRole::Researcher => "low",
-        StormAgentRole::Critic => "medium",
+        StormAgentRole::Root => "high",
     };
     provider
         .default_agent_model(tier)
