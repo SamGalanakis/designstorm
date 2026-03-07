@@ -819,7 +819,8 @@ async fn main() -> Result<(), AppError> {
         .route("/settings/provider/codex/poll", post(poll_codex_auth))
         .route("/settings/provider/logout", post(disconnect_provider))
         .route("/api/storms", get(list_storms).post(create_storm))
-        .route("/preview/{run_id}", get(preview_index))
+        .route("/preview/{run_id}", get(preview_index_redirect))
+        .route("/preview/{run_id}/", get(preview_index))
         .route("/preview/{run_id}/{*path}", get(preview_asset))
         .nest_service("/static", ServeDir::new("static"))
         .nest_service("/docs", ServeDir::new("docs"))
@@ -1156,7 +1157,7 @@ async fn create_storm(
     write_workspace_scaffold(&workspace_dir, &prompt).await?;
     info!(user_id = %viewer.id, run_id = %run_id, "storm workspace scaffolded");
 
-    let preview_url = format!("/preview/{run_id}");
+    let preview_url = format!("/preview/{run_id}/");
     let workspace = Arc::new(Mutex::new(WorkspaceRuntimeState {
         run_id,
         preview_url: preview_url.clone(),
@@ -1244,6 +1245,10 @@ async fn create_storm(
         run: summary.clone(),
         assistant_summary: summary.assistant_summary,
     }))
+}
+
+async fn preview_index_redirect(Path(run_id): Path<Uuid>) -> Redirect {
+    Redirect::temporary(&format!("/preview/{run_id}/"))
 }
 
 async fn preview_index(
