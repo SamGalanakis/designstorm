@@ -11,6 +11,8 @@ concurrency:
 
 env:
   FLY_API_TOKEN: ${{ secrets.FLY_API_KEY }}
+  FLY_APP_NAME: designstorm-klr2jw
+  FLY_APP_URL: https://designstorm-klr2jw.fly.dev
 
 jobs:
   validate:
@@ -64,7 +66,7 @@ jobs:
       - name: Ensure app exists
         run: |
           set -euo pipefail
-          flyctl apps create designstorm --org ascending-ai || true
+          flyctl apps create "${FLY_APP_NAME}" || true
 
       - name: Set Fly secrets
         run: |
@@ -83,14 +85,14 @@ jobs:
             SESSION_SECRET="${{ secrets.SESSION_SECRET }}" \
             AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
             AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-            --app designstorm
+            --app "${FLY_APP_NAME}"
 
       - name: Deploy app
         run: |
           set -euo pipefail
           for attempt in 1 2 3; do
             echo "flyctl deploy (attempt ${attempt})"
-            if flyctl deploy --config fly.toml --app designstorm --remote-only; then
+            if flyctl deploy --config fly.toml --app "${FLY_APP_NAME}" --remote-only; then
               exit 0
             fi
             sleep $((attempt * 10))
@@ -101,4 +103,4 @@ jobs:
       - name: Health check
         run: |
           set -euo pipefail
-          curl -fsS --retry 10 --retry-delay 3 https://designstorm.fly.dev/healthz
+          curl -fsS --retry 10 --retry-delay 3 "${FLY_APP_URL}/healthz"

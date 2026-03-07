@@ -1,4 +1,4 @@
-app = "designstorm"
+app = "designstorm-klr2jw"
 primary_region = "ams"
 
 [build]
@@ -21,4 +21,3 @@ primary_region = "ams"
     method = "GET"
     path = "/healthz"
     timeout = "5s"
-
