@@ -41,14 +41,17 @@ use std::{
     path::{Component, Path as StdPath, PathBuf},
     str::FromStr,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use thiserror::Error;
 use time::OffsetDateTime;
 use tokio::sync::{Mutex, RwLock};
 use tokio_util::sync::CancellationToken;
-use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::info;
+use tower_http::{
+    services::ServeDir,
+    trace::{DefaultMakeSpan, DefaultOnFailure, DefaultOnResponse, TraceLayer},
+};
+use tracing::{Level, error, info, warn};
 use uuid::Uuid;
 
 const SESSION_COOKIE_NAME: &str = "designstorm_session";
@@ -160,6 +163,11 @@ impl IntoResponse for AppError {
         };
 
         let message = self.to_string();
+        if status.is_server_error() {
+            error!(%status, error = %message, "request failed");
+        } else {
+            warn!(%status, error = %message, "request rejected");
+        }
         (
             status,
             [(
@@ -909,7 +917,12 @@ async fn main() -> Result<(), AppError> {
         .route("/preview/{run_id}/{*path}", get(preview_asset))
         .nest_service("/static", ServeDir::new("static"))
         .nest_service("/docs", ServeDir::new("docs"))
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO))
+                .on_failure(DefaultOnFailure::new().level(Level::ERROR)),
+        )
         .with_state(state.clone());
 
     let address = SocketAddr::from(([0, 0, 0, 0], state.config.port));
@@ -932,8 +945,11 @@ async fn healthz() -> &'static str {
 async fn index(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Html<String>, AppError> {
+) -> Result<Response, AppError> {
     let viewer = current_viewer(&state, &headers).await?;
+    if viewer.is_some() {
+        return Ok(Redirect::temporary("/app").into_response());
+    }
     let auth_panel = AuthPanelTemplate {
         viewer: viewer.as_ref(),
     }
@@ -954,7 +970,7 @@ async fn index(
         app_config_json: &config_json,
     };
 
-    Ok(Html(page.render()?))
+    Ok(Html(page.render()?).into_response())
 }
 
 async fn app_page(State(state): State<AppState>, headers: HeaderMap) -> Result<Response, AppError> {
@@ -1070,6 +1086,7 @@ async fn start_codex_auth(
     headers: HeaderMap,
 ) -> Result<Json<CodexStartResponse>, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
+    info!(user_id = %viewer.id, "starting codex device auth");
     let device = oauth::codex_request_device_code()
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;
@@ -1104,6 +1121,7 @@ async fn poll_codex_auth(
     headers: HeaderMap,
 ) -> Result<Json<CodexPollResponse>, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
+    info!(user_id = %viewer.id, "polling codex device auth");
     let pending = sqlx::query_as::<_, CodexDeviceAuthRow>(
         r#"
         SELECT device_auth_id, user_code
@@ -1127,6 +1145,7 @@ async fn poll_codex_auth(
         .map_err(|error| AppError::Internal(error.to_string()))?
     {
         Some((authorization_code, code_verifier)) => {
+            info!(user_id = %viewer.id, "codex device auth approved; exchanging tokens");
             let tokens = oauth::codex_exchange_code(&authorization_code, &code_verifier)
                 .await
                 .map_err(|error| AppError::Internal(error.to_string()))?;
@@ -1161,6 +1180,7 @@ async fn disconnect_provider(
     headers: HeaderMap,
 ) -> Result<StatusCode, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
+    info!(user_id = %viewer.id, "disconnecting stored provider credentials");
     sqlx::query("DELETE FROM user_provider_credentials WHERE user_id = $1")
         .bind(viewer.id)
         .execute(&state.db)
@@ -1181,6 +1201,7 @@ async fn list_storms(
         .map(StormRunRecord::summary_view)
         .collect::<Vec<_>>();
     items.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    info!(user_id = %viewer.id, run_count = items.len(), "listing storm runs");
     Ok(Json(items))
 }
 
@@ -1194,6 +1215,11 @@ async fn create_storm(
     if prompt.is_empty() {
         return Err(AppError::BadRequest("Seed prompt is required.".to_string()));
     }
+    info!(
+        user_id = %viewer.id,
+        prompt_len = prompt.len(),
+        "storm generation requested"
+    );
 
     let loaded_provider = load_provider_for_user(&state, viewer.id).await?;
     let Some(loaded_provider) = loaded_provider else {
@@ -1201,6 +1227,12 @@ async fn create_storm(
             "Connect Codex in settings before generating a storm.".to_string(),
         ));
     };
+    info!(
+        user_id = %viewer.id,
+        provider_kind = loaded_provider.provider.kind().id(),
+        provider_source = %provider_source_label(loaded_provider.source),
+        "storm provider resolved"
+    );
 
     let run_id = Uuid::new_v4();
     let workspace_dir = state
@@ -1208,8 +1240,15 @@ async fn create_storm(
         .workspace_root
         .join(viewer.id.to_string())
         .join(run_id.to_string());
+    info!(
+        user_id = %viewer.id,
+        run_id = %run_id,
+        workspace_dir = %workspace_dir.display(),
+        "creating storm workspace"
+    );
     tokio::fs::create_dir_all(&workspace_dir).await?;
     write_workspace_scaffold(&workspace_dir, &prompt).await?;
+    info!(user_id = %viewer.id, run_id = %run_id, "storm workspace scaffolded");
 
     let preview_url = format!("/preview/{run_id}");
     let workspace = Arc::new(Mutex::new(WorkspaceRuntimeState {
@@ -1232,10 +1271,45 @@ async fn create_storm(
         model,
         tavily_api_key: state.config.tavily_api_key.clone(),
     };
-
-    let result = run_design_agent(StormAgentRole::Root, true, workspace.clone(), runtime_ctx, prompt)
-        .await
-        .map_err(AppError::Internal)?;
+    let storm_started = Instant::now();
+    info!(
+        user_id = %viewer.id,
+        run_id = %run_id,
+        model = %runtime_ctx.model,
+        has_tavily = runtime_ctx.tavily_api_key.is_some(),
+        "starting lash storm runtime"
+    );
+    let result = match run_design_agent(
+        StormAgentRole::Root,
+        true,
+        workspace.clone(),
+        runtime_ctx,
+        prompt,
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            error!(
+                user_id = %viewer.id,
+                run_id = %run_id,
+                elapsed_ms = storm_started.elapsed().as_millis(),
+                error = %error,
+                "storm generation failed"
+            );
+            return Err(AppError::Internal(error));
+        }
+    };
+    info!(
+        user_id = %viewer.id,
+        run_id = %run_id,
+        elapsed_ms = storm_started.elapsed().as_millis(),
+        status = ?result.status,
+        done_reason = ?result.done_reason,
+        tool_calls = result.tool_calls.len(),
+        errors = result.errors.len(),
+        "lash storm runtime completed"
+    );
 
     let assistant_summary = result.assistant_output.safe_text.trim().to_string();
     let snapshot = workspace.lock().await.snapshot();
@@ -1253,6 +1327,13 @@ async fn create_storm(
     };
     let summary = record.summary_view();
     state.storm_runs.write().await.insert(run_id, record);
+    info!(
+        user_id = %viewer.id,
+        run_id = %run_id,
+        submitted = summary.submitted,
+        preview_url = %summary.preview_url,
+        "storm run stored"
+    );
 
     Ok(Json(StormResponse {
         run: summary.clone(),
@@ -1534,12 +1615,22 @@ async fn load_provider_for_user(
 
     if let Some(row) = row {
         let mut stored = decrypt_provider_config(&state.config.session_secret, &row.encrypted_config)?;
+        info!(
+            user_id = %user_id,
+            provider_kind = stored.provider.kind().id(),
+            "loaded stored provider credentials"
+        );
         let refreshed = stored
             .provider
             .ensure_fresh()
             .await
             .map_err(|error| AppError::Internal(error.to_string()))?;
         if refreshed {
+            info!(
+                user_id = %user_id,
+                provider_kind = stored.provider.kind().id(),
+                "provider tokens refreshed"
+            );
             save_provider_credentials(state, user_id, &stored.provider).await?;
         }
         return Ok(Some(LoadedProvider {
@@ -1549,11 +1640,21 @@ async fn load_provider_for_user(
         }));
     }
 
-    Ok(server_fallback_provider(&state.config).map(|provider| LoadedProvider {
-        provider,
-        source: ProviderSource::ServerFallback,
-        updated_at: None,
-    }))
+    if let Some(provider) = server_fallback_provider(&state.config) {
+        info!(
+            user_id = %user_id,
+            provider_kind = provider.kind().id(),
+            "using server fallback provider"
+        );
+        Ok(Some(LoadedProvider {
+            provider,
+            source: ProviderSource::ServerFallback,
+            updated_at: None,
+        }))
+    } else {
+        warn!(user_id = %user_id, "no provider credentials available");
+        Ok(None)
+    }
 }
 
 fn server_fallback_provider(config: &Config) -> Option<Provider> {
@@ -1779,6 +1880,15 @@ async fn run_design_agent(
     prompt: String,
 ) -> Result<lash_core::AssembledTurn, String> {
     let workspace_dir = { workspace.lock().await.workspace_dir.clone() };
+    let started = Instant::now();
+    info!(
+        role = role.label(),
+        allow_subagents,
+        model = %runtime.model,
+        workspace_dir = %workspace_dir.display(),
+        prompt_len = prompt.len(),
+        "initializing lash runtime"
+    );
     let tools = build_tool_provider(role, allow_subagents, workspace, runtime.clone()).await;
     let has_web = runtime.tavily_api_key.is_some();
     let config = RuntimeConfig {
@@ -1795,7 +1905,15 @@ async fn run_design_agent(
     };
     let mut engine = RuntimeEngine::from_state(config, tools, AgentStateEnvelope::default())
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            error!(
+                role = role.label(),
+                elapsed_ms = started.elapsed().as_millis(),
+                error = %error,
+                "failed to initialize lash runtime"
+            );
+            error.to_string()
+        })?;
     let input = TurnInput {
         items: vec![InputItem::Text {
             text: compose_agent_prompt(role, prompt),
@@ -1804,10 +1922,35 @@ async fn run_design_agent(
         mode: None,
         plan_file: None,
     };
-    engine
+    let result = engine
         .run_turn_assembled(input, CancellationToken::new())
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| {
+            error!(
+                role = role.label(),
+                elapsed_ms = started.elapsed().as_millis(),
+                error = %error,
+                "lash turn failed"
+            );
+            error.to_string()
+        })?;
+    info!(
+        role = role.label(),
+        elapsed_ms = started.elapsed().as_millis(),
+        status = ?result.status,
+        done_reason = ?result.done_reason,
+        tool_calls = result.tool_calls.len(),
+        errors = result.errors.len(),
+        "lash turn completed"
+    );
+    Ok(result)
+}
+
+fn provider_source_label(source: ProviderSource) -> &'static str {
+    match source {
+        ProviderSource::Stored => "stored",
+        ProviderSource::ServerFallback => "server_fallback",
+    }
 }
 
 fn model_for_role(provider: &Provider, fallback_model: &str, role: StormAgentRole) -> String {
