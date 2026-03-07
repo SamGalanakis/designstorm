@@ -1,0 +1,20 @@
+<section id="provider-panel" class="provider-panel">
+  <div class="provider-status">
+    <span class="eyebrow">{% if status.connected %}Connected{% else %}Provider Required{% endif %}</span>
+    <h3>{{ status.label }}</h3>
+    <p>{{ status.detail }}</p>
+    <span class="meta-note">{{ status.updated_label }}</span>
+  </div>
+
+  <div class="provider-actions">
+    {% if status.connected %}
+      {% if !status.using_fallback %}
+        <button class="button button-secondary" data-on:click="window.designstormSettings.disconnectProvider()">Disconnect</button>
+      {% endif %}
+    {% else %}
+      <button class="button button-primary" data-on:click="window.designstormSettings.connectCodex()">Connect Codex</button>
+    {% endif %}
+  </div>
+
+  <div id="provider-connect-status" class="provider-connect-status"></div>
+</section>

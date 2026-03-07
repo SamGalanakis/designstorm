@@ -1,58 +1,80 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="page-shell app-shell">
-  <header class="site-header">
+<div class="page-shell storm-shell">
+  <header class="storm-header">
     <a class="brand" href="/">
       <span class="brand-mark" aria-hidden="true"></span>
       <span class="brand-copy">
-        <span class="eyebrow">Protected Workspace</span>
+        <span class="eyebrow">Agent Runtime</span>
         <strong>Design Storm</strong>
       </span>
     </a>
-    <div class="app-nav">
-      <span class="user-chip">{{ viewer.name }}</span>
+
+    <div class="storm-header-meta">
+      <div class="viewer-chip">
+        <span class="eyebrow">Signed In</span>
+        <strong>{{ viewer.name }}</strong>
+      </div>
       <button class="button button-secondary button-small" data-on:click="window.designstormAuth.signOut()">Sign out</button>
     </div>
   </header>
 
-  <main class="app-grid">
-    <section class="app-hero">
-      <span class="eyebrow">Authenticated Surface</span>
-      <h1>Welcome back, {{ viewer.name }}.</h1>
-      <p>
-        This is the minimal protected shell for v1. The next layer is the actual storm canvas, design doc generation, and gallery workflow.
-      </p>
-      <div class="chip-row">
-        <span class="chip accent">User persisted in Postgres</span>
-        <span class="chip signal">Clerk token verified in Rust</span>
-        <span class="chip warm">Datastar-ready server surface</span>
+  <main class="storm-grid">
+    <section class="storm-card storm-compose">
+      <div class="panel-heading">
+        <span class="eyebrow">Seed</span>
+        <h1>Stormboard</h1>
+      </div>
+      <p class="panel-copy">Write a direction, connective tissue, or contradiction. The agent will turn it into a browsable design language artifact.</p>
+
+      <form id="storm-form" class="storm-form">
+        <label class="form-stack" for="storm-prompt">
+          <span class="field-label">Prompt</span>
+          <textarea id="storm-prompt" name="prompt" rows="10" placeholder="A design system for an AI design storm lab. Editorial but scientific. Dense, diagrammatic, and slightly uncanny."></textarea>
+        </label>
+        <div class="form-actions">
+          <button id="storm-submit" class="button button-primary" type="submit">Generate storm</button>
+          <span id="storm-status" class="inline-status">Waiting for a seed.</span>
+        </div>
+      </form>
+
+      <div class="storm-list-shell">
+        <div class="panel-heading compact">
+          <span class="eyebrow">Recent Runs</span>
+          <h2>Artifacts</h2>
+        </div>
+        <div id="storm-runs" class="storm-runs empty-state">
+          No runs yet.
+        </div>
       </div>
     </section>
 
-    <section class="app-card">
-      <span class="eyebrow">Current Identity</span>
-      <h2>{{ viewer.name }}</h2>
-      <p>{{ viewer.secondary_line() }}</p>
-      <dl class="meta-list">
-        <div>
-          <dt>Clerk user</dt>
-          <dd>{{ viewer.clerk_user_id }}</dd>
-        </div>
-        <div>
-          <dt>Member since</dt>
-          <dd>{{ viewer.created_at }}</dd>
-        </div>
-      </dl>
+    <section class="storm-card storm-stage">
+      <div class="panel-heading compact">
+        <span class="eyebrow">Preview</span>
+        <h2 id="active-run-title">No artifact selected</h2>
+      </div>
+      <div class="preview-frame-shell">
+        <iframe id="storm-preview" title="Storm preview"></iframe>
+      </div>
+      <div class="stage-meta">
+        <p id="storm-summary" class="stage-summary">Generate a storm to see the rendered HTML artifact here.</p>
+        <div id="storm-notes" class="stage-notes"></div>
+      </div>
     </section>
 
-    <section class="app-card">
-      <span class="eyebrow">What ships next</span>
-      <h2>Storm canvas</h2>
-      <p>A 2D atlas for seeds, entropy packets, and generated design languages. The current work establishes the auth, deploy, and server-rendered foundation for it.</p>
-      <a class="link-button link-inline" href="/docs/design.html">Open the visual direction document</a>
-    </section>
+    <aside class="storm-card storm-settings">
+      <div class="panel-heading compact">
+        <span class="eyebrow">Settings</span>
+        <h2>Runtime</h2>
+      </div>
+      {{ provider_panel|safe }}
+      <div class="settings-footnote">
+        <span class="eyebrow">Mode</span>
+        <p>Native-tool `lash-core`, workspace-scoped temp dirs, and a static HTML preview route. No shell access, no host filesystem editing.</p>
+      </div>
+    </aside>
   </main>
 </div>
 {% endblock %}
-
