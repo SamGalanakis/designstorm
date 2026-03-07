@@ -1,0 +1,1505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design Storm / Entropic Atlas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #081018;
+      --bg-deep: #050a11;
+      --surface: rgba(12, 21, 32, 0.78);
+      --surface-strong: rgba(15, 26, 39, 0.94);
+      --surface-soft: rgba(17, 32, 49, 0.58);
+      --text: #d3dde8;
+      --muted: rgba(211, 221, 232, 0.58);
+      --border: rgba(211, 221, 232, 0.11);
+      --accent: #55d6c2;
+      --accent-soft: rgba(85, 214, 194, 0.18);
+      --signal: #80a7ff;
+      --signal-soft: rgba(128, 167, 255, 0.18);
+      --warm: #e7b56c;
+      --warm-soft: rgba(231, 181, 108, 0.18);
+      --danger: #ff8574;
+      --shadow: 0 30px 80px rgba(0, 0, 0, 0.42);
+      --radius: 22px;
+      --radius-tight: 14px;
+      --grid: minmax(0, 1fr);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Lexend", system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 20% 20%, rgba(85, 214, 194, 0.10), transparent 0 24rem),
+        radial-gradient(circle at 85% 18%, rgba(128, 167, 255, 0.12), transparent 0 20rem),
+        radial-gradient(circle at 50% 120%, rgba(231, 181, 108, 0.10), transparent 0 26rem),
+        linear-gradient(180deg, #081018 0%, #060b12 42%, #05090f 100%);
+      min-height: 100vh;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: -2;
+    }
+
+    body::before {
+      background:
+        repeating-radial-gradient(ellipse 62% 42% at 28% 36%, transparent 0 36px, rgba(85, 214, 194, 0.028) 36px 38px, transparent 38px 76px),
+        repeating-radial-gradient(ellipse 52% 56% at 68% 45%, transparent 0 48px, rgba(128, 167, 255, 0.022) 48px 50px, transparent 50px 94px),
+        repeating-radial-gradient(ellipse 42% 52% at 54% 70%, transparent 0 30px, rgba(231, 181, 108, 0.018) 30px 32px, transparent 32px 68px);
+      opacity: 0.9;
+      animation: drift 28s ease-in-out infinite;
+    }
+
+    body::after {
+      background:
+        linear-gradient(90deg, rgba(211, 221, 232, 0.025) 1px, transparent 1px),
+        linear-gradient(rgba(211, 221, 232, 0.02) 1px, transparent 1px);
+      background-size: 72px 72px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 92%);
+      z-index: -1;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 16px 24px;
+      border-bottom: 1px solid rgba(211, 221, 232, 0.08);
+      background: rgba(8, 16, 24, 0.82);
+      backdrop-filter: blur(22px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 11px;
+      border: 1px solid rgba(85, 214, 194, 0.24);
+      background:
+        radial-gradient(circle at 35% 35%, rgba(85, 214, 194, 0.48), transparent 0 48%),
+        linear-gradient(145deg, rgba(128, 167, 255, 0.18), rgba(10, 18, 28, 0.72));
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    }
+
+    .brand-copy {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+
+    .eyebrow,
+    .micro,
+    .token-label,
+    .chip,
+    .nav a,
+    .panel-note,
+    .card-index {
+      font-family: "IBM Plex Mono", monospace;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow {
+      font-size: 10px;
+      color: rgba(211, 221, 232, 0.42);
+    }
+
+    .brand-copy strong {
+      font-size: 14px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-left: auto;
+    }
+
+    .nav a {
+      text-decoration: none;
+      color: rgba(211, 221, 232, 0.48);
+      font-size: 11px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+    }
+
+    .nav a:hover,
+    .nav a:focus-visible {
+      color: var(--text);
+      border-color: rgba(85, 214, 194, 0.24);
+      background: rgba(85, 214, 194, 0.08);
+      outline: none;
+    }
+
+    main {
+      width: min(1380px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 28px 0 80px;
+    }
+
+    section {
+      margin-bottom: 24px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.8fr);
+      gap: 24px;
+      align-items: stretch;
+    }
+
+    .hero-card,
+    .manifesto,
+    .specimen-shell,
+    .section-card,
+    .token-card,
+    .principle-card,
+    .gallery-card {
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(16, 26, 38, 0.84), rgba(10, 17, 26, 0.92));
+      box-shadow: var(--shadow);
+    }
+
+    .hero-card {
+      position: relative;
+      padding: 34px;
+      border-radius: calc(var(--radius) + 6px);
+      overflow: hidden;
+    }
+
+    .hero-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(120deg, rgba(85, 214, 194, 0.06), transparent 35%),
+        radial-gradient(circle at 78% 22%, rgba(128, 167, 255, 0.18), transparent 0 24%);
+      pointer-events: none;
+    }
+
+    .hero h1 {
+      position: relative;
+      margin: 14px 0 18px;
+      font-size: clamp(3rem, 5vw, 5.5rem);
+      line-height: 0.96;
+      letter-spacing: -0.05em;
+      max-width: 9ch;
+    }
+
+    .hero p {
+      position: relative;
+      max-width: 62ch;
+      color: var(--muted);
+      font-size: 17px;
+      margin: 0 0 24px;
+    }
+
+    .hero-badges,
+    .manifesto-list,
+    .chip-row,
+    .panel-stack,
+    .token-grid,
+    .principle-grid,
+    .gallery-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .hero-badges {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      position: relative;
+    }
+
+    .badge {
+      padding: 16px;
+      border-radius: var(--radius-tight);
+      border: 1px solid rgba(211, 221, 232, 0.09);
+      background: rgba(6, 14, 22, 0.44);
+    }
+
+    .badge strong {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-top: 6px;
+    }
+
+    .badge span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 5px;
+    }
+
+    .manifesto {
+      border-radius: calc(var(--radius) + 6px);
+      padding: 28px;
+    }
+
+    .manifesto h2,
+    .section-card h2 {
+      margin: 10px 0 18px;
+      font-size: 28px;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+    }
+
+    .manifesto-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .manifesto-list li {
+      padding: 14px 0;
+      border-top: 1px solid rgba(211, 221, 232, 0.07);
+    }
+
+    .manifesto-list li:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .manifesto-list strong {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-bottom: 4px;
+    }
+
+    .manifesto-list span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .section-card {
+      padding: 28px;
+      border-radius: var(--radius);
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: end;
+      margin-bottom: 18px;
+    }
+
+    .section-head p {
+      margin: 0;
+      max-width: 56ch;
+      color: var(--muted);
+    }
+
+    .specimen-shell {
+      padding: 18px;
+      border-radius: 30px;
+      background:
+        linear-gradient(180deg, rgba(18, 31, 44, 0.84), rgba(8, 14, 22, 0.96));
+    }
+
+    .specimen-frame {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr) 288px;
+      gap: 16px;
+      min-height: 720px;
+    }
+
+    .rail,
+    .inspector,
+    .stage-wrap,
+    .gallery-rail {
+      border-radius: 24px;
+      border: 1px solid rgba(211, 221, 232, 0.08);
+      background: rgba(7, 13, 20, 0.7);
+      overflow: hidden;
+    }
+
+    .rail,
+    .inspector {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .rail-header,
+    .inspector-header,
+    .gallery-rail header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid rgba(211, 221, 232, 0.07);
+      background: rgba(255, 255, 255, 0.015);
+    }
+
+    .rail-header h3,
+    .inspector-header h3,
+    .gallery-rail h3,
+    .principle-card h3,
+    .token-card h3,
+    .gallery-card h3 {
+      margin: 6px 0 0;
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: -0.02em;
+    }
+
+    .rail-body,
+    .inspector-body,
+    .gallery-rail .gallery-strip {
+      padding: 16px;
+    }
+
+    .panel-stack {
+      grid-auto-rows: min-content;
+    }
+
+    .mini-card {
+      padding: 14px;
+      border-radius: 18px;
+      border: 1px solid rgba(211, 221, 232, 0.08);
+      background:
+        linear-gradient(180deg, rgba(20, 34, 49, 0.74), rgba(10, 18, 28, 0.9));
+    }
+
+    .mini-card strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .mini-card p,
+    .inspector-body p,
+    .token-card p,
+    .principle-card p,
+    .gallery-card p,
+    .meta-list li {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .chip-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(211, 221, 232, 0.07);
+      color: rgba(211, 221, 232, 0.68);
+      font-size: 11px;
+    }
+
+    .chip.accent {
+      border-color: rgba(85, 214, 194, 0.22);
+      color: rgba(85, 214, 194, 0.88);
+      background: rgba(85, 214, 194, 0.08);
+    }
+
+    .chip.signal {
+      border-color: rgba(128, 167, 255, 0.22);
+      color: rgba(128, 167, 255, 0.9);
+      background: rgba(128, 167, 255, 0.08);
+    }
+
+    .chip.warm {
+      border-color: rgba(231, 181, 108, 0.22);
+      color: rgba(231, 181, 108, 0.88);
+      background: rgba(231, 181, 108, 0.08);
+    }
+
+    .stage-wrap {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 180px;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    .stage {
+      position: relative;
+      min-height: 500px;
+      border-radius: 26px;
+      overflow: hidden;
+      border: 1px solid rgba(211, 221, 232, 0.08);
+      background:
+        radial-gradient(circle at 30% 30%, rgba(85, 214, 194, 0.08), transparent 0 20rem),
+        radial-gradient(circle at 70% 26%, rgba(128, 167, 255, 0.10), transparent 0 20rem),
+        linear-gradient(180deg, rgba(5, 9, 14, 0.74), rgba(8, 13, 18, 0.9));
+    }
+
+    #storm-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .stage-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .stage-label,
+    .floating-card,
+    .dock-card,
+    .orbit-label,
+    .focus-badge {
+      position: absolute;
+      border-radius: 18px;
+      border: 1px solid rgba(211, 221, 232, 0.08);
+      background: rgba(9, 15, 23, 0.72);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.35);
+    }
+
+    .stage-label {
+      top: 18px;
+      left: 18px;
+      padding: 14px 16px;
+      max-width: 250px;
+    }
+
+    .stage-label strong,
+    .floating-card strong,
+    .dock-card strong,
+    .focus-badge strong {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      margin-top: 6px;
+    }
+
+    .stage-label span,
+    .floating-card span,
+    .dock-card span,
+    .focus-badge span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+
+    .orbit-label {
+      padding: 9px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      color: rgba(211, 221, 232, 0.7);
+    }
+
+    .floating-card {
+      width: 176px;
+      padding: 14px;
+    }
+
+    .floating-card.seed {
+      left: 18%;
+      top: 22%;
+      border-color: rgba(85, 214, 194, 0.22);
+      background: rgba(8, 21, 22, 0.72);
+    }
+
+    .floating-card.ref {
+      left: 64%;
+      top: 16%;
+      border-color: rgba(128, 167, 255, 0.22);
+    }
+
+    .floating-card.clip {
+      left: 60%;
+      top: 58%;
+      border-color: rgba(231, 181, 108, 0.22);
+    }
+
+    .dock-card {
+      width: 220px;
+      padding: 16px;
+      bottom: 26px;
+    }
+
+    .dock-card.left {
+      left: 14%;
+    }
+
+    .dock-card.mid {
+      left: 39%;
+    }
+
+    .dock-card.right {
+      right: 10%;
+    }
+
+    .focus-badge {
+      padding: 12px 14px;
+      right: 18px;
+      top: 18px;
+      max-width: 220px;
+      border-color: rgba(85, 214, 194, 0.18);
+    }
+
+    .gallery-rail {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .gallery-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      height: 100%;
+    }
+
+    .gallery-thumb {
+      position: relative;
+      overflow: hidden;
+      border-radius: 18px;
+      border: 1px solid rgba(211, 221, 232, 0.08);
+      padding: 12px;
+      min-height: 128px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+        radial-gradient(circle at top left, rgba(85, 214, 194, 0.16), transparent 0 48%),
+        rgba(8, 15, 22, 0.88);
+    }
+
+    .gallery-thumb.blue {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+        radial-gradient(circle at top left, rgba(128, 167, 255, 0.18), transparent 0 50%),
+        rgba(8, 15, 22, 0.88);
+    }
+
+    .gallery-thumb.warm {
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.015)),
+        radial-gradient(circle at top left, rgba(231, 181, 108, 0.18), transparent 0 50%),
+        rgba(8, 15, 22, 0.88);
+    }
+
+    .gallery-thumb::before {
+      content: "";
+      position: absolute;
+      inset: 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(211, 221, 232, 0.07);
+      background:
+        linear-gradient(90deg, rgba(211, 221, 232, 0.06) 1px, transparent 1px),
+        linear-gradient(rgba(211, 221, 232, 0.05) 1px, transparent 1px);
+      background-size: 26px 26px;
+    }
+
+    .gallery-thumb strong,
+    .gallery-thumb span {
+      position: relative;
+      display: block;
+      z-index: 1;
+    }
+
+    .gallery-thumb strong {
+      margin-top: 44px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .gallery-thumb span {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .meta-list {
+      list-style: none;
+      margin: 14px 0 0;
+      padding: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .meta-list li {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 10px;
+      border-top: 1px solid rgba(211, 221, 232, 0.07);
+    }
+
+    .meta-list strong {
+      font-size: 11px;
+      font-weight: 500;
+      color: rgba(211, 221, 232, 0.5);
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .tokens {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      gap: 24px;
+    }
+
+    .token-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .token-card {
+      padding: 22px;
+      border-radius: 20px;
+    }
+
+    .swatch-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .swatch {
+      padding: 10px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      min-height: 90px;
+      display: flex;
+      flex-direction: column;
+      justify-content: end;
+      gap: 5px;
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
+    }
+
+    .swatch.bg {
+      background: #081018;
+    }
+
+    .swatch.surface {
+      background: #101c29;
+    }
+
+    .swatch.accent {
+      background: #55d6c2;
+      color: #08201f;
+    }
+
+    .swatch.signal {
+      background: #80a7ff;
+      color: #09152f;
+    }
+
+    .swatch.warm {
+      background: #e7b56c;
+      color: #281b08;
+    }
+
+    .type-sample {
+      padding-top: 18px;
+      border-top: 1px solid rgba(211, 221, 232, 0.08);
+      margin-top: 18px;
+    }
+
+    .type-sample .display {
+      font-size: clamp(2rem, 4vw, 3.4rem);
+      line-height: 0.92;
+      letter-spacing: -0.05em;
+      margin-bottom: 12px;
+    }
+
+    .type-sample .mono {
+      font-family: "IBM Plex Mono", monospace;
+      color: rgba(85, 214, 194, 0.88);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .principle-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .principle-card,
+    .gallery-card {
+      padding: 22px;
+      border-radius: 20px;
+      min-height: 100%;
+    }
+
+    .gallery-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .gallery-card .mock-track {
+      margin-top: 18px;
+      height: 126px;
+      border-radius: 18px;
+      border: 1px solid rgba(211, 221, 232, 0.08);
+      background:
+        linear-gradient(90deg, rgba(211, 221, 232, 0.06) 1px, transparent 1px),
+        linear-gradient(rgba(211, 221, 232, 0.05) 1px, transparent 1px),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+      background-size: 22px 22px, 22px 22px, auto;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .gallery-card .mock-track::before,
+    .gallery-card .mock-track::after {
+      content: "";
+      position: absolute;
+      border-radius: 999px;
+      inset: auto;
+    }
+
+    .gallery-card .mock-track::before {
+      width: 46%;
+      height: 18px;
+      left: 10%;
+      top: 34px;
+      background: rgba(85, 214, 194, 0.24);
+      box-shadow: 0 0 0 1px rgba(85, 214, 194, 0.22);
+    }
+
+    .gallery-card .mock-track::after {
+      width: 28%;
+      height: 18px;
+      right: 12%;
+      bottom: 30px;
+      background: rgba(128, 167, 255, 0.24);
+      box-shadow: 0 0 0 1px rgba(128, 167, 255, 0.22);
+    }
+
+    .footer-note {
+      padding: 18px 4px 0;
+      color: rgba(211, 221, 232, 0.44);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    @keyframes drift {
+      0% {
+        transform: translate3d(0, 0, 0) scale(1);
+      }
+      50% {
+        transform: translate3d(-10px, 6px, 0) scale(1.015);
+      }
+      100% {
+        transform: translate3d(0, 0, 0) scale(1);
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .hero,
+      .tokens {
+        grid-template-columns: 1fr;
+      }
+
+      .specimen-frame {
+        grid-template-columns: 220px minmax(0, 1fr);
+      }
+
+      .inspector {
+        grid-column: 1 / -1;
+      }
+
+      .principle-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .gallery-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 840px) {
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      main {
+        width: min(100vw - 24px, 1380px);
+        padding-top: 18px;
+      }
+
+      .hero-card,
+      .manifesto,
+      .section-card {
+        padding: 22px;
+      }
+
+      .hero h1 {
+        max-width: 12ch;
+      }
+
+      .hero-badges,
+      .token-grid,
+      .principle-grid,
+      .gallery-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .specimen-shell {
+        padding: 12px;
+      }
+
+      .specimen-frame {
+        grid-template-columns: 1fr;
+        min-height: auto;
+      }
+
+      .stage-wrap {
+        order: -1;
+        grid-template-rows: minmax(420px, 62vh) 200px;
+      }
+
+      .dock-card.left,
+      .dock-card.mid,
+      .dock-card.right {
+        width: 180px;
+      }
+
+      .dock-card.left {
+        left: 4%;
+      }
+
+      .dock-card.mid {
+        left: 34%;
+      }
+
+      .dock-card.right {
+        right: 4%;
+      }
+    }
+
+    @media (max-width: 620px) {
+      .nav {
+        margin-left: 0;
+      }
+
+      .section-head {
+        flex-direction: column;
+        align-items: start;
+      }
+
+      .stage {
+        min-height: 420px;
+      }
+
+      .floating-card {
+        width: 150px;
+      }
+
+      .dock-card {
+        position: absolute;
+        width: 150px;
+        padding: 12px;
+      }
+
+      .dock-card.left {
+        left: 3%;
+      }
+
+      .dock-card.mid {
+        left: calc(50% - 75px);
+      }
+
+      .dock-card.right {
+        right: 3%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div class="brand-copy">
+        <span class="eyebrow">Design Language / Product Surface</span>
+        <strong>Design Storm / Entropic Atlas</strong>
+      </div>
+    </div>
+    <nav class="nav" aria-label="Page">
+      <a href="#overview">Overview</a>
+      <a href="#specimen">Canvas Specimen</a>
+      <a href="#tokens">Tokens</a>
+      <a href="#grammar">Interaction Grammar</a>
+      <a href="#gallery">Gallery System</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="overview">
+      <article class="hero-card">
+        <span class="eyebrow">Direction 01 / Scientific Drift</span>
+        <h1>Design Storm as a navigable field of influence.</h1>
+        <p>
+          This direction treats the product as a dark creative instrument rather than a dashboard. Users do not fill out a form and wait. They drop a seed into a live canvas, introduce entropy sources, then watch design language documents branch outward as spatial artifacts with visible lineage.
+        </p>
+        <div class="hero-badges">
+          <div class="badge">
+            <span class="micro">Core Metaphor</span>
+            <strong>Creative weather map</strong>
+            <span>Seeds, disturbances, and resulting language systems occupy a shared plane.</span>
+          </div>
+          <div class="badge">
+            <span class="micro">Primary Value</span>
+            <strong>Divergence you can read</strong>
+            <span>Every generated direction exposes what contaminated it and why it changed.</span>
+          </div>
+          <div class="badge">
+            <span class="micro">Output Shape</span>
+            <strong>Design language docs</strong>
+            <span>Each result is a codified visual world, not a brittle one-off screen mock.</span>
+          </div>
+        </div>
+      </article>
+
+      <aside class="manifesto">
+        <span class="eyebrow">Product Read</span>
+        <h2>How this page is framed</h2>
+        <ul class="manifesto-list">
+          <li>
+            <strong>Not a functional prototype</strong>
+            <span>The page establishes visual logic, spatial rules, and interface temperament for the product.</span>
+          </li>
+          <li>
+            <strong>Adapted to Design Storm</strong>
+            <span>The canvas centers seed inputs, entropy injections, branching docs, and gallery navigation in one scene.</span>
+          </li>
+          <li>
+            <strong>Reference carried forward</strong>
+            <span>Topographic overlays, coordinate-grid atmosphere, mono annotations, and cyan-blue-amber signal colors stay intact from the phase reference.</span>
+          </li>
+        </ul>
+      </aside>
+    </section>
+
+    <section class="section-card" id="specimen">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Primary Specimen</span>
+          <h2>2D canvas interface for storming design languages</h2>
+        </div>
+        <p>
+          The central stage acts as a live atlas: left rail for seed material and entropy tools, center for the influence field, right rail for doc inspection, and a lower band for the resulting gallery states.
+        </p>
+      </div>
+
+      <div class="specimen-shell">
+        <div class="specimen-frame">
+          <aside class="rail">
+            <div class="rail-header">
+              <span class="eyebrow">Inputs</span>
+              <h3>Seed + Entropy</h3>
+            </div>
+            <div class="rail-body">
+              <div class="panel-stack">
+                <div class="mini-card">
+                  <span class="eyebrow">Seed Core</span>
+                  <strong>New creative tooling for AI-assisted visual exploration</strong>
+                  <p>Accepts text briefs, image URLs, and stray references without collapsing into one prompt box.</p>
+                </div>
+                <div class="mini-card">
+                  <span class="eyebrow">Source Pack</span>
+                  <strong>3 image URLs + one editorial note</strong>
+                  <p>Inputs remain visible objects in the scene instead of disappearing into configuration UI.</p>
+                </div>
+                <div class="mini-card">
+                  <span class="eyebrow">Entropy Deck</span>
+                  <div class="chip-row">
+                    <span class="chip accent">Random Wiki</span>
+                    <span class="chip signal">Transit Diagram</span>
+                    <span class="chip warm">Newsprint Scan</span>
+                    <span class="chip">Constraint: No Hero</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <div class="stage-wrap">
+            <div class="stage" aria-label="Design Storm spatial specimen">
+              <canvas id="storm-canvas"></canvas>
+              <div class="stage-overlay">
+                <div class="stage-label">
+                  <span class="eyebrow">Canvas Logic</span>
+                  <strong>Influence is spatial.</strong>
+                  <span>Nearness implies contamination, collision implies mutation, and distance preserves clarity.</span>
+                </div>
+
+                <div class="focus-badge">
+                  <span class="eyebrow">Current Storm</span>
+                  <strong>Atlas Run / 06 outputs</strong>
+                  <span>Entropy calibrated for divergence, not novelty theater.</span>
+                </div>
+
+                <div class="floating-card seed">
+                  <span class="eyebrow">Seed Node</span>
+                  <strong>Creative Weather Map</strong>
+                  <span>Brief + images + audience tone</span>
+                </div>
+
+                <div class="floating-card ref">
+                  <span class="eyebrow">Found Influence</span>
+                  <strong>Municipal signage atlas</strong>
+                  <span>Imported as structure, not decoration</span>
+                </div>
+
+                <div class="floating-card clip">
+                  <span class="eyebrow">Artifact Injection</span>
+                  <strong>1968 newspaper clipping</strong>
+                  <span>Noise, edge wear, and density bias</span>
+                </div>
+
+                <div class="orbit-label" style="left: 33%; top: 10%;">Temporal shift</div>
+                <div class="orbit-label" style="left: 72%; top: 42%;">Semantic drift</div>
+                <div class="orbit-label" style="left: 22%; top: 70%;">Constraint sabotage</div>
+
+                <div class="dock-card left">
+                  <span class="eyebrow">DL-01</span>
+                  <strong>Institutional Bloom</strong>
+                  <span>Civic systems, precise labels, warm archival grain.</span>
+                </div>
+
+                <div class="dock-card mid">
+                  <span class="eyebrow">DL-02</span>
+                  <strong>Signal Garden</strong>
+                  <span>Soft network field with luminous typography and sparse panels.</span>
+                </div>
+
+                <div class="dock-card right">
+                  <span class="eyebrow">DL-03</span>
+                  <strong>Clipped Orbit</strong>
+                  <span>Newsprint density, cropped modules, angular wayfinding.</span>
+                </div>
+              </div>
+            </div>
+
+            <section class="gallery-rail" aria-label="Gallery strip">
+              <header>
+                <span class="eyebrow">Gallery Rail</span>
+                <h3>Generated design language documents</h3>
+              </header>
+              <div class="gallery-strip">
+                <article class="gallery-thumb">
+                  <span class="eyebrow">Pinned / Divergence 62</span>
+                  <strong>Institutional Bloom</strong>
+                  <span>Precise, civic, structural.</span>
+                </article>
+                <article class="gallery-thumb blue">
+                  <span class="eyebrow">Fork / Divergence 74</span>
+                  <strong>Signal Garden</strong>
+                  <span>Airier, luminous, more orbital.</span>
+                </article>
+                <article class="gallery-thumb warm">
+                  <span class="eyebrow">Fork / Divergence 89</span>
+                  <strong>Clipped Orbit</strong>
+                  <span>Printed matter bias with aggressive density.</span>
+                </article>
+              </div>
+            </section>
+          </div>
+
+          <aside class="inspector">
+            <div class="inspector-header">
+              <span class="eyebrow">Inspection</span>
+              <h3>Selected design language</h3>
+            </div>
+            <div class="inspector-body">
+              <div class="mini-card">
+                <span class="eyebrow">Selected</span>
+                <strong>Institutional Bloom</strong>
+                <p>The design language reads like a public systems archive that accidentally became elegant. Information density is high, but softened with atmospheric contouring.</p>
+                <ul class="meta-list">
+                  <li><strong>Lineage</strong><span>Seed, signage atlas, warm clipping</span></li>
+                  <li><strong>Tension</strong><span>Calm grid vs contaminated texture</span></li>
+                  <li><strong>Use case</strong><span>Gallery, editorial, product shell</span></li>
+                  <li><strong>Status</strong><span>Worth branching into higher fidelity</span></li>
+                </ul>
+              </div>
+              <div class="mini-card">
+                <span class="eyebrow">Reading Rules</span>
+                <strong>How the interface behaves</strong>
+                <p>Inputs are visible objects, entropy is represented as attractors, and outputs settle into browseable docs rather than vanishing into a list.</p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="tokens" id="tokens">
+      <article class="section-card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Visual Tokens</span>
+            <h2>Palette and atmosphere</h2>
+          </div>
+          <p>The page stays dark and analytic, but the accent system gives different classes of influence their own signal color.</p>
+        </div>
+        <div class="token-grid">
+          <div class="token-card">
+            <span class="eyebrow">Core Palette</span>
+            <h3>Surface and signal</h3>
+            <div class="swatch-row">
+              <div class="swatch bg">#081018<br>background</div>
+              <div class="swatch surface">#101c29<br>surface</div>
+              <div class="swatch accent">#55d6c2<br>entropy</div>
+              <div class="swatch signal">#80a7ff<br>lineage</div>
+            </div>
+            <div class="swatch-row" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
+              <div class="swatch warm">#e7b56c<br>artifact</div>
+              <div class="swatch surface" style="background:#d3dde8;color:#081018;">#d3dde8<br>text</div>
+            </div>
+          </div>
+          <div class="token-card">
+            <span class="eyebrow">Surface Behavior</span>
+            <h3>Depth by layer, not chrome</h3>
+            <p>Panels are translucent and slightly blurred, with contour overlays and measured borders. The goal is instrument-panel clarity, not glassmorphism.</p>
+            <div class="type-sample">
+              <div class="mono">annotation / ibm plex mono / 11-12px</div>
+              <div class="display">Design languages as atmospheric systems.</div>
+              <p>Lexend handles display and body because it stays geometric under dense information without becoming cold.</p>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="section-card">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow">Product Personality</span>
+            <h2>Principles for the whole surface</h2>
+          </div>
+        </div>
+        <div class="principle-grid">
+          <article class="principle-card">
+            <span class="card-index eyebrow">01</span>
+            <h3>Show provenance</h3>
+            <p>Every design doc should expose what fed it, what mutated it, and how far it drifted from the seed.</p>
+          </article>
+          <article class="principle-card">
+            <span class="card-index eyebrow">02</span>
+            <h3>Let distance mean something</h3>
+            <p>The 2D plane is not decorative. Spatial relationships carry meaning about contamination, kinship, and branch depth.</p>
+          </article>
+          <article class="principle-card">
+            <span class="card-index eyebrow">03</span>
+            <h3>Reward browsing</h3>
+            <p>The gallery should feel archival and exploratory, with pinned branches, comparison states, and re-entry into old storms.</p>
+          </article>
+          <article class="principle-card">
+            <span class="card-index eyebrow">04</span>
+            <h3>Stay legible under weirdness</h3>
+            <p>The product earns trust by making unusual results inspectable instead of mysterious.</p>
+          </article>
+        </div>
+      </article>
+    </section>
+
+    <section class="section-card" id="grammar">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Interaction Grammar</span>
+          <h2>Visual vocabulary for the product</h2>
+        </div>
+        <p>These are the recurring interface moves that should define Design Storm across the canvas, docs, and gallery.</p>
+      </div>
+      <div class="principle-grid">
+        <article class="principle-card">
+          <span class="eyebrow">Node Type</span>
+          <h3>Seeds</h3>
+          <p>Heavier cards with calm glow. They anchor the map and remain stable while the storm forms around them.</p>
+        </article>
+        <article class="principle-card">
+          <span class="eyebrow">Node Type</span>
+          <h3>Entropy sources</h3>
+          <p>Smaller attractors with sharper color signatures. They should feel volatile, contaminating, and modular.</p>
+        </article>
+        <article class="principle-card">
+          <span class="eyebrow">Node Type</span>
+          <h3>Design language docs</h3>
+          <p>Docked results that feel collectible. They are stable endpoints, but always forkable back into the field.</p>
+        </article>
+        <article class="principle-card">
+          <span class="eyebrow">Motion</span>
+          <h3>Slow drift, precise response</h3>
+          <p>Ambient motion should imply an active system, while user interactions stay crisp and exact.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section-card" id="gallery">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">Gallery System</span>
+          <h2>Browsing the resulting worlds</h2>
+        </div>
+        <p>The gallery should feel like a design archive with lineage, not a folder of outputs.</p>
+      </div>
+      <div class="gallery-grid">
+        <article class="gallery-card">
+          <span class="eyebrow">Mode 01</span>
+          <h3>Poster wall</h3>
+          <p>High-speed browse for visual scanning. Dense labels, influence chips, and strong typographic titles keep it editorial.</p>
+          <div class="mock-track"></div>
+        </article>
+        <article class="gallery-card">
+          <span class="eyebrow">Mode 02</span>
+          <h3>Lineage map</h3>
+          <p>A branch graph reveals which docs share ancestry, which got contaminated, and which mutations produced the strongest departures.</p>
+          <div class="mock-track"></div>
+        </article>
+        <article class="gallery-card">
+          <span class="eyebrow">Mode 03</span>
+          <h3>Compare rail</h3>
+          <p>Pin two to four design languages and inspect differences in density, tone, motion rules, and source contamination.</p>
+          <div class="mock-track"></div>
+        </article>
+      </div>
+    </section>
+
+    <p class="footer-note">Design Storm should feel like an instrument for steering creative divergence, not a polite AI form with prettier output cards.</p>
+  </main>
+
+  <script>
+    (function () {
+      const canvas = document.getElementById("storm-canvas");
+      if (!canvas) return;
+
+      const context = canvas.getContext("2d");
+      const stage = canvas.parentElement;
+      const pointer = { x: 0.5, y: 0.5 };
+      const colors = {
+        accent: "rgba(85, 214, 194, 0.72)",
+        accentSoft: "rgba(85, 214, 194, 0.12)",
+        signal: "rgba(128, 167, 255, 0.62)",
+        signalSoft: "rgba(128, 167, 255, 0.11)",
+        warm: "rgba(231, 181, 108, 0.58)",
+        warmSoft: "rgba(231, 181, 108, 0.10)",
+        line: "rgba(211, 221, 232, 0.10)"
+      };
+
+      const attractors = [
+        { x: 0.24, y: 0.28, color: colors.accentSoft, radius: 150 },
+        { x: 0.72, y: 0.24, color: colors.signalSoft, radius: 150 },
+        { x: 0.66, y: 0.68, color: colors.warmSoft, radius: 180 }
+      ];
+
+      const nodes = Array.from({ length: 26 }, (_, index) => {
+        const band = index % 3;
+        return {
+          x: 0.18 + Math.random() * 0.64,
+          y: 0.16 + Math.random() * 0.56,
+          vx: (Math.random() - 0.5) * 0.0008,
+          vy: (Math.random() - 0.5) * 0.0008,
+          type: band === 0 ? "accent" : band === 1 ? "signal" : "warm",
+          size: 1.6 + Math.random() * 2.8
+        };
+      });
+
+      function resize() {
+        const rect = stage.getBoundingClientRect();
+        canvas.width = Math.floor(rect.width * window.devicePixelRatio);
+        canvas.height = Math.floor(rect.height * window.devicePixelRatio);
+        canvas.style.width = rect.width + "px";
+        canvas.style.height = rect.height + "px";
+        context.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+      }
+
+      function drawGrid(width, height, time) {
+        context.save();
+        context.strokeStyle = "rgba(211, 221, 232, 0.05)";
+        context.lineWidth = 1;
+        const step = 34;
+        const offsetX = (time * 8) % step;
+        const offsetY = (time * 5) % step;
+
+        for (let x = -step; x < width + step; x += step) {
+          context.beginPath();
+          context.moveTo(x + offsetX, 0);
+          context.lineTo(x + offsetX, height);
+          context.stroke();
+        }
+
+        for (let y = -step; y < height + step; y += step) {
+          context.beginPath();
+          context.moveTo(0, y + offsetY);
+          context.lineTo(width, y + offsetY);
+          context.stroke();
+        }
+        context.restore();
+      }
+
+      function drawContours(width, height, time) {
+        const pulse = 0.5 + Math.sin(time * 0.7) * 0.5;
+        attractors.forEach((attractor, index) => {
+          const x = attractor.x * width;
+          const y = attractor.y * height;
+          for (let ring = 0; ring < 4; ring += 1) {
+            context.beginPath();
+            context.strokeStyle = attractor.color;
+            context.lineWidth = 1;
+            context.ellipse(
+              x,
+              y,
+              attractor.radius - ring * 24 + pulse * 6 + index * 6,
+              attractor.radius * 0.58 - ring * 14 + pulse * 4,
+              time * 0.05 + ring * 0.2,
+              0,
+              Math.PI * 2
+            );
+            context.stroke();
+          }
+        });
+      }
+
+      function drawConnections(width, height) {
+        for (let i = 0; i < nodes.length; i += 1) {
+          const a = nodes[i];
+          const ax = a.x * width;
+          const ay = a.y * height;
+          for (let j = i + 1; j < nodes.length; j += 1) {
+            const b = nodes[j];
+            const bx = b.x * width;
+            const by = b.y * height;
+            const dx = ax - bx;
+            const dy = ay - by;
+            const distance = Math.hypot(dx, dy);
+            if (distance < 110) {
+              context.beginPath();
+              context.strokeStyle = "rgba(211, 221, 232," + (0.10 - distance / 1400).toFixed(3) + ")";
+              context.lineWidth = 1;
+              context.moveTo(ax, ay);
+              context.lineTo(bx, by);
+              context.stroke();
+            }
+          }
+        }
+      }
+
+      function drawNodes(width, height, time) {
+        nodes.forEach((node) => {
+          node.x += node.vx;
+          node.y += node.vy;
+
+          if (node.x < 0.12 || node.x > 0.88) node.vx *= -1;
+          if (node.y < 0.12 || node.y > 0.82) node.vy *= -1;
+
+          const px = node.x * width;
+          const py = node.y * height;
+          const dx = px - pointer.x * width;
+          const dy = py - pointer.y * height;
+          const glow = Math.max(0, 1 - Math.hypot(dx, dy) / 180);
+
+          const fill =
+            node.type === "accent"
+              ? colors.accent
+              : node.type === "signal"
+                ? colors.signal
+                : colors.warm;
+
+          context.beginPath();
+          context.fillStyle = fill;
+          context.arc(px, py, node.size + glow * 2.2 + Math.sin(time * 2 + px * 0.01) * 0.5, 0, Math.PI * 2);
+          context.fill();
+
+          context.beginPath();
+          context.strokeStyle =
+            node.type === "accent"
+              ? "rgba(85, 214, 194, 0.12)"
+              : node.type === "signal"
+                ? "rgba(128, 167, 255, 0.12)"
+                : "rgba(231, 181, 108, 0.12)";
+          context.arc(px, py, 12 + glow * 10, 0, Math.PI * 2);
+          context.stroke();
+        });
+      }
+
+      function drawPointerField(width, height) {
+        const x = pointer.x * width;
+        const y = pointer.y * height;
+        const gradient = context.createRadialGradient(x, y, 10, x, y, 170);
+        gradient.addColorStop(0, "rgba(255, 255, 255, 0.10)");
+        gradient.addColorStop(0.3, "rgba(128, 167, 255, 0.06)");
+        gradient.addColorStop(1, "rgba(128, 167, 255, 0)");
+        context.fillStyle = gradient;
+        context.beginPath();
+        context.arc(x, y, 170, 0, Math.PI * 2);
+        context.fill();
+      }
+
+      function render(timeStamp) {
+        const time = timeStamp * 0.001;
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+
+        context.clearRect(0, 0, width, height);
+        drawGrid(width, height, time);
+        drawContours(width, height, time);
+        drawConnections(width, height);
+        drawPointerField(width, height);
+        drawNodes(width, height, time);
+
+        requestAnimationFrame(render);
+      }
+
+      stage.addEventListener("pointermove", (event) => {
+        const rect = stage.getBoundingClientRect();
+        pointer.x = (event.clientX - rect.left) / rect.width;
+        pointer.y = (event.clientY - rect.top) / rect.height;
+      });
+
+      stage.addEventListener("pointerleave", () => {
+        pointer.x = 0.5;
+        pointer.y = 0.5;
+      });
+
+      resize();
+      window.addEventListener("resize", resize);
+      requestAnimationFrame(render);
+    }());
+  </script>
+</body>
+</html>

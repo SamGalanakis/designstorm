@@ -1,0 +1,107 @@
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
+
+env:
+  FLY_API_TOKEN: ${{ secrets.FLY_API_KEY }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Validate required secrets and vars
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ vars.CLERK_PUBLISHABLE_KEY }}
+          CLERK_ISSUER: ${{ vars.CLERK_ISSUER }}
+          CLERK_JWKS_URL: ${{ vars.CLERK_JWKS_URL }}
+          CLERK_JWT_PUBLIC_KEY: ${{ vars.CLERK_JWT_PUBLIC_KEY }}
+          APP_URL: ${{ vars.APP_URL }}
+          AWS_ENDPOINT_URL_S3: ${{ vars.AWS_ENDPOINT_URL_S3 }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          BUCKET_NAME: ${{ vars.BUCKET_NAME }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          FLY_API_KEY: ${{ secrets.FLY_API_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in \
+            CLERK_PUBLISHABLE_KEY CLERK_ISSUER CLERK_JWKS_URL CLERK_JWT_PUBLIC_KEY APP_URL \
+            AWS_ENDPOINT_URL_S3 AWS_REGION BUCKET_NAME \
+            CLERK_SECRET_KEY DATABASE_URL SESSION_SECRET FLY_API_KEY \
+            AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required configuration: $name" >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Ensure app exists
+        run: |
+          set -euo pipefail
+          flyctl apps create designstorm --org ascending-ai || true
+
+      - name: Auth to Fly registry
+        run: |
+          set -euo pipefail
+          flyctl auth docker
+
+      - name: Build and push image
+        run: |
+          set -euo pipefail
+          docker build -t "registry.fly.io/designstorm:${GITHUB_SHA}" .
+          docker push "registry.fly.io/designstorm:${GITHUB_SHA}"
+
+      - name: Set Fly secrets
+        run: |
+          set -euo pipefail
+          flyctl secrets set --stage \
+            CLERK_PUBLISHABLE_KEY="${{ vars.CLERK_PUBLISHABLE_KEY }}" \
+            CLERK_ISSUER="${{ vars.CLERK_ISSUER }}" \
+            CLERK_JWKS_URL="${{ vars.CLERK_JWKS_URL }}" \
+            CLERK_JWT_PUBLIC_KEY="${{ vars.CLERK_JWT_PUBLIC_KEY }}" \
+            APP_URL="${{ vars.APP_URL }}" \
+            AWS_ENDPOINT_URL_S3="${{ vars.AWS_ENDPOINT_URL_S3 }}" \
+            AWS_REGION="${{ vars.AWS_REGION }}" \
+            BUCKET_NAME="${{ vars.BUCKET_NAME }}" \
+            CLERK_SECRET_KEY="${{ secrets.CLERK_SECRET_KEY }}" \
+            DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            SESSION_SECRET="${{ secrets.SESSION_SECRET }}" \
+            AWS_ACCESS_KEY_ID="${{ secrets.AWS_ACCESS_KEY_ID }}" \
+            AWS_SECRET_ACCESS_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+            --app designstorm
+
+      - name: Deploy app
+        run: |
+          set -euo pipefail
+          flyctl deploy --config fly.toml --app designstorm --image "registry.fly.io/designstorm:${GITHUB_SHA}"
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 10 --retry-delay 3 https://designstorm.fly.dev/healthz

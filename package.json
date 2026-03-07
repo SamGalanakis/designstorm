@@ -1,0 +1,13 @@
+{
+  "name": "designstorm",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:assets": "bun build ./frontend/app.ts --outfile ./static/app.js --target browser --minify",
+    "check:assets": "bun build ./frontend/app.ts --outfile /tmp/designstorm-app.js --target browser"
+  },
+  "dependencies": {
+    "@clerk/clerk-js": "^5.122.1"
+  }
+}
+

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-shell">
+  <header class="site-header">
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-copy">
+        <span class="eyebrow">AI Design Language Engine</span>
+        <strong>Design Storm</strong>
+      </span>
+    </a>
+    <nav class="site-nav">
+      <a href="/docs/design.html">Design language</a>
+      <a href="#product">Product</a>
+      <a href="#access">Access</a>
+    </nav>
+  </header>
+
+  <main class="hero-layout">
+    <section class="hero-panel">
+      <span class="eyebrow">Rust + Datastar + Clerk</span>
+      <h1>Turn seeds and entropy into design languages you can browse.</h1>
+      <p class="hero-copy">
+        Design Storm treats AI output like a navigable archive instead of a prompt result. Feed it a brief, images, and weird outside influences. It responds with full design language documents and a gallery built for branching, comparing, and taste-building.
+      </p>
+      <div class="hero-actions">
+        <button class="button button-primary" data-on:click="window.designstormAuth.signIn()">Sign in</button>
+        <button class="button button-secondary" data-on:click="window.location.href='/docs/design.html'">Open design language</button>
+      </div>
+      <div class="feature-grid" id="product">
+        <article class="feature-card">
+          <span class="eyebrow">Seed Inputs</span>
+          <strong>Briefs, URLs, and references stay visible.</strong>
+          <p>Inputs remain spatial objects in the product instead of disappearing into a long form.</p>
+        </article>
+        <article class="feature-card">
+          <span class="eyebrow">Entropy Tools</span>
+          <strong>Wikipedia, clippings, era shifts, and sabotage cards.</strong>
+          <p>Each influence is inspectable, branchable, and reusable across design storms.</p>
+        </article>
+        <article class="feature-card">
+          <span class="eyebrow">Outputs</span>
+          <strong>Collectible design language docs.</strong>
+          <p>Generated directions are meant to be kept, compared, forked, and refined.</p>
+        </article>
+      </div>
+    </section>
+
+    <aside class="auth-column" id="access">
+      {{ auth_panel|safe }}
+      <section class="status-panel">
+        <span class="eyebrow">Runtime Notes</span>
+        <h2>Server-first, no SPA shell</h2>
+        <p>
+          The app is rendered by Rust, enhanced with Datastar, and uses a tiny Bun-built Clerk layer only for auth handoff. No React, no Solid, no client router.
+        </p>
+      </section>
+    </aside>
+  </main>
+</div>
+{% endblock %}
+
