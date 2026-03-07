@@ -1,5 +1,23 @@
-target/
-node_modules/
+/target/
+/node_modules/
+
+# Local environment files.
 .env
+.env.*
+!.env.example
+
+# Generated frontend bundle.
+/static/app.js
+/static/app.js.map
+
+# Local tool and editor state.
 .DS_Store
-static/app.js
+.vscode/
+.idea/
+.direnv/
+.fly/
+
+# Local reports, caches, and scratch output.
+coverage/
+tmp/
+*.log
