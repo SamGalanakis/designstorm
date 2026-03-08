@@ -2127,6 +2127,35 @@ async function deleteBoardNode(nodeId: string): Promise<void> {
   }
 }
 
+async function deleteRun(runId: string): Promise<void> {
+  state.runs = state.runs.filter((run) => run.id !== runId);
+  state.edges = state.edges.filter((edge) => edge.sourceId !== runId && edge.targetId !== runId);
+  state.positions.delete(runId);
+  state.lineage.delete(runId);
+  state.lineage.forEach((parents, childId) => {
+    const nextParents = parents.filter((parentId) => parentId !== runId);
+    if (nextParents.length !== parents.length) state.lineage.set(childId, nextParents);
+  });
+  if (state.activeRunId === runId) state.activeRunId = null;
+  if (state.focusedRunId === runId) state.focusedRunId = null;
+  if (state.combineSourceId === runId) state.combineSourceId = null;
+
+  const el = document.querySelector(`.storm-node[data-run-id="${runId}"]`);
+  el?.remove();
+  renderRuns();
+  renderConnections();
+  renderInspector();
+  renderFocus();
+  syncRootsNavigatorState();
+  syncUrl(false);
+
+  try {
+    await fetch(`/storms/${runId}`, { method: "DELETE", credentials: "include" });
+  } catch (err) {
+    console.error("Failed to delete run:", err);
+  }
+}
+
 // ─── Dynamic edge handles ───
 
 let activeEdgeHandle: HTMLElement | null = null;
@@ -2509,6 +2538,7 @@ function getRadialItems(): RadialItem[] {
       { id: "fullscreen", angle: 90, label: "Fullscreen", icon: "⛶", action: () => { if (state.activeRunId) openFullscreen(state.activeRunId); } },
       { id: "combine", angle: 180, label: "Combine", icon: "⊕", action: () => { if (state.activeRunId) beginCombine(state.activeRunId); } },
       { id: "generate", angle: 270, label: "Generate", icon: "✦", variant: "primary", action: showComposer },
+      { id: "delete", angle: 315, label: "Delete", icon: "✕", variant: "danger" as const, action: () => { if (state.activeRunId) void deleteRun(state.activeRunId); } },
     ];
   }
   // Board node selected
