@@ -5,6 +5,7 @@
   class="storm-app"
   data-signals:account-open="false"
   data-signals:settings-open="false"
+  data-signals:roots-open="false"
   data-signals:prompt="''"
   data-signals:draft-mode="''"
   data-signals:source-ids="''"
@@ -29,14 +30,22 @@
     class="roots-trigger"
     type="button"
     aria-label="Open roots navigator"
-    aria-expanded="false"
+    data-on:click="$rootsOpen = !$rootsOpen"
+    data-attr:aria-expanded="$rootsOpen"
     aria-controls="roots-panel"
   >
     <span class="roots-trigger-label">Roots</span>
     <span id="roots-count" class="roots-trigger-count">0</span>
   </button>
 
-  <section id="roots-panel" class="roots-panel" hidden aria-hidden="true" aria-labelledby="roots-panel-title">
+  <section
+    id="roots-panel"
+    class="roots-panel"
+    style="display: none"
+    data-show="$rootsOpen"
+    data-on:click__outside="$rootsOpen = false"
+    aria-labelledby="roots-panel-title"
+  >
     <div class="roots-panel-header">
       <span class="eyebrow">Navigator</span>
       <h2 id="roots-panel-title">Roots</h2>
@@ -45,9 +54,15 @@
     <div id="roots-list" class="roots-list"></div>
   </section>
 
-  <div id="account-backdrop" class="backdrop" style="display: none" data-show="$accountOpen || $settingsOpen" data-on:click="$accountOpen = false; $settingsOpen = false"></div>
-
-  <section id="account-sheet" class="sheet" role="dialog" aria-label="Account" style="display: none" data-show="$accountOpen && !$settingsOpen">
+  <section
+    id="account-sheet"
+    class="sheet"
+    role="dialog"
+    aria-label="Account"
+    style="display: none"
+    data-show="$accountOpen && !$settingsOpen"
+    data-on:click__outside="$accountOpen = false; $settingsOpen = false"
+  >
     <div class="sheet-header">
       <span class="eyebrow">Account</span>
       <h2>{{ viewer.name }}</h2>
@@ -68,7 +83,15 @@
     </div>
   </section>
 
-  <section id="settings-sheet" class="sheet" role="dialog" aria-label="Settings" style="display: none" data-show="$settingsOpen">
+  <section
+    id="settings-sheet"
+    class="sheet"
+    role="dialog"
+    aria-label="Settings"
+    style="display: none"
+    data-show="$settingsOpen"
+    data-on:click__outside="$accountOpen = false; $settingsOpen = false"
+  >
     <div class="sheet-header-row">
       <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on:click="$settingsOpen = false; $accountOpen = true">&lsaquo;</button>
       <div>

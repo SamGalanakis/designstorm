@@ -173,6 +173,7 @@ const BACKGROUND_CHUNK_BLEED_PX = 2;
 const MAX_BACKGROUND_CHUNKS = 36;
 const CONNECTION_PADDING = 240;
 const BOARD_PAN_WORLD_PADDING = 1400;
+const EMPTY_BOARD_PAN_WORLD_RADIUS = 1800;
 const MIN_BOARD_SCALE = 0.35;
 const MAX_BOARD_SCALE = 2.5;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
@@ -404,7 +405,16 @@ function getRootNavigatorItems(): RootNavigatorItem[] {
 
 function getPanConstraintWorldBounds(): WorldBounds | null {
   const runBounds = getRunWorldBounds();
-  if (!runBounds) return null;
+  if (!runBounds) {
+    const centerX = BOARD_WIDTH * 0.5;
+    const centerY = BOARD_HEIGHT * 0.5;
+    return createWorldBounds(
+      centerX - EMPTY_BOARD_PAN_WORLD_RADIUS,
+      centerY - EMPTY_BOARD_PAN_WORLD_RADIUS,
+      centerX + EMPTY_BOARD_PAN_WORLD_RADIUS,
+      centerY + EMPTY_BOARD_PAN_WORLD_RADIUS,
+    );
+  }
   return padWorldBounds(runBounds, BOARD_PAN_WORLD_PADDING);
 }
 
@@ -1273,31 +1283,13 @@ function updateBoardTransform(): void {
 
 function isRootsNavigatorOpen(): boolean {
   const panel = $("roots-panel");
-  return Boolean(panel && !panel.hidden);
-}
-
-function openRootsNavigator(): void {
-  const panel = $("roots-panel");
-  const trigger = $("roots-trigger") as HTMLButtonElement | null;
-  if (!panel || !trigger) return;
-  renderRootsNavigator();
-  panel.hidden = false;
-  panel.setAttribute("aria-hidden", "false");
-  trigger.setAttribute("aria-expanded", "true");
+  return Boolean(panel && getComputedStyle(panel).display !== "none");
 }
 
 function closeRootsNavigator(): void {
-  const panel = $("roots-panel");
   const trigger = $("roots-trigger") as HTMLButtonElement | null;
-  if (!panel || !trigger) return;
-  panel.hidden = true;
-  panel.setAttribute("aria-hidden", "true");
-  trigger.setAttribute("aria-expanded", "false");
-}
-
-function toggleRootsNavigator(): void {
-  if (isRootsNavigatorOpen()) closeRootsNavigator();
-  else openRootsNavigator();
+  if (!trigger || !isRootsNavigatorOpen()) return;
+  trigger.click();
 }
 
 function renderRootsNavigator(): void {
@@ -1315,7 +1307,7 @@ function renderRootsNavigator(): void {
   list.innerHTML = items.map((item, index) => {
     const branchLabel = item.branchSize === 1 ? "1 artifact" : `${item.branchSize} artifacts`;
     return `
-      <button class="root-item${item.isActive ? " is-active" : ""}" type="button" data-root-id="${escapeHtml(item.runId)}">
+      <button class="root-item${item.isActive ? " is-active" : ""}" type="button" data-root-id="${escapeHtml(item.runId)}" data-on:click="$rootsOpen = false">
         <div class="root-item-header">
           <h3 class="root-item-title">${escapeHtml(item.label)}</h3>
           <span class="root-badge">Root ${index + 1}</span>
@@ -1691,32 +1683,16 @@ function bindAppChrome(): void {
   window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); renderRootsNavigator(); });
 }
 
-function bindRootsNavigator(): void {
-  const trigger = $("roots-trigger") as HTMLButtonElement | null;
-  const panel = $("roots-panel");
+function bindRootsNavigatorActions(): void {
   const list = $("roots-list");
-  if (!trigger || !panel || !list) return;
-
-  trigger.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    toggleRootsNavigator();
-  });
+  if (!list) return;
 
   list.addEventListener("click", (e) => {
     const item = (e.target as HTMLElement).closest<HTMLElement>("[data-root-id]");
     const runId = item?.dataset.rootId;
     if (!runId) return;
-    closeRootsNavigator();
     setActiveRun(runId, { sync: true });
     centerRunInView(runId);
-  });
-
-  document.addEventListener("click", (e) => {
-    if (!isRootsNavigatorOpen()) return;
-    const target = e.target as HTMLElement;
-    if (target.closest("#roots-trigger") || target.closest("#roots-panel")) return;
-    closeRootsNavigator();
   });
 }
 
@@ -2071,7 +2047,7 @@ function bindStormApp(): void {
   bindCanvasInteractions();
   bindNodeInteractions();
   bindAppChrome();
-  bindRootsNavigator();
+  bindRootsNavigatorActions();
   bindRadialMenu();
   hydrateBoardFromDom();
 
