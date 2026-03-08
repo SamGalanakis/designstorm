@@ -1181,6 +1181,7 @@ async fn main() -> Result<(), AppError> {
         .route("/settings/provider/codex/poll", post(poll_codex_auth))
         .route("/settings/provider/logout", post(disconnect_provider))
         .route("/storms/generate", post(generate_storm_datastar))
+        .route("/storms/{id}", axum::routing::delete(delete_storm_run))
         .route("/telemetry/client", post(client_telemetry))
         .route("/api/storms", get(list_storms).post(create_storm))
         .route("/preview/{run_id}", get(preview_index_redirect))
@@ -1766,6 +1767,50 @@ async fn create_storm(
     Ok(Json(generate_storm_internal(&state, &viewer, input).await?))
 }
 
+async fn delete_storm_run(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM board_edges
+        WHERE owner_user_id = $1 AND (source_id = $2 OR target_id = $2)
+        "#,
+    )
+    .bind(viewer.id)
+    .bind(id)
+    .execute(&state.db)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE storm_runs
+        SET parent_ids = array_remove(parent_ids, $2)
+        WHERE owner_user_id = $1
+        "#,
+    )
+    .bind(viewer.id)
+    .bind(id)
+    .execute(&state.db)
+    .await?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM storm_runs
+        WHERE id = $1 AND owner_user_id = $2
+        "#,
+    )
+    .bind(id)
+    .bind(viewer.id)
+    .execute(&state.db)
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 async fn generate_storm_internal(
     state: &AppState,
     viewer: &Viewer,
@@ -1912,7 +1957,19 @@ async fn preview_index(
     let viewer = require_viewer(&state, &headers).await?;
     let run = get_owned_run(&state, viewer.id, run_id).await?;
     info!(user_id = %viewer.id, run_id = %run_id, "serving preview index");
-    let html = tokio::fs::read_to_string(run.workspace_dir.join("index.html")).await?;
+    let html = match tokio::fs::read_to_string(run.workspace_dir.join("index.html")).await {
+        Ok(html) => html,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            warn!(
+                user_id = %viewer.id,
+                run_id = %run_id,
+                workspace_dir = %run.workspace_dir.display(),
+                "preview workspace file missing"
+            );
+            render_missing_preview_html(&run)
+        }
+        Err(error) => return Err(AppError::Io(error)),
+    };
     let (html, removed_refresh_tags) = strip_meta_refresh_tags(&html);
     if removed_refresh_tags > 0 {
         warn!(
@@ -1958,7 +2015,13 @@ async fn preview_asset(
         normalized_path = %normalized_path,
         "serving preview asset"
     );
-    let bytes = tokio::fs::read(&asset_path).await?;
+    let bytes = match tokio::fs::read(&asset_path).await {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(StatusCode::NOT_FOUND.into_response());
+        }
+        Err(error) => return Err(AppError::Io(error)),
+    };
     let mime = from_path(&asset_path).first_or_octet_stream();
 
     Ok(Response::builder()
@@ -2876,6 +2939,13 @@ fn resolve_workspace_path(root: &StdPath, logical_path: &str) -> Result<PathBuf,
 
 fn normalize_workspace_asset_path(logical_path: &str) -> String {
     logical_path.trim_start_matches('/').to_string()
+}
+
+fn render_missing_preview_html(run: &StormRunRecord) -> String {
+    format!(
+        "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"><title>Preview unavailable</title><style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f0910;color:#d8e4ee;font-family:'IBM Plex Sans',system-ui,sans-serif}}main{{max-width:32rem;padding:32px;border:1px solid rgba(91,156,184,.2);border-radius:20px;background:rgba(16,17,24,.82);box-shadow:0 24px 80px rgba(0,0,0,.45)}}h1{{margin:0 0 12px;font-size:1.3rem}}p{{margin:0 0 10px;line-height:1.6;color:rgba(216,228,238,.8)}}code{{font-family:'IBM Plex Mono',monospace;font-size:.8rem;color:#8fc7e5}}</style></head><body><main><h1>Preview unavailable</h1><p>This artifact was created on a workspace that is no longer present on this instance.</p><p>The run metadata still exists, but the generated files for <code>{}</code> could not be found.</p><p>Generate it again to restore a live preview.</p></main></body></html>",
+        run.id
+    )
 }
 
 fn truncate_for_tool(content: &str, max_chars: usize) -> String {
