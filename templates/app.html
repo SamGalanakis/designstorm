@@ -51,7 +51,7 @@
       <h2 id="roots-panel-title">Roots</h2>
       <p class="text-muted">Jump to the seed branches on the board.</p>
     </div>
-    <div id="roots-list" class="roots-list"></div>
+    <div id="roots-list" class="roots-list">{{ roots_html|safe }}</div>
   </section>
 
   <section
@@ -120,6 +120,7 @@
       <input id="storm-draft-mode" data-bind:draft-mode type="hidden" value="">
       <input id="storm-source-ids" data-bind:source-ids type="hidden" value="">
       <input id="storm-status-signal" data-bind:status type="hidden" value="Seed a direction or select a card to branch from it.">
+      <input id="storm-latest-run-id" data-bind:latest-run-id type="hidden" value="">
 
       <textarea
         id="storm-prompt"

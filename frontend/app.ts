@@ -90,7 +90,6 @@ type StormState = {
   pointerState: PointerState;
   radialMenu: RadialMenuState;
   lastCursor: Point;
-  awaitingGeneratedRun: boolean;
   spacePanHeld: boolean;
 };
 
@@ -99,15 +98,6 @@ type WorldBounds = {
   minY: number;
   maxX: number;
   maxY: number;
-};
-
-type RootNavigatorItem = {
-  runId: string;
-  label: string;
-  summary: string;
-  createdLabel: string;
-  branchSize: number;
-  isActive: boolean;
 };
 
 type ChunkCoord = {
@@ -197,7 +187,6 @@ const state: StormState = {
   pointerState: null,
   radialMenu: { open: false, position: { x: 0, y: 0 }, selectedIndex: null },
   lastCursor: { x: 0, y: 0 },
-  awaitingGeneratedRun: false,
   spacePanHeld: false,
 };
 
@@ -228,11 +217,6 @@ function getConfig(): AppConfig {
 
 function escapeHtml(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-}
-
-function truncateText(value: string, max: number): string {
-  if (value.length <= max) return value;
-  return `${value.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -321,28 +305,6 @@ function getConnectionWorldBounds(): WorldBounds {
   return padWorldBounds(runBounds, CONNECTION_PADDING);
 }
 
-function getChildrenByParent(): Map<string, string[]> {
-  const children = new Map<string, string[]>();
-  state.lineage.forEach((parents, childId) => {
-    parents.forEach((parentId) => {
-      const next = children.get(parentId) ?? [];
-      next.push(childId);
-      children.set(parentId, next);
-    });
-  });
-  return children;
-}
-
-function getRootRunIds(): string[] {
-  const runIds = new Set(state.runs.map((run) => run.id));
-  return state.runs
-    .filter((run) => {
-      const parents = (state.lineage.get(run.id) ?? []).filter((parentId) => runIds.has(parentId));
-      return parents.length === 0;
-    })
-    .map((run) => run.id);
-}
-
 function getRootIdForRun(runId: string | null): string | null {
   if (!runId) return null;
   const runIds = new Set(state.runs.map((run) => run.id));
@@ -357,50 +319,6 @@ function getRootIdForRun(runId: string | null): string | null {
   }
 
   return runId;
-}
-
-function getRunDisplayLabel(run: StormRun, index: number): string {
-  const title = run.title.trim();
-  if (title && title.toLowerCase() !== "storm artifact") return title;
-  const prompt = run.prompt.trim().replace(/\s+/g, " ");
-  if (prompt) return truncateText(prompt, 42);
-  return `Root ${index + 1}`;
-}
-
-function formatRootCreatedLabel(createdAt: string): string {
-  const date = new Date(createdAt);
-  if (Number.isNaN(date.getTime())) return "Unknown date";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
-function getRootNavigatorItems(): RootNavigatorItem[] {
-  const childrenByParent = getChildrenByParent();
-  const activeRootId = getRootIdForRun(state.focusedRunId ?? state.activeRunId);
-  const roots = getRootRunIds()
-    .map((runId) => getRun(runId))
-    .filter((run): run is StormRun => Boolean(run));
-
-  return roots.map((run, index) => {
-    const seen = new Set<string>();
-    const stack = [...(childrenByParent.get(run.id) ?? [])];
-
-    while (stack.length > 0) {
-      const childId = stack.pop();
-      if (!childId || seen.has(childId)) continue;
-      seen.add(childId);
-      const next = childrenByParent.get(childId) ?? [];
-      next.forEach((nextId) => stack.push(nextId));
-    }
-
-    return {
-      runId: run.id,
-      label: getRunDisplayLabel(run, index),
-      summary: truncateText(run.summary.trim() || run.prompt.trim() || "Seed branch", 112),
-      createdLabel: formatRootCreatedLabel(run.createdAt),
-      branchSize: seen.size + 1,
-      isActive: activeRootId === run.id,
-    };
-  });
 }
 
 function getPanConstraintWorldBounds(): WorldBounds | null {
@@ -985,6 +903,11 @@ function setBoundValue(id: string, value: string): void {
   input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
+function getBoundValue(id: string): string {
+  const input = $(id) as HTMLInputElement | HTMLTextAreaElement | null;
+  return input?.value ?? "";
+}
+
 function redirectToApp(): void {
   if (window.location.pathname !== "/app") window.location.href = "/app";
 }
@@ -1221,7 +1144,7 @@ function setActiveRun(id: string | null, opts?: { sync?: boolean }): void {
   renderRuns();
   renderInspector();
   renderFocus();
-  renderRootsNavigator();
+  syncRootsNavigatorState();
   if (opts?.sync) syncUrl(false);
 }
 
@@ -1231,14 +1154,14 @@ function openFullscreen(id: string): void {
   renderRuns();
   renderInspector();
   renderFocus();
-  renderRootsNavigator();
+  syncRootsNavigatorState();
   syncUrl(false);
 }
 
 function closeFullscreen(): void {
   state.focusedRunId = null;
   renderFocus();
-  renderRootsNavigator();
+  syncRootsNavigatorState();
   syncUrl(false);
 }
 
@@ -1292,34 +1215,16 @@ function closeRootsNavigator(): void {
   trigger.click();
 }
 
-function renderRootsNavigator(): void {
+function syncRootsNavigatorState(): void {
   const list = $("roots-list");
   const count = $("roots-count");
   if (!list || !count) return;
-  const items = getRootNavigatorItems();
-  count.textContent = String(items.length);
-
-  if (items.length === 0) {
-    list.innerHTML = `<div class="root-item-empty">No root branches yet. Generate a seed to create the first branch.</div>`;
-    return;
-  }
-
-  list.innerHTML = items.map((item, index) => {
-    const branchLabel = item.branchSize === 1 ? "1 artifact" : `${item.branchSize} artifacts`;
-    return `
-      <button class="root-item${item.isActive ? " is-active" : ""}" type="button" data-root-id="${escapeHtml(item.runId)}" data-on:click="$rootsOpen = false">
-        <div class="root-item-header">
-          <h3 class="root-item-title">${escapeHtml(item.label)}</h3>
-          <span class="root-badge">Root ${index + 1}</span>
-        </div>
-        <p class="root-item-summary">${escapeHtml(item.summary)}</p>
-        <div class="root-item-meta">
-          <span>${escapeHtml(branchLabel)}</span>
-          <span>${escapeHtml(item.createdLabel)}</span>
-        </div>
-      </button>
-    `;
-  }).join("");
+  const buttons = Array.from(list.querySelectorAll<HTMLElement>("[data-root-id]"));
+  count.textContent = String(buttons.length);
+  const activeRootId = getRootIdForRun(state.focusedRunId ?? state.activeRunId);
+  buttons.forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.rootId === activeRootId);
+  });
 }
 
 function renderConnections(): void {
@@ -1354,7 +1259,6 @@ function renderConnections(): void {
 
 function hydrateBoardFromDom(): void {
   const container = $("storm-runs");
-  const previousCount = state.runs.length;
   if (!container) {
     state.runs = [];
     state.lineage = new Map();
@@ -1392,7 +1296,6 @@ function hydrateBoardFromDom(): void {
     "board_hydrated",
     {
       runCount: runs.length,
-      previousCount,
       activeRunId: state.activeRunId,
       focusedRunId: state.focusedRunId,
     },
@@ -1402,22 +1305,21 @@ function hydrateBoardFromDom(): void {
   if (state.activeRunId && !getRun(state.activeRunId)) state.activeRunId = null;
   if (state.focusedRunId && !getRun(state.focusedRunId)) state.focusedRunId = null;
 
-  if (state.awaitingGeneratedRun && runs.length > previousCount) {
-    const latest = runs.at(-1) ?? null;
-    state.awaitingGeneratedRun = false;
-    clearDraftContext({ keepStatus: true });
-    hideComposer({ preserveDraft: true });
-    if (latest) {
-      setStatus("Storm generated.");
-      setActiveRun(latest.id, { sync: true });
-    }
-  }
-
   applyUrlState();
   renderRuns();
   renderInspector();
   renderFocus();
-  renderRootsNavigator();
+  syncRootsNavigatorState();
+
+  const latestRunId = getBoundValue("storm-latest-run-id").trim();
+  if (latestRunId && getRun(latestRunId)) {
+    clearDraftContext({ keepStatus: true });
+    hideComposer({ preserveDraft: true });
+    setActiveRun(latestRunId, { sync: true });
+    centerRunInView(latestRunId);
+    setBoundValue("storm-latest-run-id", "");
+  }
+
   updateBoardTransform();
 }
 
@@ -1642,11 +1544,10 @@ function bindAppChrome(): void {
     if (!prompt) {
       e.preventDefault();
       e.stopImmediatePropagation();
-      state.awaitingGeneratedRun = false;
       setStatus("Seed prompt required.");
       return;
     }
-    state.awaitingGeneratedRun = true;
+    setBoundValue("storm-latest-run-id", "");
     setStatus("Generating storm...");
     reportClientEvent("storm_generate_clicked", {
       promptLength: prompt.length,
@@ -1680,7 +1581,7 @@ function bindAppChrome(): void {
   });
 
   // History
-  window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); renderRootsNavigator(); });
+  window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); syncRootsNavigatorState(); });
 }
 
 function bindRootsNavigatorActions(): void {
@@ -1694,6 +1595,11 @@ function bindRootsNavigatorActions(): void {
     setActiveRun(runId, { sync: true });
     centerRunInView(runId);
   });
+
+  const observer = new MutationObserver(() => {
+    syncRootsNavigatorState();
+  });
+  observer.observe(list, { childList: true, subtree: true });
 }
 
 function setAvatarInitials(): void {
@@ -2039,7 +1945,7 @@ function bindBoardObserver(): void {
 function bindStormApp(): void {
   if (getConfig().currentPath !== "/app") return;
   setAvatarInitials();
-  renderRootsNavigator();
+  syncRootsNavigatorState();
   renderDraftContext();
   initBoardBackground();
   updateBoardTransform();
