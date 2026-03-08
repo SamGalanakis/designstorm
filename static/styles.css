@@ -2215,6 +2215,63 @@ body.is-wiring .canvas { cursor: crosshair; }
   box-shadow: 0 0 20px rgba(91, 156, 184, 0.12);
 }
 
+.tool-dock-sub {
+  position: relative;
+}
+
+.tool-dock-caret {
+  font-size: 8px;
+  opacity: 0.5;
+  margin-left: 2px;
+}
+
+.tool-dock-sub-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(14, 22, 36, 0.95);
+  border: 1px solid rgba(91, 156, 184, 0.18);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), 0 0 1px rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(16px);
+  min-width: 90px;
+  z-index: 150;
+}
+
+.tool-dock-sub-menu[hidden] { display: none; }
+
+.tool-dock-sub-item {
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.tool-dock-sub-item:hover {
+  background: rgba(91, 156, 184, 0.14);
+  color: var(--text);
+}
+
+.tool-dock-sub-trigger.is-open {
+  background: rgba(91, 156, 184, 0.14);
+  border-color: rgba(91, 156, 184, 0.3);
+  color: var(--text);
+}
+
 /* ─── Board edge lines ─── */
 
 .board-edge-line {

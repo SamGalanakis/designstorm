@@ -3381,6 +3381,11 @@ function bindAppChrome(): void {
   window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); });
 }
 
+function closeAllSubMenus(): void {
+  document.querySelectorAll(".tool-dock-sub-menu").forEach((m) => m.setAttribute("hidden", ""));
+  document.querySelectorAll(".tool-dock-sub-trigger").forEach((t) => t.classList.remove("is-open"));
+}
+
 function bindToolDock(): void {
   const select = $("tool-select");
   const pan = $("tool-pan");
@@ -3400,6 +3405,36 @@ function bindToolDock(): void {
   addGenerate?.addEventListener("click", () => createBoardNode("generate", getViewportCenterWorld()));
   addEntropy?.addEventListener("click", () => createBoardNode("entropy", getViewportCenterWorld()));
   addInput?.addEventListener("click", () => createBoardNode("user_input", getViewportCenterWorld()));
+
+  // Subcategory triggers
+  document.querySelectorAll<HTMLElement>(".tool-dock-sub-trigger").forEach((trigger) => {
+    trigger.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const sub = trigger.closest(".tool-dock-sub");
+      const menu = sub?.querySelector(".tool-dock-sub-menu");
+      if (!menu) return;
+      const wasOpen = !menu.hasAttribute("hidden");
+      closeAllSubMenus();
+      if (!wasOpen) {
+        menu.removeAttribute("hidden");
+        trigger.classList.add("is-open");
+      }
+    });
+  });
+
+  // Sub-menu item clicks: create node and close menu
+  document.querySelectorAll<HTMLElement>(".tool-dock-sub-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      closeAllSubMenus();
+    });
+  });
+
+  // Close sub-menus when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!(e.target as HTMLElement).closest(".tool-dock-sub")) {
+      closeAllSubMenus();
+    }
+  });
 
   $("tool-add-image")?.addEventListener("click", () => createBoardNode("image", getViewportCenterWorld()));
   $("tool-add-palette")?.addEventListener("click", () => createBoardNode("color_palette", getViewportCenterWorld()));
