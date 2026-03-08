@@ -145,6 +145,21 @@
     </div>
   </form>
 
+  <form id="board-node-create-form" hidden>
+    <input id="board-node-create-type" name="node_type" type="hidden" value="">
+    <input id="board-node-create-x" name="position_x" type="hidden" value="">
+    <input id="board-node-create-y" name="position_y" type="hidden" value="">
+    <input id="board-node-create-source-id" name="source_id" type="hidden" value="">
+    <input id="board-node-create-source-type" name="source_type" type="hidden" value="">
+    <input id="board-node-create-source-anchor-side" name="source_anchor_side" type="hidden" value="">
+    <input id="board-node-create-source-anchor_t" name="source_anchor_t" type="hidden" value="">
+    <button
+      id="board-node-create-submit"
+      type="button"
+      data-on:click="@post('/nodes/create', {contentType: 'form', selector: '#board-node-create-form'})"
+    ></button>
+  </form>
+
   <section id="storm-canvas" class="canvas" aria-label="Design storm canvas">
     <div id="storm-background" class="board-background" aria-hidden="true"></div>
     <div class="canvas-grid" aria-hidden="true"></div>

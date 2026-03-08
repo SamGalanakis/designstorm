@@ -7,7 +7,7 @@ use async_stream::stream;
 use axum::{
     Router,
     body::Body,
-    extract::{Json, Path, State},
+    extract::{Form, Json, Path, State},
     http::{
         HeaderMap, HeaderValue, StatusCode,
         header::{
@@ -950,6 +950,17 @@ struct CreateNodeRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct CreateNodeFormRequest {
+    node_type: String,
+    position_x: f64,
+    position_y: f64,
+    source_id: Option<Uuid>,
+    source_type: Option<String>,
+    source_anchor_side: Option<String>,
+    source_anchor_t: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct UpdatePositionRequest {
     position_x: f64,
     position_y: f64,
@@ -1175,6 +1186,7 @@ async fn main() -> Result<(), AppError> {
         .route("/preview/{run_id}", get(preview_index_redirect))
         .route("/preview/{run_id}/", get(preview_index))
         .route("/preview/{run_id}/{*path}", get(preview_asset))
+        .route("/nodes/create", post(create_board_node_datastar))
         .route("/nodes", post(create_board_node))
         .route("/nodes/{id}/reroll", post(reroll_board_node))
         .route("/nodes/{id}/lock", post(toggle_board_node_lock))
@@ -2975,39 +2987,74 @@ async fn fetch_wikipedia_random(http: &Client) -> Result<serde_json::Value, AppE
 
 // ─── Board node route handlers ───
 
-async fn create_board_node(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<CreateNodeRequest>,
-) -> Result<Json<BoardNodeSummary>, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    let valid_types = ["entropy", "user_input", "generate"];
-    if !valid_types.contains(&payload.node_type.as_str()) {
-        return Err(AppError::BadRequest(format!(
-            "Invalid node_type: {}",
-            payload.node_type
-        )));
-    }
+fn valid_board_node_type(node_type: &str) -> bool {
+    matches!(node_type, "entropy" | "user_input" | "generate")
+}
 
-    let content = if payload.node_type == "entropy" {
-        fetch_wikipedia_random(&state.http).await?
+fn valid_board_connection(source_type: &str, target_type: &str) -> bool {
+    matches!(
+        (source_type, target_type),
+        ("entropy", "generate")
+            | ("user_input", "generate")
+            | ("design", "generate")
+            | ("generate", "design")
+    )
+}
+
+async fn default_board_node_content(
+    state: &AppState,
+    node_type: &str,
+) -> Result<serde_json::Value, AppError> {
+    if node_type == "entropy" {
+        fetch_wikipedia_random(&state.http).await
     } else {
-        json!({})
-    };
+        Ok(json!({}))
+    }
+}
 
-    let row = sqlx::query_as::<_, BoardNodeRow>(
+async fn insert_board_node(
+    state: &AppState,
+    user_id: Uuid,
+    node_type: &str,
+    position_x: f64,
+    position_y: f64,
+) -> Result<BoardNodeRow, AppError> {
+    let content = default_board_node_content(state, node_type).await?;
+    Ok(sqlx::query_as::<_, BoardNodeRow>(
         r#"
         INSERT INTO board_nodes (owner_user_id, node_type, position_x, position_y, content)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height
         "#,
     )
-    .bind(viewer.id)
-    .bind(&payload.node_type)
-    .bind(payload.position_x)
-    .bind(payload.position_y)
+    .bind(user_id)
+    .bind(node_type)
+    .bind(position_x)
+    .bind(position_y)
     .bind(&content)
     .fetch_one(&state.db)
+    .await?)
+}
+
+async fn create_board_node(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateNodeRequest>,
+) -> Result<Json<BoardNodeSummary>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    if !valid_board_node_type(&payload.node_type) {
+        return Err(AppError::BadRequest(format!(
+            "Invalid node_type: {}",
+            payload.node_type
+        )));
+    }
+    let row = insert_board_node(
+        &state,
+        viewer.id,
+        &payload.node_type,
+        payload.position_x,
+        payload.position_y,
+    )
     .await?;
 
     info!(
@@ -3018,6 +3065,78 @@ async fn create_board_node(
     );
 
     Ok(Json(BoardNodeSummary::from(row)))
+}
+
+async fn create_board_node_datastar(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(payload): Form<CreateNodeFormRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    if !valid_board_node_type(&payload.node_type) {
+        return Ok(datastar_event_stream(Box::pin(stream! {
+            yield Ok::<_, Infallible>(patch_signals(json!({
+                "_status": format!("Invalid node type: {}", payload.node_type),
+            }).to_string()));
+            })));
+    }
+
+    if let Some(source_type) = payload.source_type.as_deref()
+        && payload.source_id.is_some()
+        && !valid_board_connection(source_type, &payload.node_type)
+    {
+        return Ok(datastar_event_stream(Box::pin(stream! {
+            yield Ok::<_, Infallible>(patch_signals(json!({
+                "_status": "Invalid node connection.",
+            }).to_string()));
+        })));
+    }
+
+    let row = insert_board_node(
+        &state,
+        viewer.id,
+        &payload.node_type,
+        payload.position_x,
+        payload.position_y,
+    )
+    .await?;
+
+    if let (Some(source_id), Some(source_type)) = (payload.source_id, payload.source_type.as_deref()) {
+        let _ = sqlx::query_as::<_, BoardEdgeRow>(
+            r#"
+            INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type,
+                                     source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'top', 0.5)
+            ON CONFLICT (source_id, target_id) DO UPDATE SET
+                source_type = EXCLUDED.source_type,
+                source_anchor_side = EXCLUDED.source_anchor_side,
+                source_anchor_t = EXCLUDED.source_anchor_t,
+                target_anchor_side = EXCLUDED.target_anchor_side,
+                target_anchor_t = EXCLUDED.target_anchor_t
+            RETURNING id, owner_user_id, source_id, source_type, target_id, target_type,
+                      source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t
+            "#,
+        )
+        .bind(viewer.id)
+        .bind(source_id)
+        .bind(source_type)
+        .bind(row.id)
+        .bind(&payload.node_type)
+        .bind(&payload.source_anchor_side)
+        .bind(payload.source_anchor_t)
+        .fetch_one(&state.db)
+        .await?;
+    }
+
+    let board_html = render_storm_board_html(&state, viewer.id).await?;
+    Ok(datastar_event_stream(Box::pin(stream! {
+        yield Ok::<_, Infallible>(
+            PatchElements::new(board_html)
+                .selector("#storm-runs")
+                .mode(ElementPatchMode::Outer)
+                .write_as_axum_sse_event(),
+        );
+    })))
 }
 
 async fn reroll_board_node(

@@ -141,6 +141,12 @@ type ChunkCoord = {
   y: number;
 };
 
+type CreateBoardNodeOptions = {
+  sourceId?: string;
+  sourceType?: string;
+  sourceAnchor?: AnchorPoint;
+};
+
 type ChunkRecord = {
   key: string;
   coord: ChunkCoord;
@@ -2016,97 +2022,28 @@ function bindNodeInteractions(): void {
 
 // ─── Board node interactions (entropy, etc.) ───
 
-async function createBoardNode(nodeType: string, worldPos: Point): Promise<void> {
-  try {
-    const resp = await fetch("/nodes", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ node_type: nodeType, position_x: worldPos.x, position_y: worldPos.y }),
-    });
-    if (!resp.ok) { console.error("Failed to create board node:", resp.statusText); return; }
-    const data = await resp.json() as BoardNode & { content: Record<string, unknown> };
-
-    // Add to client state
-    const node: BoardNode = {
-      id: data.id,
-      nodeType: data.nodeType,
-      positionX: data.positionX,
-      positionY: data.positionY,
-      content: data.content,
-      locked: data.locked,
-    };
-    state.boardNodes.push(node);
-    state.positions.set(node.id, { x: node.positionX, y: node.positionY });
-
-    // Create DOM element
-    const container = $("storm-runs");
-    if (!container) return;
-    const article = document.createElement("article");
-    article.className = `board-node board-node-${node.nodeType}`;
-    article.dataset.nodeId = node.id;
-    article.dataset.nodeType = node.nodeType;
-    article.dataset.positionX = String(node.positionX);
-    article.dataset.positionY = String(node.positionY);
-    article.dataset.content = JSON.stringify(node.content);
-    article.dataset.locked = String(node.locked);
-
-    if (node.nodeType === "entropy") {
-      const title = (node.content.title as string) ?? "Random page";
-      const url = (node.content.url as string) ?? "";
-      article.innerHTML = `
-        <div class="entropy-shell">
-          <div class="entropy-header">
-            <span class="eyebrow entropy-eyebrow">Entropy</span>
-            <div class="entropy-actions">
-              <button class="entropy-btn" title="Re-roll"
-                data-on:click__prevent="@post('/nodes/${node.id}/reroll')">&#x27F3;</button>
-              <button class="entropy-btn" title="Toggle lock"
-                data-on:click__prevent="@post('/nodes/${node.id}/lock')">${node.locked ? "&#x1F512;" : "&#x1F513;"}</button>
-            </div>
-          </div>
-          <div class="entropy-preview">
-            <iframe src="${escapeHtml(url)}" loading="lazy" sandbox="allow-scripts allow-forms allow-modals" referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true"></iframe>
-          </div>
-          <div class="entropy-label">${escapeHtml(title)}</div>
-        </div>`;
-    } else if (node.nodeType === "generate") {
-      article.innerHTML = `
-        <div class="generate-shell">
-          <div class="generate-header">
-            <span class="eyebrow generate-eyebrow">Generate</span>
-          </div>
-          <div class="generate-inputs" id="gen-inputs-${node.id}">
-            <span class="generate-placeholder">Wire inputs here</span>
-          </div>
-          <button class="generate-run-btn" data-node-action="run" title="Run generation"
-            data-on:click__prevent="@post('/nodes/${node.id}/run')">
-            <span class="generate-run-icon">&#x25B6;</span>
-          </button>
-        </div>`;
-    } else if (node.nodeType === "user_input") {
-      const text = (node.content.text as string) ?? "";
-      const images = (node.content.images as string[]) ?? [];
-      const thumbsHtml = images.map((src: string) =>
-        `<img src="${src}" class="input-image-thumb" title="Double-click to enlarge" />`
-      ).join("");
-      article.innerHTML = `
-        <div class="input-shell">
-          <div class="input-header">
-            <span class="eyebrow input-eyebrow">Input</span>
-          </div>
-          <div class="input-body" contenteditable="true" data-placeholder="Type here...">${escapeHtml(text)}${thumbsHtml}</div>
-        </div>`;
-    }
-
-    article.style.transform = `translate(${node.positionX}px, ${node.positionY}px)`;
-    container.appendChild(article);
-    renderBoardNodes();
-    renderConnections();
-    updateBoardTransform();
-  } catch (err) {
-    console.error("Failed to create board node:", err);
+function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNodeOptions): void {
+  const typeInput = $("board-node-create-type") as HTMLInputElement | null;
+  const xInput = $("board-node-create-x") as HTMLInputElement | null;
+  const yInput = $("board-node-create-y") as HTMLInputElement | null;
+  const sourceIdInput = $("board-node-create-source-id") as HTMLInputElement | null;
+  const sourceTypeInput = $("board-node-create-source-type") as HTMLInputElement | null;
+  const sourceAnchorSideInput = $("board-node-create-source-anchor-side") as HTMLInputElement | null;
+  const sourceAnchorTInput = $("board-node-create-source-anchor_t") as HTMLInputElement | null;
+  const submit = $("board-node-create-submit") as HTMLButtonElement | null;
+  if (!typeInput || !xInput || !yInput || !sourceIdInput || !sourceTypeInput || !sourceAnchorSideInput || !sourceAnchorTInput || !submit) {
+    console.error("Board node create form is missing.");
+    return;
   }
+
+  typeInput.value = nodeType;
+  xInput.value = String(worldPos.x);
+  yInput.value = String(worldPos.y);
+  sourceIdInput.value = opts?.sourceId ?? "";
+  sourceTypeInput.value = opts?.sourceType ?? "";
+  sourceAnchorSideInput.value = opts?.sourceAnchor?.side ?? "";
+  sourceAnchorTInput.value = opts?.sourceAnchor ? String(opts.sourceAnchor.t) : "";
+  submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }
 
 async function createBoardEdge(
@@ -2542,13 +2479,12 @@ function getRadialItems(): RadialItem[] {
   if (pendingWireSource) {
     const wire = pendingWireSource;
     const worldPos = wire.dropWorld;
-    const makeAndConnect = async (nodeType: string) => {
-      await createBoardNode(nodeType, worldPos);
-      const newNode = state.boardNodes[state.boardNodes.length - 1];
-      if (newNode) {
-        const targetAnchor: AnchorPoint = { side: "top", t: 0.5, worldX: worldPos.x, worldY: worldPos.y };
-        await createBoardEdge(wire.id, wire.type, newNode.id, newNode.nodeType, wire.anchor, targetAnchor);
-      }
+    const makeAndConnect = (nodeType: string) => {
+      createBoardNode(nodeType, worldPos, {
+        sourceId: wire.id,
+        sourceType: wire.type,
+        sourceAnchor: wire.anchor,
+      });
       pendingWireSource = null;
     };
     // Only show valid connection targets for this source type
