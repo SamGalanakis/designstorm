@@ -1692,154 +1692,31 @@
           return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
         }
 
-        float fbm3(vec3 p) {
-          float v = 0.0, a = 0.5;
-          for (int i = 0; i < 3; i++) {
-            v += a * snoise(p);
-            p = p * 2.0 + vec3(100.0);
-            a *= 0.5;
-          }
-          return v;
-        }
-
-        float fbm5(vec3 p) {
-          float v = 0.0, a = 0.5;
-          for (int i = 0; i < 5; i++) {
-            v += a * snoise(p);
-            p = p * 2.0 + vec3(100.0);
-            a *= 0.5;
-          }
-          return v;
-        }
-
-        // ─── OKLab / OKLCH → sRGB ───
-        vec3 oklabToLinearSrgb(vec3 lab) {
-          float l_ = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
-          float m_ = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
-          float s_ = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;
-          float l3 = l_ * l_ * l_;
-          float m3 = m_ * m_ * m_;
-          float s3 = s_ * s_ * s_;
-          return vec3(
-            +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3,
-            -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
-            -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3
-          );
-        }
-
-        vec3 oklchToSrgb(float L, float C, float h) {
-          float a = C * cos(h);
-          float b = C * sin(h);
-          vec3 lin = oklabToLinearSrgb(vec3(L, a, b));
-          // linear → sRGB gamma
-          return pow(clamp(lin, 0.0, 1.0), vec3(1.0 / 2.2));
-        }
-
-        // a single rounded "puff" — smoothstep blob at a noise-displaced center
-        float puff(vec2 uv, vec2 center, float radius, float seed) {
-          // warp the position slightly so puffs aren't perfect circles
-          vec2 offset = vec2(
-            snoise(vec3(uv * 3.0, seed)),
-            snoise(vec3(uv * 3.0 + 7.0, seed))
-          ) * 0.08;
-          float d = distance(uv + offset, center);
-          return smoothstep(radius, radius * 0.15, d);
-        }
-
         void main() {
           vec2 uv = gl_FragCoord.xy / u_res;
-          // correct for aspect ratio
-          float aspect = u_res.x / u_res.y;
-          vec2 auv = vec2(uv.x * aspect, uv.y);
-          float t = 42.0;
+          vec3 p = vec3(uv * u_res / 3.0, 42.0);
 
-          // ─── scattered puff layers ───
-          // each layer has puffs at noise-driven positions with varying size
-          float accum = 0.0;   // height accumulator
-          float hueAccum = 0.0;
-          float totalWeight = 0.0;
+          // fine grain — woven cloth / felt texture
+          float n1 = snoise(p);
+          float n2 = snoise(p * 2.0 + 100.0);
+          float n3 = snoise(p * 4.0 + 200.0);
+          float n4 = snoise(p * 8.0 + 300.0);
+          float grain = n1 * 0.4 + n2 * 0.3 + n3 * 0.2 + n4 * 0.1;
+          grain = grain * 0.5 + 0.5;
 
-          // large puffs — background atmosphere
-          for (int i = 0; i < 6; i++) {
-            float fi = float(i);
-            vec2 center = vec2(
-              snoise(vec3(fi * 1.7, 0.0, t)) * 0.5 + 0.5,
-              snoise(vec3(0.0, fi * 1.7, t)) * 0.5 + 0.5
-            );
-            center.x *= aspect;
-            float radius = 0.25 + snoise(vec3(fi * 3.1, t, 0.0)) * 0.1;
-            float p = puff(auv, center, radius, fi * 5.0 + t);
-            float w = 0.6 + fi * 0.05;
-            accum += p * w;
-            hueAccum += p * w * (fi / 6.0);
-            totalWeight += w * 0.5;
-          }
+          // slow tonal drift across the surface
+          float drift = snoise(vec3(uv * 1.6, 42.0)) * 0.5 + 0.5;
+          float drift2 = snoise(vec3(uv * 0.8 + 50.0, 42.0)) * 0.5 + 0.5;
+          float variation = drift * 0.6 + drift2 * 0.4;
 
-          // medium puffs — the main visible tufts
-          for (int i = 0; i < 10; i++) {
-            float fi = float(i);
-            vec2 center = vec2(
-              snoise(vec3(fi * 2.3 + 50.0, 10.0, t)) * 0.6 + 0.5,
-              snoise(vec3(10.0, fi * 2.3 + 50.0, t)) * 0.6 + 0.5
-            );
-            center.x *= aspect;
-            float radius = 0.12 + snoise(vec3(fi * 4.7, t + 20.0, 0.0)) * 0.06;
-            float p = puff(auv, center, radius, fi * 7.0 + t + 100.0);
-            float w = 0.8 + fi * 0.03;
-            accum += p * w;
-            hueAccum += p * w * (fi / 10.0);
-            totalWeight += w * 0.5;
-          }
+          // base color — tight indigo range
+          vec3 bg = vec3(11.0/255.0, 17.0/255.0, 32.0/255.0);
+          // grain adds texture
+          vec3 color = bg + (grain - 0.5) * 0.10;
+          // drift shifts toward slightly lighter/darker
+          color += (variation - 0.5) * 0.025;
 
-          // small puffs — fine detail tufts
-          for (int i = 0; i < 8; i++) {
-            float fi = float(i);
-            vec2 center = vec2(
-              snoise(vec3(fi * 3.1 + 100.0, 30.0, t)) * 0.7 + 0.5,
-              snoise(vec3(30.0, fi * 3.1 + 100.0, t)) * 0.7 + 0.5
-            );
-            center.x *= aspect;
-            float radius = 0.06 + snoise(vec3(fi * 5.3, t + 40.0, 0.0)) * 0.03;
-            float p = puff(auv, center, radius, fi * 11.0 + t + 200.0);
-            float w = 0.4;
-            accum += p * w;
-            hueAccum += p * w * (fi / 8.0);
-            totalWeight += w * 0.5;
-          }
-
-          // normalize
-          float height = accum / totalWeight;
-          float hueBlend = totalWeight > 0.0 ? hueAccum / (accum + 0.001) : 0.5;
-
-          // ─── lighting from height gradient ───
-          float eps = 0.002;
-          // cheap finite difference using the puff accumulator's local variation
-          float nx = snoise(vec3((auv + vec2(eps, 0.0)) * 2.0, t));
-          float ny = snoise(vec3((auv + vec2(0.0, eps)) * 2.0, t));
-          float nc = snoise(vec3(auv * 2.0, t));
-          vec3 normal = normalize(vec3(
-            (height + nc - nx) * 8.0,
-            (height + nc - ny) * 8.0,
-            1.0
-          ));
-          vec3 lightDir = normalize(vec3(0.4, 0.6, 0.8));
-          float light = 0.45 + max(dot(normal, lightDir), 0.0) * 0.55;
-
-          // ─── color from OKLCH ───
-          float hueRad = radians(195.0 + hueBlend * 45.0);
-          float L = 0.13 + height * 0.08 + light * 0.05;
-          float C_val = 0.02 + height * 0.025;
-          vec3 color = oklchToSrgb(L, C_val, hueRad);
-
-          // ─── grain — fine fibre texture ───
-          float grain = fbm5(vec3(uv * u_res / 2.8, t)) * 0.5 + 0.5;
-          color += (grain - 0.5) * 0.07;
-
-          // vignette
-          float vig = smoothstep(0.0, 0.85, distance(uv, vec2(0.5)));
-          color -= vig * 0.015;
-
-          fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+          fragColor = vec4(color, 1.0);
         }
       `;
 

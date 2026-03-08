@@ -100,9 +100,9 @@
   </form>
 
   <section id="storm-canvas" class="canvas" aria-label="Design storm canvas">
+    <div id="storm-background" class="board-background" aria-hidden="true"></div>
     <div class="canvas-grid" aria-hidden="true"></div>
     <div id="storm-board" class="board">
-      <div id="storm-background" class="board-background" aria-hidden="true"></div>
       <svg id="storm-lines" class="board-lines" aria-hidden="true"></svg>
       {{ board_html|safe }}
     </div>

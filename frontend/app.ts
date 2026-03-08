@@ -126,11 +126,14 @@ type BackgroundRenderer = {
 
 type BackgroundState = {
   container: HTMLElement | null;
+  displayCanvas: HTMLCanvasElement | null;
+  displayCtx: CanvasRenderingContext2D | null;
   renderer: BackgroundRenderer | null;
   chunks: Map<string, ChunkRecord>;
   queue: string[];
   queued: Set<string>;
   renderRaf: number | null;
+  drawRaf: number | null;
   fallback: boolean;
   seed: number;
 };
@@ -157,6 +160,7 @@ const INITIAL_PAN: Point = { x: 160, y: 120 };
 const BACKGROUND_CHUNK_WORLD_SIZE = 1536;
 const BACKGROUND_CHUNK_PIXEL_SIZE = 768;
 const BACKGROUND_CHUNK_OVERSCAN = 1;
+const BACKGROUND_CHUNK_BLEED_PX = 2;
 const MAX_BACKGROUND_CHUNKS = 36;
 const CONNECTION_PADDING = 240;
 
@@ -184,11 +188,14 @@ const state: StormState = {
 
 const backgroundState: BackgroundState = {
   container: null,
+  displayCanvas: null,
+  displayCtx: null,
   renderer: null,
   chunks: new Map(),
   queue: [],
   queued: new Set(),
   renderRaf: null,
+  drawRaf: null,
   fallback: false,
   seed: 7.137,
 };
@@ -286,6 +293,26 @@ function getChunkDistanceSq(coord: ChunkCoord, bounds: WorldBounds): number {
   return dx * dx + dy * dy;
 }
 
+function getChunkWorldPerPixel(): number {
+  return BACKGROUND_CHUNK_WORLD_SIZE / BACKGROUND_CHUNK_PIXEL_SIZE;
+}
+
+function getChunkBleedWorld(): number {
+  return getChunkWorldPerPixel() * BACKGROUND_CHUNK_BLEED_PX;
+}
+
+function getRenderedChunkPixelSize(): number {
+  return BACKGROUND_CHUNK_PIXEL_SIZE + BACKGROUND_CHUNK_BLEED_PX * 2;
+}
+
+function getBackgroundDisplayScale(): number {
+  return Math.min(window.devicePixelRatio || 1, 1.5);
+}
+
+function intersectsWorldBounds(a: WorldBounds, b: WorldBounds): boolean {
+  return a.minX < b.maxX && a.maxX > b.minX && a.minY < b.maxY && a.maxY > b.minY;
+}
+
 function clearBackgroundChunks(): void {
   backgroundState.chunks.forEach((record) => record.canvas.remove());
   backgroundState.chunks.clear();
@@ -295,12 +322,19 @@ function clearBackgroundChunks(): void {
     cancelAnimationFrame(backgroundState.renderRaf);
     backgroundState.renderRaf = null;
   }
+  if (backgroundState.drawRaf !== null) {
+    cancelAnimationFrame(backgroundState.drawRaf);
+    backgroundState.drawRaf = null;
+  }
 }
 
 function setBackgroundFallback(reason: string): void {
   clearBackgroundChunks();
   backgroundState.fallback = true;
   backgroundState.renderer = null;
+  backgroundState.displayCtx = null;
+  backgroundState.displayCanvas?.remove();
+  backgroundState.displayCanvas = null;
   backgroundState.container?.classList.add("is-fallback");
   reportClientEvent("board_background_fallback", { reason }, { cooldownMs: 10000 });
 }
@@ -320,8 +354,8 @@ function compileBackgroundShader(gl: WebGL2RenderingContext, type: number, sourc
 
 function createBackgroundRenderer(): BackgroundRenderer | null {
   const canvas = document.createElement("canvas");
-  canvas.width = BACKGROUND_CHUNK_PIXEL_SIZE;
-  canvas.height = BACKGROUND_CHUNK_PIXEL_SIZE;
+  canvas.width = getRenderedChunkPixelSize();
+  canvas.height = getRenderedChunkPixelSize();
 
   const gl = canvas.getContext("webgl2", {
     alpha: false,
@@ -510,16 +544,98 @@ function renderBackgroundChunk(record: ChunkRecord): void {
   const renderer = backgroundState.renderer;
   if (!renderer) return;
   const origin = getChunkWorldOrigin(record.coord);
+  const bleedWorld = getChunkBleedWorld();
   const { gl, program, uChunkOrigin, uWorldPerPixel, uSeed, canvas } = renderer;
   gl.useProgram(program);
   gl.viewport(0, 0, canvas.width, canvas.height);
-  gl.uniform2f(uChunkOrigin, origin.x, origin.y);
-  gl.uniform1f(uWorldPerPixel, BACKGROUND_CHUNK_WORLD_SIZE / BACKGROUND_CHUNK_PIXEL_SIZE);
+  gl.uniform2f(uChunkOrigin, origin.x - bleedWorld, origin.y - bleedWorld);
+  gl.uniform1f(uWorldPerPixel, getChunkWorldPerPixel());
   gl.uniform1f(uSeed, backgroundState.seed);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   record.ctx.clearRect(0, 0, record.canvas.width, record.canvas.height);
   record.ctx.drawImage(canvas, 0, 0, record.canvas.width, record.canvas.height);
-  record.canvas.classList.add("is-ready");
+}
+
+function ensureBackgroundDisplayCanvas(): void {
+  if (!backgroundState.container || backgroundState.displayCanvas) return;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+  if (!ctx) {
+    setBackgroundFallback("display_canvas_unavailable");
+    return;
+  }
+  canvas.className = "board-background-canvas";
+  ctx.imageSmoothingEnabled = true;
+  backgroundState.container.appendChild(canvas);
+  backgroundState.displayCanvas = canvas;
+  backgroundState.displayCtx = ctx;
+}
+
+function resizeBackgroundDisplayCanvas(): boolean {
+  ensureBackgroundDisplayCanvas();
+  const canvas = backgroundState.displayCanvas;
+  if (!canvas || !backgroundState.container) return false;
+  const rect = backgroundState.container.getBoundingClientRect();
+  const scale = getBackgroundDisplayScale();
+  const nextWidth = Math.max(1, Math.round(rect.width * scale));
+  const nextHeight = Math.max(1, Math.round(rect.height * scale));
+  if (canvas.width === nextWidth && canvas.height === nextHeight) return false;
+  canvas.width = nextWidth;
+  canvas.height = nextHeight;
+  return true;
+}
+
+function drawBackgroundPresentation(): void {
+  backgroundState.drawRaf = null;
+  if (backgroundState.fallback) return;
+  const ctx = backgroundState.displayCtx;
+  const canvas = backgroundState.displayCanvas;
+  if (!ctx || !canvas) return;
+
+  resizeBackgroundDisplayCanvas();
+  const bounds = getVisibleWorldBounds();
+  const pixelPerWorldX = canvas.width / Math.max(1, bounds.maxX - bounds.minX);
+  const pixelPerWorldY = canvas.height / Math.max(1, bounds.maxY - bounds.minY);
+  const visibleBounds = bounds;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#15131a";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const sourceInset = BACKGROUND_CHUNK_BLEED_PX;
+  backgroundState.chunks.forEach((record) => {
+    if (record.state !== "ready") return;
+    const origin = getChunkWorldOrigin(record.coord);
+    const chunkBounds = createWorldBounds(
+      origin.x,
+      origin.y,
+      origin.x + BACKGROUND_CHUNK_WORLD_SIZE,
+      origin.y + BACKGROUND_CHUNK_WORLD_SIZE,
+    );
+    if (!intersectsWorldBounds(chunkBounds, visibleBounds)) return;
+
+    const destX = (origin.x - visibleBounds.minX) * pixelPerWorldX;
+    const destY = (origin.y - visibleBounds.minY) * pixelPerWorldY;
+    const destW = BACKGROUND_CHUNK_WORLD_SIZE * pixelPerWorldX;
+    const destH = BACKGROUND_CHUNK_WORLD_SIZE * pixelPerWorldY;
+
+    ctx.drawImage(
+      record.canvas,
+      sourceInset,
+      sourceInset,
+      BACKGROUND_CHUNK_PIXEL_SIZE,
+      BACKGROUND_CHUNK_PIXEL_SIZE,
+      destX,
+      destY,
+      destW,
+      destH,
+    );
+  });
+}
+
+function requestBackgroundPresentationDraw(): void {
+  if (backgroundState.fallback) return;
+  if (backgroundState.drawRaf !== null) return;
+  backgroundState.drawRaf = requestAnimationFrame(drawBackgroundPresentation);
 }
 
 function removeBackgroundChunk(key: string): void {
@@ -542,15 +658,10 @@ function ensureBackgroundChunk(coord: ChunkCoord): ChunkRecord | null {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
   if (!ctx) return null;
-  canvas.width = BACKGROUND_CHUNK_PIXEL_SIZE;
-  canvas.height = BACKGROUND_CHUNK_PIXEL_SIZE;
-  canvas.className = "board-chunk";
-  canvas.style.width = `${BACKGROUND_CHUNK_WORLD_SIZE}px`;
-  canvas.style.height = `${BACKGROUND_CHUNK_WORLD_SIZE}px`;
-  const origin = getChunkWorldOrigin(coord);
-  canvas.style.transform = `translate(${origin.x}px, ${origin.y}px)`;
+  const renderedChunkPixelSize = getRenderedChunkPixelSize();
+  canvas.width = renderedChunkPixelSize;
+  canvas.height = renderedChunkPixelSize;
   ctx.imageSmoothingEnabled = true;
-  backgroundState.container?.appendChild(canvas);
 
   const record: ChunkRecord = {
     key,
@@ -577,6 +688,7 @@ function scheduleBackgroundRender(): void {
       renderBackgroundChunk(record);
       record.state = "ready";
       record.lastUsedAt = performance.now();
+      requestBackgroundPresentationDraw();
     }
     if (backgroundState.queue.length > 0) scheduleBackgroundRender();
   });
@@ -632,6 +744,7 @@ function syncBoardBackground(): void {
 
   evictBackgroundChunks(required, bounds);
   scheduleBackgroundRender();
+  requestBackgroundPresentationDraw();
 }
 
 function initBoardBackground(): void {
@@ -639,13 +752,18 @@ function initBoardBackground(): void {
   if (!backgroundState.container) return;
   backgroundState.container.classList.remove("is-fallback");
   backgroundState.fallback = false;
+  ensureBackgroundDisplayCanvas();
+  resizeBackgroundDisplayCanvas();
   backgroundState.renderer = createBackgroundRenderer();
   if (!backgroundState.renderer) {
     setBackgroundFallback("webgl_unavailable");
     return;
   }
   syncBoardBackground();
-  window.addEventListener("resize", syncBoardBackground, { passive: true });
+  window.addEventListener("resize", () => {
+    resizeBackgroundDisplayCanvas();
+    syncBoardBackground();
+  }, { passive: true });
 }
 
 function reportClientEvent(
