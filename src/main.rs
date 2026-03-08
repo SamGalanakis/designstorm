@@ -58,7 +58,7 @@ use std::{
 };
 use thiserror::Error;
 use time::OffsetDateTime;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tower_http::{
     services::ServeDir,
@@ -79,7 +79,6 @@ struct AppState {
     session_encoding_key: EncodingKey,
     session_decoding_key: DecodingKey,
     clerk_decoding_key: DecodingKey,
-    storm_runs: Arc<RwLock<HashMap<Uuid, StormRunRecord>>>,
 }
 
 #[derive(Clone)]
@@ -410,6 +409,39 @@ impl StormRunRecord {
             submitted: self.submitted,
             created_at: self.created_at,
             parent_ids: self.parent_ids.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct StormRunRow {
+    id: Uuid,
+    owner_user_id: Uuid,
+    prompt: String,
+    title: String,
+    summary: String,
+    assistant_summary: String,
+    preview_url: String,
+    submitted: bool,
+    created_at: DateTime<Utc>,
+    workspace_dir: String,
+    parent_ids: Vec<Uuid>,
+}
+
+impl From<StormRunRow> for StormRunRecord {
+    fn from(row: StormRunRow) -> Self {
+        Self {
+            id: row.id,
+            owner_user_id: row.owner_user_id,
+            prompt: row.prompt,
+            title: row.title,
+            summary: row.summary,
+            assistant_summary: row.assistant_summary,
+            preview_url: row.preview_url,
+            submitted: row.submitted,
+            created_at: row.created_at,
+            workspace_dir: PathBuf::from(row.workspace_dir),
+            parent_ids: row.parent_ids,
         }
     }
 }
@@ -956,7 +988,6 @@ async fn main() -> Result<(), AppError> {
         session_encoding_key: EncodingKey::from_secret(config.session_secret.as_bytes()),
         session_decoding_key: DecodingKey::from_secret(config.session_secret.as_bytes()),
         clerk_decoding_key: DecodingKey::from_rsa_pem(config.clerk_jwt_public_key.as_bytes())?,
-        storm_runs: Arc::new(RwLock::new(HashMap::new())),
         config,
     };
 
@@ -1488,8 +1519,8 @@ async fn generate_storm_internal(
         workspace_dir: snapshot.workspace_dir,
         parent_ids: input.source_ids.clone(),
     };
+    store_storm_run(&state.db, &record).await?;
     let summary = record.summary_view();
-    state.storm_runs.write().await.insert(run_id, record);
     info!(
         user_id = %viewer.id,
         run_id = %run_id,
@@ -1552,12 +1583,14 @@ async fn preview_asset(
 ) -> Result<Response, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
     let run = get_owned_run(&state, viewer.id, run_id).await?;
-    let asset_path = resolve_workspace_path(&run.workspace_dir, &path)
+    let normalized_path = normalize_workspace_asset_path(&path);
+    let asset_path = resolve_workspace_path(&run.workspace_dir, &normalized_path)
         .map_err(AppError::BadRequest)?;
     info!(
         user_id = %viewer.id,
         run_id = %run_id,
         path = %path,
+        normalized_path = %normalized_path,
         "serving preview asset"
     );
     let bytes = tokio::fs::read(&asset_path).await?;
@@ -1856,14 +1889,29 @@ async fn render_roots_html(state: &AppState, user_id: Uuid) -> Result<String, Ap
 }
 
 async fn viewer_run_summaries(state: &AppState, user_id: Uuid) -> Vec<StormRunSummary> {
-    let runs = state.storm_runs.read().await;
-    let mut items = runs
-        .values()
-        .filter(|run| run.owner_user_id == user_id)
-        .map(StormRunRecord::summary_view)
-        .collect::<Vec<_>>();
-    items.sort_by(|left, right| left.created_at.cmp(&right.created_at));
-    items
+    match sqlx::query_as::<_, StormRunRow>(
+        r#"
+        SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url,
+               submitted, created_at, workspace_dir, parent_ids
+        FROM storm_runs
+        WHERE owner_user_id = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows
+            .into_iter()
+            .map(StormRunRecord::from)
+            .map(|run| run.summary_view())
+            .collect(),
+        Err(error) => {
+            error!(user_id = %user_id, error = %error, "failed to load storm runs");
+            Vec::new()
+        }
+    }
 }
 
 fn patch_signals(signals: String) -> Event {
@@ -2161,11 +2209,67 @@ async fn get_owned_run(
     user_id: Uuid,
     run_id: Uuid,
 ) -> Result<StormRunRecord, AppError> {
-    let runs = state.storm_runs.read().await;
-    match runs.get(&run_id) {
-        Some(run) if run.owner_user_id == user_id => Ok(run.clone()),
-        _ => Err(AppError::BadRequest("Storm run not found.".to_string())),
-    }
+    let run = sqlx::query_as::<_, StormRunRow>(
+        r#"
+        SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url,
+               submitted, created_at, workspace_dir, parent_ids
+        FROM storm_runs
+        WHERE id = $1 AND owner_user_id = $2
+        "#,
+    )
+    .bind(run_id)
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    run.map(StormRunRecord::from)
+        .ok_or_else(|| AppError::BadRequest("Storm run not found.".to_string()))
+}
+
+async fn store_storm_run(db: &PgPool, record: &StormRunRecord) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        INSERT INTO storm_runs (
+            id,
+            owner_user_id,
+            prompt,
+            title,
+            summary,
+            assistant_summary,
+            preview_url,
+            submitted,
+            created_at,
+            workspace_dir,
+            parent_ids
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (id) DO UPDATE
+        SET prompt = EXCLUDED.prompt,
+            title = EXCLUDED.title,
+            summary = EXCLUDED.summary,
+            assistant_summary = EXCLUDED.assistant_summary,
+            preview_url = EXCLUDED.preview_url,
+            submitted = EXCLUDED.submitted,
+            created_at = EXCLUDED.created_at,
+            workspace_dir = EXCLUDED.workspace_dir,
+            parent_ids = EXCLUDED.parent_ids
+        "#,
+    )
+    .bind(record.id)
+    .bind(record.owner_user_id)
+    .bind(&record.prompt)
+    .bind(&record.title)
+    .bind(&record.summary)
+    .bind(&record.assistant_summary)
+    .bind(&record.preview_url)
+    .bind(record.submitted)
+    .bind(record.created_at)
+    .bind(record.workspace_dir.to_string_lossy().to_string())
+    .bind(&record.parent_ids)
+    .execute(db)
+    .await?;
+
+    Ok(())
 }
 
 fn build_runtime_capabilities(with_web: bool) -> AgentCapabilities {
@@ -2395,6 +2499,10 @@ fn resolve_workspace_path(root: &StdPath, logical_path: &str) -> Result<PathBuf,
     }
 
     Ok(root.join(sanitized))
+}
+
+fn normalize_workspace_asset_path(logical_path: &str) -> String {
+    logical_path.trim_start_matches('/').to_string()
 }
 
 fn truncate_for_tool(content: &str, max_chars: usize) -> String {
