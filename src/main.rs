@@ -816,6 +816,120 @@ impl ToolProvider for StormToolProvider {
     }
 }
 
+// ─── Board nodes & edges ───
+
+#[derive(Debug, Clone, FromRow)]
+struct BoardNodeRow {
+    id: Uuid,
+    #[allow(dead_code)]
+    owner_user_id: Uuid,
+    node_type: String,
+    position_x: f64,
+    position_y: f64,
+    content: serde_json::Value,
+    locked: bool,
+    #[allow(dead_code)]
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BoardNodeSummary {
+    id: Uuid,
+    node_type: String,
+    position_x: f64,
+    position_y: f64,
+    content: serde_json::Value,
+    locked: bool,
+}
+
+impl BoardNodeSummary {
+    fn content_json(&self) -> String {
+        self.content.to_string()
+    }
+
+    fn entropy_title(&self) -> &str {
+        self.content
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Random page")
+    }
+
+    fn entropy_url(&self) -> &str {
+        self.content
+            .get("url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    }
+}
+
+impl From<BoardNodeRow> for BoardNodeSummary {
+    fn from(row: BoardNodeRow) -> Self {
+        Self {
+            id: row.id,
+            node_type: row.node_type,
+            position_x: row.position_x,
+            position_y: row.position_y,
+            content: row.content,
+            locked: row.locked,
+        }
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct BoardEdgeRow {
+    id: Uuid,
+    #[allow(dead_code)]
+    owner_user_id: Uuid,
+    source_id: Uuid,
+    source_type: String,
+    target_id: Uuid,
+    target_type: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BoardEdgeSummary {
+    id: Uuid,
+    source_id: Uuid,
+    source_type: String,
+    target_id: Uuid,
+    target_type: String,
+}
+
+impl From<BoardEdgeRow> for BoardEdgeSummary {
+    fn from(row: BoardEdgeRow) -> Self {
+        Self {
+            id: row.id,
+            source_id: row.source_id,
+            source_type: row.source_type,
+            target_id: row.target_id,
+            target_type: row.target_type,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateNodeRequest {
+    node_type: String,
+    position_x: f64,
+    position_y: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdatePositionRequest {
+    position_x: f64,
+    position_y: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateEdgeRequest {
+    source_id: Uuid,
+    source_type: String,
+    target_id: Uuid,
+    target_type: String,
+}
+
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate<'a> {
@@ -855,6 +969,8 @@ struct ProviderPanelTemplate<'a> {
 #[template(path = "storm_board.html")]
 struct StormBoardTemplate<'a> {
     runs: &'a [StormRunSummary],
+    board_nodes: &'a [BoardNodeSummary],
+    edges_json: &'a str,
 }
 
 #[derive(Template)]
@@ -1020,6 +1136,13 @@ async fn main() -> Result<(), AppError> {
         .route("/preview/{run_id}", get(preview_index_redirect))
         .route("/preview/{run_id}/", get(preview_index))
         .route("/preview/{run_id}/{*path}", get(preview_asset))
+        .route("/nodes", post(create_board_node))
+        .route("/nodes/{id}/reroll", post(reroll_board_node))
+        .route("/nodes/{id}/lock", post(toggle_board_node_lock))
+        .route("/nodes/{id}/position", post(update_board_node_position))
+        .route("/nodes/{id}", axum::routing::delete(delete_board_node))
+        .route("/edges", post(create_board_edge))
+        .route("/edges/{id}", axum::routing::delete(delete_board_edge))
         .nest_service("/static", ServeDir::new("static"))
         .nest_service("/docs", ServeDir::new("docs"))
         .layer(
@@ -1795,7 +1918,15 @@ async fn render_provider_panel_html(state: &AppState, viewer: &Viewer) -> Result
 
 async fn render_storm_board_html(state: &AppState, user_id: Uuid) -> Result<String, AppError> {
     let runs = viewer_run_summaries(state, user_id).await;
-    Ok(StormBoardTemplate { runs: &runs }.render()?)
+    let board_nodes = load_board_nodes(state, user_id).await;
+    let edges = load_board_edges(state, user_id).await;
+    let edges_json = serde_json::to_string(&edges).unwrap_or_else(|_| "[]".to_string());
+    Ok(StormBoardTemplate {
+        runs: &runs,
+        board_nodes: &board_nodes,
+        edges_json: &edges_json,
+    }
+    .render()?)
 }
 
 fn truncate_for_root_label(value: &str, max_chars: usize) -> String {
@@ -2523,4 +2654,297 @@ fn html_escape(input: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+// ─── Board nodes & edges: data loaders ───
+
+async fn load_board_nodes(state: &AppState, user_id: Uuid) -> Vec<BoardNodeSummary> {
+    match sqlx::query_as::<_, BoardNodeRow>(
+        r#"
+        SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at
+        FROM board_nodes
+        WHERE owner_user_id = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows.into_iter().map(BoardNodeSummary::from).collect(),
+        Err(error) => {
+            error!(user_id = %user_id, error = %error, "failed to load board nodes");
+            Vec::new()
+        }
+    }
+}
+
+async fn load_board_edges(state: &AppState, user_id: Uuid) -> Vec<BoardEdgeSummary> {
+    match sqlx::query_as::<_, BoardEdgeRow>(
+        r#"
+        SELECT id, owner_user_id, source_id, source_type, target_id, target_type
+        FROM board_edges
+        WHERE owner_user_id = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(&state.db)
+    .await
+    {
+        Ok(rows) => rows.into_iter().map(BoardEdgeSummary::from).collect(),
+        Err(error) => {
+            error!(user_id = %user_id, error = %error, "failed to load board edges");
+            Vec::new()
+        }
+    }
+}
+
+// ─── Wikipedia random page ───
+
+async fn fetch_wikipedia_random(http: &Client) -> Result<serde_json::Value, AppError> {
+    // Follow the random redirect to get the resolved page URL and title
+    let resp = http
+        .get("https://en.wikipedia.org/wiki/Special:Random")
+        .header("User-Agent", "DesignStorm/1.0 (contact@designstorm.app)")
+        .send()
+        .await?;
+    let url = resp.url().to_string();
+    let title = url
+        .rsplit_once("/wiki/")
+        .map(|(_, slug)| {
+            // Decode percent-encoded UTF-8 in the slug
+            let bytes: Vec<u8> = slug.as_bytes().iter().copied().collect();
+            let mut decoded = Vec::with_capacity(bytes.len());
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] == b'%' && i + 2 < bytes.len() {
+                    if let (Some(hi), Some(lo)) = (
+                        char::from(bytes[i + 1]).to_digit(16),
+                        char::from(bytes[i + 2]).to_digit(16),
+                    ) {
+                        decoded.push((hi * 16 + lo) as u8);
+                        i += 3;
+                        continue;
+                    }
+                }
+                decoded.push(bytes[i]);
+                i += 1;
+            }
+            String::from_utf8(decoded)
+                .unwrap_or_else(|_| slug.to_string())
+                .replace('_', " ")
+        })
+        .unwrap_or_else(|| "Random page".to_string());
+    Ok(json!({
+        "title": title,
+        "url": url,
+    }))
+}
+
+// ─── Board node route handlers ───
+
+async fn create_board_node(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateNodeRequest>,
+) -> Result<Json<BoardNodeSummary>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let valid_types = ["entropy", "user_input", "generate"];
+    if !valid_types.contains(&payload.node_type.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "Invalid node_type: {}",
+            payload.node_type
+        )));
+    }
+
+    let content = if payload.node_type == "entropy" {
+        fetch_wikipedia_random(&state.http).await?
+    } else {
+        json!({})
+    };
+
+    let row = sqlx::query_as::<_, BoardNodeRow>(
+        r#"
+        INSERT INTO board_nodes (owner_user_id, node_type, position_x, position_y, content)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, owner_user_id, node_type, position_x, position_y, content, locked, created_at
+        "#,
+    )
+    .bind(viewer.id)
+    .bind(&payload.node_type)
+    .bind(payload.position_x)
+    .bind(payload.position_y)
+    .bind(&content)
+    .fetch_one(&state.db)
+    .await?;
+
+    info!(
+        user_id = %viewer.id,
+        node_id = %row.id,
+        node_type = %row.node_type,
+        "created board node"
+    );
+
+    Ok(Json(BoardNodeSummary::from(row)))
+}
+
+async fn reroll_board_node(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let content = fetch_wikipedia_random(&state.http).await?;
+
+    sqlx::query(
+        r#"UPDATE board_nodes SET content = $1 WHERE id = $2 AND owner_user_id = $3"#,
+    )
+    .bind(&content)
+    .bind(id)
+    .bind(viewer.id)
+    .execute(&state.db)
+    .await?;
+
+    let board_html = render_storm_board_html(&state, viewer.id).await?;
+    Ok(datastar_event_stream(Box::pin(stream! {
+        yield Ok::<_, Infallible>(
+            PatchElements::new(board_html)
+                .selector("#storm-runs")
+                .mode(ElementPatchMode::Outer)
+                .write_as_axum_sse_event(),
+        );
+    })))
+}
+
+async fn toggle_board_node_lock(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+
+    sqlx::query(
+        r#"UPDATE board_nodes SET locked = NOT locked WHERE id = $1 AND owner_user_id = $2"#,
+    )
+    .bind(id)
+    .bind(viewer.id)
+    .execute(&state.db)
+    .await?;
+
+    let board_html = render_storm_board_html(&state, viewer.id).await?;
+    Ok(datastar_event_stream(Box::pin(stream! {
+        yield Ok::<_, Infallible>(
+            PatchElements::new(board_html)
+                .selector("#storm-runs")
+                .mode(ElementPatchMode::Outer)
+                .write_as_axum_sse_event(),
+        );
+    })))
+}
+
+async fn update_board_node_position(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdatePositionRequest>,
+) -> Result<StatusCode, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    sqlx::query(
+        r#"UPDATE board_nodes SET position_x = $1, position_y = $2 WHERE id = $3 AND owner_user_id = $4"#,
+    )
+    .bind(payload.position_x)
+    .bind(payload.position_y)
+    .bind(id)
+    .bind(viewer.id)
+    .execute(&state.db)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn delete_board_node(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<impl IntoResponse, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+
+    // Delete edges referencing this node
+    sqlx::query(
+        r#"DELETE FROM board_edges WHERE owner_user_id = $1 AND (source_id = $2 OR target_id = $2)"#,
+    )
+    .bind(viewer.id)
+    .bind(id)
+    .execute(&state.db)
+    .await?;
+
+    sqlx::query(r#"DELETE FROM board_nodes WHERE id = $1 AND owner_user_id = $2"#)
+        .bind(id)
+        .bind(viewer.id)
+        .execute(&state.db)
+        .await?;
+
+    let board_html = render_storm_board_html(&state, viewer.id).await?;
+    let roots_html = render_roots_html(&state, viewer.id).await?;
+
+    Ok(datastar_event_stream(Box::pin(stream! {
+        yield Ok::<_, Infallible>(
+            PatchElements::new(roots_html)
+                .selector("#roots-list")
+                .mode(ElementPatchMode::Inner)
+                .write_as_axum_sse_event(),
+        );
+        yield Ok::<_, Infallible>(
+            PatchElements::new(board_html)
+                .selector("#storm-runs")
+                .mode(ElementPatchMode::Outer)
+                .write_as_axum_sse_event(),
+        );
+    })))
+}
+
+async fn create_board_edge(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateEdgeRequest>,
+) -> Result<Json<BoardEdgeSummary>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let valid_types = ["design", "entropy", "user_input", "generate"];
+    if !valid_types.contains(&payload.source_type.as_str())
+        || !valid_types.contains(&payload.target_type.as_str())
+    {
+        return Err(AppError::BadRequest("Invalid edge type".to_string()));
+    }
+
+    let row = sqlx::query_as::<_, BoardEdgeRow>(
+        r#"
+        INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (source_id, target_id) DO UPDATE SET source_type = EXCLUDED.source_type
+        RETURNING id, owner_user_id, source_id, source_type, target_id, target_type
+        "#,
+    )
+    .bind(viewer.id)
+    .bind(payload.source_id)
+    .bind(&payload.source_type)
+    .bind(payload.target_id)
+    .bind(&payload.target_type)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(BoardEdgeSummary::from(row)))
+}
+
+async fn delete_board_edge(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    sqlx::query(r#"DELETE FROM board_edges WHERE id = $1 AND owner_user_id = $2"#)
+        .bind(id)
+        .bind(viewer.id)
+        .execute(&state.db)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }

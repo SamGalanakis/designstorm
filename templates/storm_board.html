@@ -30,7 +30,46 @@
         <div class="storm-node-copy">
           <h3>{{ run.title }}</h3>
         </div>
+        <div class="node-handle" aria-label="Drag to fork or combine"></div>
       </div>
     </article>
   {% endfor %}
+
+  {% for node in board_nodes %}
+    <article
+      class="board-node board-node-{{ node.node_type }}"
+      data-node-id="{{ node.id }}"
+      data-node-type="{{ node.node_type }}"
+      data-position-x="{{ node.position_x }}"
+      data-position-y="{{ node.position_y }}"
+      data-content='{{ node.content_json() }}'
+      data-locked="{{ node.locked }}"
+    >
+      <div class="entropy-shell">
+        <div class="entropy-header">
+          <span class="eyebrow entropy-eyebrow">Entropy</span>
+          <div class="entropy-actions">
+            <button class="entropy-btn" title="Re-roll"
+              data-on:click__prevent="@post('/nodes/{{ node.id }}/reroll')">&#x27F3;</button>
+            <button class="entropy-btn" title="Toggle lock"
+              data-on:click__prevent="@post('/nodes/{{ node.id }}/lock')">{% if node.locked %}&#x1F512;{% else %}&#x1F513;{% endif %}</button>
+          </div>
+        </div>
+        <div class="entropy-preview">
+          <iframe
+            src="{{ node.entropy_url() }}"
+            loading="lazy"
+            sandbox="allow-same-origin"
+            referrerpolicy="no-referrer"
+            tabindex="-1"
+            aria-hidden="true"
+          ></iframe>
+        </div>
+        <div class="entropy-label">{{ node.entropy_title() }}</div>
+        <div class="node-handle" aria-label="Drag to connect"></div>
+      </div>
+    </article>
+  {% endfor %}
+
+  <script id="board-edges-data" type="application/json">{{ edges_json|safe }}</script>
 </div>

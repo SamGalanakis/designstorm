@@ -863,6 +863,205 @@ h1, h2, h3 {
   box-shadow: 0 0 6px var(--accent-glow);
 }
 
+/* ─── Connection handle ─── */
+
+.node-handle {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface-overlay);
+  border: 2px solid var(--border-strong);
+  cursor: crosshair;
+  opacity: 0;
+  transition: opacity 150ms, background 150ms, border-color 150ms, transform 150ms;
+  z-index: 3;
+}
+
+.storm-node:hover .node-handle { opacity: 1; }
+.storm-node.is-active .node-handle { opacity: 1; }
+
+.node-handle:hover {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+  transform: translateX(-50%) scale(1.3);
+}
+
+/* ─── Live wire ─── */
+
+.storm-wire {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 6 4;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.storm-wire-head {
+  fill: var(--accent-strong);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* ─── Wire drop target ─── */
+
+.storm-node.is-wire-target .storm-node-shell {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 24px var(--accent-glow), 0 20px 60px rgba(0,0,0,0.4);
+}
+
+.storm-node.is-wire-source .node-handle {
+  opacity: 1;
+  background: var(--accent);
+  border-color: var(--accent-strong);
+  transform: translateX(-50%) scale(1.3);
+}
+
+body.is-wiring { cursor: crosshair !important; }
+body.is-wiring .storm-node { cursor: crosshair; }
+body.is-wiring .board-node { cursor: crosshair; }
+body.is-wiring .canvas { cursor: crosshair; }
+
+/* ─── Board nodes (entropy, user_input, generate) ─── */
+
+.board-node {
+  position: absolute;
+  cursor: grab;
+  user-select: none;
+}
+
+.board-node:active { cursor: grabbing; }
+
+.board-node-entropy {
+  width: 240px;
+}
+
+.entropy-shell {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  border: 1px solid rgba(184, 154, 120, 0.2);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.3);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  position: relative;
+}
+
+.board-node-entropy:hover .entropy-shell {
+  transform: translateY(-2px);
+  border-color: rgba(184, 154, 120, 0.35);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.35), 0 0 12px var(--warm-glow);
+}
+
+.board-node-entropy.is-active .entropy-shell {
+  border-color: rgba(184, 154, 120, 0.45);
+  box-shadow: 0 16px 44px rgba(0,0,0,0.4), 0 0 16px var(--warm-glow);
+}
+
+.board-node-entropy.is-locked .entropy-shell {
+  border-color: rgba(184, 154, 120, 0.35);
+}
+
+.entropy-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.entropy-eyebrow {
+  color: var(--warm);
+}
+
+.entropy-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.entropy-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: background 120ms, color 120ms;
+}
+
+.entropy-btn:hover {
+  background: var(--surface-overlay);
+  color: var(--warm);
+}
+
+.entropy-preview {
+  position: relative;
+  height: 120px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.entropy-preview iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  pointer-events: none;
+  background: white;
+}
+
+.entropy-label {
+  font-family: "Cormorant Garamond", serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entropy-shell .node-handle {
+  bottom: -6px;
+}
+
+.entropy-shell .node-handle:hover {
+  background: var(--warm);
+  border-color: var(--warm);
+}
+
+.board-node:hover .node-handle { opacity: 1; }
+.board-node.is-active .node-handle { opacity: 1; }
+
+.board-node.is-wire-target .entropy-shell {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
+}
+
+.board-node.is-wire-source .node-handle {
+  opacity: 1;
+  background: var(--warm);
+  border-color: var(--warm);
+  transform: translateX(-50%) scale(1.3);
+}
+
+/* ─── Board edge lines ─── */
+
+.board-edge-line {
+  fill: none;
+  stroke: rgba(184, 154, 120, 0.22);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 4 6;
+}
+
 /* ─── Pills / Chips ─── */
 
 .pill {
