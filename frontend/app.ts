@@ -2042,7 +2042,8 @@ async function createBoardNode(nodeType: string, worldPos: Point): Promise<void>
           <div class="generate-inputs" id="gen-inputs-${node.id}">
             <span class="generate-placeholder">Wire inputs here</span>
           </div>
-          <button class="generate-run-btn" data-node-action="run" title="Run generation">
+          <button class="generate-run-btn" data-node-action="run" title="Run generation"
+            data-on:click__prevent="@post('/nodes/${node.id}/run')">
             <span class="generate-run-icon">&#x25B6;</span>
           </button>
         </div>`;
@@ -2127,44 +2128,6 @@ const VALID_CONNECTIONS: Record<string, string[]> = {
 
 function canConnect(sourceType: string, targetType: string): boolean {
   return VALID_CONNECTIONS[sourceType]?.includes(targetType) ?? false;
-}
-
-// ─── Generate node run ───
-
-async function runGenerateNode(nodeId: string): Promise<void> {
-  const btn = document.querySelector<HTMLElement>(`.board-node[data-node-id="${nodeId}"] .generate-run-btn`);
-  if (btn?.classList.contains("is-running")) return;
-  btn?.classList.add("is-running");
-
-  try {
-    // POST triggers generation; response is SSE stream that completes when done
-    const resp = await fetch(`/nodes/${nodeId}/run`, { method: "POST", credentials: "include" });
-    if (!resp.ok) { console.error("Generate failed:", resp.statusText); return; }
-    // Consume the full SSE response (waits for generation to finish)
-    await resp.text();
-
-    // Refresh the board by fetching fresh HTML from the server
-    const pageResp = await fetch("/app", { credentials: "include" });
-    if (!pageResp.ok) return;
-    const html = await pageResp.text();
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    const freshBoard = doc.getElementById("storm-runs");
-    const currentBoard = document.getElementById("storm-runs");
-    if (freshBoard && currentBoard) {
-      currentBoard.outerHTML = freshBoard.outerHTML;
-    }
-    // Also refresh roots navigator
-    const freshRoots = doc.getElementById("roots-list");
-    const currentRoots = document.getElementById("roots-list");
-    if (freshRoots && currentRoots) {
-      currentRoots.innerHTML = freshRoots.innerHTML;
-    }
-  } catch (err) {
-    console.error("Generate node run failed:", err);
-  } finally {
-    btn?.classList.remove("is-running");
-    hydrateBoardFromDom();
-  }
 }
 
 // ─── Delete board node ───
@@ -2288,10 +2251,7 @@ function bindBoardNodeInteractions(): void {
     if (target.closest(".entropy-btn")) return;
     if (target.closest(".edge-handle")) return;
     if (target.closest(".input-body")) return; // let contenteditable handle clicks
-    if (target.closest(".generate-run-btn")) {
-      runGenerateNode(nodeId);
-      return;
-    }
+    if (target.closest(".generate-run-btn")) return; // handled by Datastar @post
 
     // Select the node
     state.activeNodeId = nodeId;

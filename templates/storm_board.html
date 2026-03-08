@@ -75,7 +75,8 @@
         <div class="generate-inputs" id="gen-inputs-{{ node.id }}">
           <span class="generate-placeholder">Wire inputs here</span>
         </div>
-        <button class="generate-run-btn" data-node-action="run" title="Run generation">
+        <button class="generate-run-btn" data-node-action="run" title="Run generation"
+          data-on:click__prevent="@post('/nodes/{{ node.id }}/run')">
           <span class="generate-run-icon">&#x25B6;</span>
         </button>
       </div>
