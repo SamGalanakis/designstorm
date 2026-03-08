@@ -3,15 +3,14 @@
 {% block content %}
 <div
   class="storm-app"
-  data-signals-accountOpen="false"
-  data-signals-settingsOpen="false"
+  data-signals-account-open="false"
+  data-signals-settings-open="false"
   data-signals-prompt="&quot;&quot;"
-  data-signals-draftMode="&quot;&quot;"
-  data-signals-sourceIds="&quot;&quot;"
+  data-signals-draft-mode="&quot;&quot;"
+  data-signals-source-ids="&quot;&quot;"
   data-signals-status="&quot;Seed a direction or select a card to branch from it.&quot;"
   data-signals-generating="false"
-  data-signals-latestRunId="&quot;&quot;"
-  data-on-keydown__window="evt.key === 'Escape' && ($settingsOpen ? ($settingsOpen = false, $accountOpen = true) : $accountOpen = false)"
+  data-signals-latest-run-id="&quot;&quot;"
 >
 
   <button
@@ -19,7 +18,7 @@
     class="avatar-btn"
     type="button"
     aria-label="Open account menu"
-    data-on-click__stop="$accountOpen = !$accountOpen; $settingsOpen = false"
+    data-on-click="$accountOpen = !$accountOpen; $settingsOpen = false"
   >
     <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
   </button>
@@ -34,7 +33,7 @@
     </div>
 
     <button id="settings-trigger" class="settings-link" type="button"
-      data-on-click__stop="$settingsOpen = true; $accountOpen = false">
+      data-on-click="$settingsOpen = true; $accountOpen = false">
       <span class="settings-link-copy">
         <span class="eyebrow">Settings</span>
         <strong>Runtime Provider</strong>
@@ -50,7 +49,7 @@
 
   <section id="settings-sheet" class="sheet" role="dialog" aria-label="Settings" data-show="$settingsOpen">
     <div class="sheet-header-row">
-      <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on-click__stop="$settingsOpen = false; $accountOpen = true">&lsaquo;</button>
+      <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on-click="$settingsOpen = false; $accountOpen = true">&lsaquo;</button>
       <div>
         <span class="eyebrow">Settings</span>
         <h2>Runtime Provider</h2>
@@ -69,33 +68,34 @@
     </div>
   </section>
 
+  <div id="storm-composer-backdrop" class="composer-backdrop" hidden></div>
   <form id="storm-form" class="composer" hidden>
-    <div id="storm-draft-context" class="draft-context" hidden></div>
+    <div class="composer-body">
+      <div id="storm-draft-context" class="draft-context" hidden></div>
 
-    <input id="storm-draft-mode" data-bind-draftMode type="hidden" value="">
-    <input id="storm-source-ids" data-bind-sourceIds type="hidden" value="">
-    <input id="storm-status-signal" data-bind-status type="hidden" value="Seed a direction or select a card to branch from it.">
+      <input id="storm-draft-mode" data-bind-draft-mode type="hidden" value="">
+      <input id="storm-source-ids" data-bind-source-ids type="hidden" value="">
+      <input id="storm-status-signal" data-bind-status type="hidden" value="Seed a direction or select a card to branch from it.">
 
-    <textarea
-      id="storm-prompt"
-      data-bind-prompt
-      rows="4"
-      placeholder="Describe the design direction..."
-    ></textarea>
+      <textarea
+        id="storm-prompt"
+        data-bind-prompt
+        rows="3"
+        placeholder="Describe the design direction..."
+      ></textarea>
+    </div>
 
-    <div class="composer-actions">
+    <div class="composer-bar">
+      <span id="storm-status" class="status-text" data-text="$status"></span>
+      <button id="storm-clear-context" class="btn btn-ghost" type="button" disabled>Clear</button>
       <button
         id="storm-submit"
         class="btn btn-accent"
         type="button"
         data-on-click="@post('/storms/generate')"
         data-attr-disabled="$generating"
-        data-class="{
-          'is-loading': $generating,
-        }"
+        data-class="{ 'is-loading': $generating }"
       >Generate</button>
-      <button id="storm-clear-context" class="btn btn-ghost btn-sm" type="button" disabled>Clear</button>
-      <span id="storm-status" class="status-text" data-text="$status">Seed a direction or select a card to branch from it.</span>
     </div>
   </form>
 

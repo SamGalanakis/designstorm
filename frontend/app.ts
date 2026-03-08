@@ -711,6 +711,7 @@ function bindAppChrome(): void {
     setStatus("Generating storm...");
   });
   $("storm-clear-context")?.addEventListener("click", () => clearDraftContext());
+  $("storm-composer-backdrop")?.addEventListener("click", () => hideComposer());
 
   // Fullscreen overlay
   $("storm-focus")?.addEventListener("click", (e) => {
@@ -748,16 +749,42 @@ function setAvatarInitials(): void {
 
 function showComposer(): void {
   const form = $("storm-form");
+  const backdrop = $("storm-composer-backdrop");
   if (!form) return;
+
+  // Position near the radial menu invocation point
+  const pos = state.radialMenu.position;
+  const formWidth = 340;
+  const formHeight = 220;
+  const pad = 16;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  // Place below-right of cursor by default, clamp to viewport
+  let x = pos.x - formWidth / 2;
+  let y = pos.y + 20;
+  if (x + formWidth + pad > vw) x = vw - formWidth - pad;
+  if (x < pad) x = pad;
+  if (y + formHeight + pad > vh) y = pos.y - formHeight - 20;
+  if (y < pad) y = pad;
+
+  form.style.left = `${x}px`;
+  form.style.top = `${y}px`;
+  form.style.removeProperty("bottom");
+  form.style.removeProperty("right");
   form.hidden = false;
+  if (backdrop) backdrop.hidden = false;
+
   const ta = $("storm-prompt") as HTMLTextAreaElement | null;
   ta?.focus();
 }
 
 function hideComposer(opts?: { preserveDraft?: boolean }): void {
   const form = $("storm-form");
+  const backdrop = $("storm-composer-backdrop");
   if (!form) return;
   form.hidden = true;
+  if (backdrop) backdrop.hidden = true;
   if (!opts?.preserveDraft) clearDraftContext({ keepStatus: true });
 }
 
