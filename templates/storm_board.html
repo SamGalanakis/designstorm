@@ -14,8 +14,8 @@
     >
       <div class="storm-node-shell">
         <div class="storm-node-meta">
+          <span class="meta-dot{% if run.submitted %} is-submitted{% endif %}"></span>
           <span class="meta-note">{{ run.created_label() }}</span>
-          <span class="{{ run.status_class() }}">{{ run.status_label() }}</span>
         </div>
         <div class="storm-node-preview">
           <iframe
@@ -29,13 +29,6 @@
         </div>
         <div class="storm-node-copy">
           <h3>{{ run.title }}</h3>
-          <p>{{ run.summary }}</p>
-        </div>
-        <div class="storm-node-actions">
-          <button class="node-action" type="button" data-run-action="inspect">Inspect</button>
-          <button class="node-action" type="button" data-run-action="fullscreen">Open</button>
-          <button class="node-action" type="button" data-run-action="fork">Fork</button>
-          <button class="node-action" type="button" data-run-action="combine">Combine</button>
         </div>
       </div>
     </article>

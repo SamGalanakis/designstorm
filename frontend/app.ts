@@ -1345,8 +1345,6 @@ function renderRuns(): void {
     card.classList.toggle("is-active", run.id === state.activeRunId);
     card.classList.toggle("is-combine-source", run.id === state.combineSourceId);
     card.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
-    const combineButton = card.querySelector<HTMLElement>("[data-run-action='combine']");
-    if (combineButton) combineButton.textContent = run.id === state.combineSourceId ? "Cancel" : "Combine";
   });
   renderConnections();
 }
@@ -1358,40 +1356,38 @@ function renderInspector(): void {
   const prompt = $("inspector-prompt");
   const notes = $("storm-notes");
   const created = $("inspector-created");
-  const pill = $("inspector-status-pill");
-  const chips = $("inspector-chips");
+  const statusLabel = $("inspector-status-label");
+  const details = $("inspector-details");
   const seedCard = $("inspector-seed");
   const notesCard = $("inspector-notes");
   const iframe = $("storm-preview") as HTMLIFrameElement | null;
   const fork = $("inspector-fork") as HTMLButtonElement | null;
-  const combine = $("inspector-combine") as HTMLButtonElement | null;
   const fs = $("inspector-fullscreen") as HTMLButtonElement | null;
   const run = getRun(state.activeRunId);
-  if (!panel || !title || !summary || !prompt || !notes || !created || !pill || !chips || !seedCard || !notesCard || !iframe || !fork || !combine || !fs) return;
+  if (!panel || !title || !summary || !prompt || !notes || !created || !statusLabel || !details || !seedCard || !notesCard || !iframe || !fork || !fs) return;
   if (!run) {
     panel.classList.add("is-empty");
     title.textContent = "Select an artifact";
     summary.textContent = "";
-    chips.hidden = true;
+    details.hidden = true;
     seedCard.hidden = true;
     notesCard.hidden = true;
     setIframeSource(iframe, null);
-    fork.disabled = combine.disabled = fs.disabled = true;
+    fork.disabled = fs.disabled = true;
     return;
   }
   panel.classList.remove("is-empty");
   title.textContent = run.title;
   summary.textContent = run.summary;
-  chips.hidden = false;
-  pill.textContent = run.submitted ? "Submitted" : "Draft";
-  pill.className = `pill ${run.submitted ? "pill-accent" : "pill-muted"}`;
+  details.hidden = false;
+  statusLabel.textContent = run.submitted ? "Submitted" : "Draft";
   created.textContent = new Date(run.createdAt).toLocaleString();
   seedCard.hidden = false;
   prompt.textContent = run.prompt;
   notesCard.hidden = !run.assistantSummary;
   notes.textContent = run.assistantSummary || "";
   setIframeSource(iframe, run.previewUrl);
-  fork.disabled = combine.disabled = fs.disabled = false;
+  fork.disabled = fs.disabled = false;
 }
 
 function renderFocus(): void {
@@ -1566,7 +1562,6 @@ function bindAppChrome(): void {
 
   // Inspector actions
   $("inspector-fork")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "fork"); });
-  $("inspector-combine")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "combine"); });
   $("inspector-fullscreen")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "fullscreen"); });
 
   // Keyboard — escape priority: radial > composer > fullscreen (popovers handled by Datastar)
