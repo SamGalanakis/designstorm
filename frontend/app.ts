@@ -93,6 +93,48 @@ type StormState = {
   awaitingGeneratedRun: boolean;
 };
 
+type WorldBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+type ChunkCoord = {
+  x: number;
+  y: number;
+};
+
+type ChunkRecord = {
+  key: string;
+  coord: ChunkCoord;
+  canvas: HTMLCanvasElement;
+  ctx: CanvasRenderingContext2D;
+  state: "queued" | "rendering" | "ready";
+  lastUsedAt: number;
+};
+
+type BackgroundRenderer = {
+  canvas: HTMLCanvasElement;
+  gl: WebGL2RenderingContext;
+  program: WebGLProgram;
+  buffer: WebGLBuffer;
+  uChunkOrigin: WebGLUniformLocation;
+  uWorldPerPixel: WebGLUniformLocation;
+  uSeed: WebGLUniformLocation;
+};
+
+type BackgroundState = {
+  container: HTMLElement | null;
+  renderer: BackgroundRenderer | null;
+  chunks: Map<string, ChunkRecord>;
+  queue: string[];
+  queued: Set<string>;
+  renderRaf: number | null;
+  fallback: boolean;
+  seed: number;
+};
+
 declare global {
   interface Window {
     Clerk?: new (publishableKey: string) => ClerkLike;
@@ -112,6 +154,11 @@ const BOARD_HEIGHT = 1800;
 const CARD_WIDTH = 310;
 const CARD_HEIGHT = 332;
 const INITIAL_PAN: Point = { x: 160, y: 120 };
+const BACKGROUND_CHUNK_WORLD_SIZE = 1536;
+const BACKGROUND_CHUNK_PIXEL_SIZE = 768;
+const BACKGROUND_CHUNK_OVERSCAN = 1;
+const MAX_BACKGROUND_CHUNKS = 36;
+const CONNECTION_PADDING = 240;
 
 let clerk: ClerkLike | null = null;
 let isSyncing = false;
@@ -135,6 +182,17 @@ const state: StormState = {
   awaitingGeneratedRun: false,
 };
 
+const backgroundState: BackgroundState = {
+  container: null,
+  renderer: null,
+  chunks: new Map(),
+  queue: [],
+  queued: new Set(),
+  renderRaf: null,
+  fallback: false,
+  seed: 7.137,
+};
+
 // ─── Helpers ───
 
 function $(id: string): HTMLElement | null {
@@ -149,6 +207,445 @@ function getConfig(): AppConfig {
 
 function escapeHtml(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+function createWorldBounds(minX: number, minY: number, maxX: number, maxY: number): WorldBounds {
+  return { minX, minY, maxX, maxY };
+}
+
+function padWorldBounds(bounds: WorldBounds, padding: number): WorldBounds {
+  return {
+    minX: bounds.minX - padding,
+    minY: bounds.minY - padding,
+    maxX: bounds.maxX + padding,
+    maxY: bounds.maxY + padding,
+  };
+}
+
+function getWorldBoundsSize(bounds: WorldBounds): { width: number; height: number } {
+  return {
+    width: Math.max(1, Math.ceil(bounds.maxX - bounds.minX)),
+    height: Math.max(1, Math.ceil(bounds.maxY - bounds.minY)),
+  };
+}
+
+function getVisibleWorldBounds(): WorldBounds {
+  const canvas = $("storm-canvas");
+  if (!canvas) return createWorldBounds(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+  const rect = canvas.getBoundingClientRect();
+  const minX = -state.pan.x / state.scale;
+  const minY = -state.pan.y / state.scale;
+  return createWorldBounds(minX, minY, minX + rect.width / state.scale, minY + rect.height / state.scale);
+}
+
+function getRunWorldBounds(): WorldBounds | null {
+  if (state.positions.size === 0) return null;
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+
+  state.positions.forEach((point) => {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x + CARD_WIDTH);
+    maxY = Math.max(maxY, point.y + CARD_HEIGHT);
+  });
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY) || !Number.isFinite(maxX) || !Number.isFinite(maxY)) {
+    return null;
+  }
+  return createWorldBounds(minX, minY, maxX, maxY);
+}
+
+function getConnectionWorldBounds(): WorldBounds {
+  const runBounds = getRunWorldBounds();
+  if (!runBounds) return createWorldBounds(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
+  return padWorldBounds(runBounds, CONNECTION_PADDING);
+}
+
+function getChunkKey(coord: ChunkCoord): string {
+  return `${coord.x}:${coord.y}`;
+}
+
+function getChunkWorldOrigin(coord: ChunkCoord): Point {
+  return {
+    x: coord.x * BACKGROUND_CHUNK_WORLD_SIZE,
+    y: coord.y * BACKGROUND_CHUNK_WORLD_SIZE,
+  };
+}
+
+function getChunkDistanceSq(coord: ChunkCoord, bounds: WorldBounds): number {
+  const centerX = (bounds.minX + bounds.maxX) * 0.5;
+  const centerY = (bounds.minY + bounds.maxY) * 0.5;
+  const origin = getChunkWorldOrigin(coord);
+  const chunkCenterX = origin.x + BACKGROUND_CHUNK_WORLD_SIZE * 0.5;
+  const chunkCenterY = origin.y + BACKGROUND_CHUNK_WORLD_SIZE * 0.5;
+  const dx = chunkCenterX - centerX;
+  const dy = chunkCenterY - centerY;
+  return dx * dx + dy * dy;
+}
+
+function clearBackgroundChunks(): void {
+  backgroundState.chunks.forEach((record) => record.canvas.remove());
+  backgroundState.chunks.clear();
+  backgroundState.queue = [];
+  backgroundState.queued.clear();
+  if (backgroundState.renderRaf !== null) {
+    cancelAnimationFrame(backgroundState.renderRaf);
+    backgroundState.renderRaf = null;
+  }
+}
+
+function setBackgroundFallback(reason: string): void {
+  clearBackgroundChunks();
+  backgroundState.fallback = true;
+  backgroundState.renderer = null;
+  backgroundState.container?.classList.add("is-fallback");
+  reportClientEvent("board_background_fallback", { reason }, { cooldownMs: 10000 });
+}
+
+function compileBackgroundShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
+  const shader = gl.createShader(type);
+  if (!shader) return null;
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+}
+
+function createBackgroundRenderer(): BackgroundRenderer | null {
+  const canvas = document.createElement("canvas");
+  canvas.width = BACKGROUND_CHUNK_PIXEL_SIZE;
+  canvas.height = BACKGROUND_CHUNK_PIXEL_SIZE;
+
+  const gl = canvas.getContext("webgl2", {
+    alpha: false,
+    antialias: false,
+    depth: false,
+    stencil: false,
+    preserveDrawingBuffer: false,
+    desynchronized: true,
+    powerPreference: "high-performance",
+  });
+  if (!gl) return null;
+
+  const vs = `#version 300 es
+    in vec2 a_pos;
+    void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+  `;
+
+  const fs = `#version 300 es
+    precision highp float;
+    uniform vec2 u_chunk_origin;
+    uniform float u_world_per_pixel;
+    uniform float u_seed;
+    out vec4 fragColor;
+
+    vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec4 permute(vec4 x) { return mod289(((x * 34.0) + 10.0) * x); }
+    vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+    float snoise(vec3 v) {
+      const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
+      const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+      vec3 i = floor(v + dot(v, C.yyy));
+      vec3 x0 = v - i + dot(i, C.xxx);
+      vec3 g = step(x0.yzx, x0.xyz);
+      vec3 l = 1.0 - g;
+      vec3 i1 = min(g.xyz, l.zxy);
+      vec3 i2 = max(g.xyz, l.zxy);
+      vec3 x1 = x0 - i1 + C.xxx;
+      vec3 x2 = x0 - i2 + C.yyy;
+      vec3 x3 = x0 - D.yyy;
+      i = mod289(i);
+      vec4 p = permute(permute(permute(
+        i.z + vec4(0.0, i1.z, i2.z, 1.0))
+        + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+        + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+      float n_ = 0.142857142857;
+      vec3 ns = n_ * D.wyz - D.xzx;
+      vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+      vec4 x_ = floor(j * ns.z);
+      vec4 y_ = floor(j - 7.0 * x_);
+      vec4 x = x_ * ns.x + ns.yyyy;
+      vec4 y = y_ * ns.x + ns.yyyy;
+      vec4 h = 1.0 - abs(x) - abs(y);
+      vec4 b0 = vec4(x.xy, y.xy);
+      vec4 b1 = vec4(x.zw, y.zw);
+      vec4 s0 = floor(b0) * 2.0 + 1.0;
+      vec4 s1 = floor(b1) * 2.0 + 1.0;
+      vec4 sh = -step(h, vec4(0.0));
+      vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+      vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+      vec3 p0 = vec3(a0.xy, h.x);
+      vec3 p1 = vec3(a0.zw, h.y);
+      vec3 p2 = vec3(a1.xy, h.z);
+      vec3 p3 = vec3(a1.zw, h.w);
+      vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+      p0 *= norm.x;
+      p1 *= norm.y;
+      p2 *= norm.z;
+      p3 *= norm.w;
+      vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+      m = m * m;
+      return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+    }
+
+    float fbm5(vec3 p) {
+      float v = 0.0;
+      float a = 0.5;
+      for (int i = 0; i < 5; i++) {
+        v += a * snoise(p);
+        p = p * 2.0 + vec3(100.0);
+        a *= 0.5;
+      }
+      return v;
+    }
+
+    vec3 oklabToLinearSrgb(vec3 lab) {
+      float l_ = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
+      float m_ = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
+      float s_ = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;
+      float l3 = l_ * l_ * l_;
+      float m3 = m_ * m_ * m_;
+      float s3 = s_ * s_ * s_;
+      return vec3(
+        +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3,
+        -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
+        -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3
+      );
+    }
+
+    vec3 oklchToSrgb(float L, float C, float h) {
+      float a = C * cos(h);
+      float b = C * sin(h);
+      vec3 lin = oklabToLinearSrgb(vec3(L, a, b));
+      return pow(clamp(lin, 0.0, 1.0), vec3(1.0 / 2.2));
+    }
+
+    void main() {
+      vec2 world = u_chunk_origin + gl_FragCoord.xy * u_world_per_pixel;
+      float seed = u_seed;
+      vec2 field = world / 900.0;
+
+      vec2 q = vec2(
+        snoise(vec3(field * 2.8 + vec2(4.0, -3.0), seed)),
+        snoise(vec3(field * 2.8 + vec2(17.0, 9.0), seed + 13.0))
+      );
+      vec2 r = vec2(
+        snoise(vec3((field + q * 0.14) * 2.8 + vec2(1.7, 9.2), seed + 29.0)),
+        snoise(vec3((field + q * 0.14) * 2.8 + vec2(9.2, -3.4), seed + 43.0))
+      );
+      vec2 warped = field + r * 0.12;
+
+      float h0 = fbm5(vec3(warped * 4.0, seed + 7.0));
+      float eps = 0.006;
+      float hx = fbm5(vec3((warped + vec2(eps, 0.0)) * 4.0, seed + 7.0));
+      float hy = fbm5(vec3((warped + vec2(0.0, eps)) * 4.0, seed + 7.0));
+      vec3 normal = normalize(vec3((h0 - hx) / eps * 0.15, (h0 - hy) / eps * 0.15, 1.0));
+      vec3 lightDir = normalize(vec3(0.4, 0.5, 0.8));
+      float light = 0.5 + max(dot(normal, lightDir), 0.0) * 0.5;
+
+      float hueDriver = (q.x * 0.4 + r.x * 0.3 + h0 * 0.3) * 0.5 + 0.5;
+      float hueRad = radians(195.0 + hueDriver * 60.0 + seed * 18.0);
+
+      float L = 0.16 + light * 0.06 + h0 * 0.02;
+      float C = 0.03 + hueDriver * 0.02;
+      vec3 color = oklchToSrgb(L, C, hueRad);
+
+      float grain = fbm5(vec3(world / 2.8, seed + 71.0)) * 0.5 + 0.5;
+      color += (grain - 0.5) * 0.08;
+
+      fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+    }
+  `;
+
+  const vertexShader = compileBackgroundShader(gl, gl.VERTEX_SHADER, vs);
+  const fragmentShader = compileBackgroundShader(gl, gl.FRAGMENT_SHADER, fs);
+  if (!vertexShader || !fragmentShader) return null;
+
+  const program = gl.createProgram();
+  if (!program) return null;
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(program));
+    return null;
+  }
+
+  const buffer = gl.createBuffer();
+  if (!buffer) return null;
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  gl.useProgram(program);
+  const loc = gl.getAttribLocation(program, "a_pos");
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  const uChunkOrigin = gl.getUniformLocation(program, "u_chunk_origin");
+  const uWorldPerPixel = gl.getUniformLocation(program, "u_world_per_pixel");
+  const uSeed = gl.getUniformLocation(program, "u_seed");
+  if (!uChunkOrigin || !uWorldPerPixel || !uSeed) return null;
+
+  return {
+    canvas,
+    gl,
+    program,
+    buffer,
+    uChunkOrigin,
+    uWorldPerPixel,
+    uSeed,
+  };
+}
+
+function renderBackgroundChunk(record: ChunkRecord): void {
+  const renderer = backgroundState.renderer;
+  if (!renderer) return;
+  const origin = getChunkWorldOrigin(record.coord);
+  const { gl, program, uChunkOrigin, uWorldPerPixel, uSeed, canvas } = renderer;
+  gl.useProgram(program);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.uniform2f(uChunkOrigin, origin.x, origin.y);
+  gl.uniform1f(uWorldPerPixel, BACKGROUND_CHUNK_WORLD_SIZE / BACKGROUND_CHUNK_PIXEL_SIZE);
+  gl.uniform1f(uSeed, backgroundState.seed);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  record.ctx.clearRect(0, 0, record.canvas.width, record.canvas.height);
+  record.ctx.drawImage(canvas, 0, 0, record.canvas.width, record.canvas.height);
+  record.canvas.classList.add("is-ready");
+}
+
+function removeBackgroundChunk(key: string): void {
+  const record = backgroundState.chunks.get(key);
+  if (!record) return;
+  record.canvas.remove();
+  backgroundState.chunks.delete(key);
+  backgroundState.queued.delete(key);
+  backgroundState.queue = backgroundState.queue.filter((entry) => entry !== key);
+}
+
+function ensureBackgroundChunk(coord: ChunkCoord): ChunkRecord | null {
+  const key = getChunkKey(coord);
+  const existing = backgroundState.chunks.get(key);
+  if (existing) {
+    existing.lastUsedAt = performance.now();
+    return existing;
+  }
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
+  if (!ctx) return null;
+  canvas.width = BACKGROUND_CHUNK_PIXEL_SIZE;
+  canvas.height = BACKGROUND_CHUNK_PIXEL_SIZE;
+  canvas.className = "board-chunk";
+  canvas.style.width = `${BACKGROUND_CHUNK_WORLD_SIZE}px`;
+  canvas.style.height = `${BACKGROUND_CHUNK_WORLD_SIZE}px`;
+  const origin = getChunkWorldOrigin(coord);
+  canvas.style.transform = `translate(${origin.x}px, ${origin.y}px)`;
+  ctx.imageSmoothingEnabled = true;
+  backgroundState.container?.appendChild(canvas);
+
+  const record: ChunkRecord = {
+    key,
+    coord,
+    canvas,
+    ctx,
+    state: "queued",
+    lastUsedAt: performance.now(),
+  };
+  backgroundState.chunks.set(key, record);
+  return record;
+}
+
+function scheduleBackgroundRender(): void {
+  if (backgroundState.renderRaf !== null || backgroundState.fallback || !backgroundState.renderer) return;
+  backgroundState.renderRaf = requestAnimationFrame(() => {
+    backgroundState.renderRaf = null;
+    const nextKey = backgroundState.queue.shift();
+    if (!nextKey) return;
+    backgroundState.queued.delete(nextKey);
+    const record = backgroundState.chunks.get(nextKey);
+    if (record) {
+      record.state = "rendering";
+      renderBackgroundChunk(record);
+      record.state = "ready";
+      record.lastUsedAt = performance.now();
+    }
+    if (backgroundState.queue.length > 0) scheduleBackgroundRender();
+  });
+}
+
+function evictBackgroundChunks(required: Set<string>, bounds: WorldBounds): void {
+  if (backgroundState.chunks.size <= MAX_BACKGROUND_CHUNKS) return;
+  const removable = Array.from(backgroundState.chunks.values())
+    .filter((record) => !required.has(record.key))
+    .sort((a, b) => {
+      if (a.lastUsedAt !== b.lastUsedAt) return a.lastUsedAt - b.lastUsedAt;
+      return getChunkDistanceSq(b.coord, bounds) - getChunkDistanceSq(a.coord, bounds);
+    });
+
+  while (backgroundState.chunks.size > MAX_BACKGROUND_CHUNKS && removable.length > 0) {
+    const record = removable.shift();
+    if (!record) break;
+    removeBackgroundChunk(record.key);
+  }
+}
+
+function syncBoardBackground(): void {
+  if (backgroundState.fallback || !backgroundState.container || !backgroundState.renderer) return;
+  const bounds = getVisibleWorldBounds();
+  const minChunkX = Math.floor(bounds.minX / BACKGROUND_CHUNK_WORLD_SIZE) - BACKGROUND_CHUNK_OVERSCAN;
+  const maxChunkX = Math.floor((bounds.maxX - 1) / BACKGROUND_CHUNK_WORLD_SIZE) + BACKGROUND_CHUNK_OVERSCAN;
+  const minChunkY = Math.floor(bounds.minY / BACKGROUND_CHUNK_WORLD_SIZE) - BACKGROUND_CHUNK_OVERSCAN;
+  const maxChunkY = Math.floor((bounds.maxY - 1) / BACKGROUND_CHUNK_WORLD_SIZE) + BACKGROUND_CHUNK_OVERSCAN;
+
+  const required = new Set<string>();
+  const queuedCoords: ChunkCoord[] = [];
+  for (let chunkY = minChunkY; chunkY <= maxChunkY; chunkY++) {
+    for (let chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+      const coord = { x: chunkX, y: chunkY };
+      const record = ensureBackgroundChunk(coord);
+      if (!record) continue;
+      required.add(record.key);
+      record.lastUsedAt = performance.now();
+      if (record.state === "queued" && !backgroundState.queued.has(record.key)) {
+        queuedCoords.push(coord);
+      }
+    }
+  }
+
+  queuedCoords
+    .sort((a, b) => getChunkDistanceSq(a, bounds) - getChunkDistanceSq(b, bounds))
+    .forEach((coord) => {
+      const key = getChunkKey(coord);
+      if (backgroundState.queued.has(key)) return;
+      backgroundState.queued.add(key);
+      backgroundState.queue.push(key);
+    });
+
+  evictBackgroundChunks(required, bounds);
+  scheduleBackgroundRender();
+}
+
+function initBoardBackground(): void {
+  backgroundState.container = $("storm-background");
+  if (!backgroundState.container) return;
+  backgroundState.container.classList.remove("is-fallback");
+  backgroundState.fallback = false;
+  backgroundState.renderer = createBackgroundRenderer();
+  if (!backgroundState.renderer) {
+    setBackgroundFallback("webgl_unavailable");
+    return;
+  }
+  syncBoardBackground();
+  window.addEventListener("resize", syncBoardBackground, { passive: true });
 }
 
 function reportClientEvent(
@@ -488,12 +985,19 @@ function updateBoardTransform(): void {
   const board = $("storm-board");
   if (!board) return;
   board.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`;
+  syncBoardBackground();
 }
 
 function renderConnections(): void {
-  const svg = $("storm-lines") as SVGElement | null;
+  const svg = $("storm-lines") as unknown as SVGSVGElement | null;
   if (!svg) return;
-  svg.setAttribute("viewBox", `0 0 ${BOARD_WIDTH} ${BOARD_HEIGHT}`);
+  const bounds = getConnectionWorldBounds();
+  const { width, height } = getWorldBoundsSize(bounds);
+  svg.style.left = `${bounds.minX}px`;
+  svg.style.top = `${bounds.minY}px`;
+  svg.style.width = `${width}px`;
+  svg.style.height = `${height}px`;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.innerHTML = "";
   state.lineage.forEach((parents, runId) => {
     const child = state.positions.get(runId);
@@ -501,8 +1005,10 @@ function renderConnections(): void {
     parents.forEach((pid) => {
       const parent = state.positions.get(pid);
       if (!parent) return;
-      const sx = parent.x + CARD_WIDTH * 0.5, sy = parent.y + CARD_HEIGHT * 0.56;
-      const ex = child.x + CARD_WIDTH * 0.5, ey = child.y + 20;
+      const sx = parent.x + CARD_WIDTH * 0.5 - bounds.minX;
+      const sy = parent.y + CARD_HEIGHT * 0.56 - bounds.minY;
+      const ex = child.x + CARD_WIDTH * 0.5 - bounds.minX;
+      const ey = child.y + 20 - bounds.minY;
       const cy = sy + (ey - sy) * 0.45;
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", `M ${sx} ${sy} C ${sx} ${cy}, ${ex} ${cy}, ${ex} ${ey}`);
@@ -1142,6 +1648,7 @@ function bindStormApp(): void {
   if (getConfig().currentPath !== "/app") return;
   setAvatarInitials();
   renderDraftContext();
+  initBoardBackground();
   updateBoardTransform();
   bindBoardObserver();
   bindCanvasInteractions();

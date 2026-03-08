@@ -1735,48 +1735,109 @@
           return pow(clamp(lin, 0.0, 1.0), vec3(1.0 / 2.2));
         }
 
+        // a single rounded "puff" — smoothstep blob at a noise-displaced center
+        float puff(vec2 uv, vec2 center, float radius, float seed) {
+          // warp the position slightly so puffs aren't perfect circles
+          vec2 offset = vec2(
+            snoise(vec3(uv * 3.0, seed)),
+            snoise(vec3(uv * 3.0 + 7.0, seed))
+          ) * 0.08;
+          float d = distance(uv + offset, center);
+          return smoothstep(radius, radius * 0.15, d);
+        }
+
         void main() {
           vec2 uv = gl_FragCoord.xy / u_res;
-          float t = u_time;
+          // correct for aspect ratio
+          float aspect = u_res.x / u_res.y;
+          vec2 auv = vec2(uv.x * aspect, uv.y);
+          float t = 42.0;
 
-          // ─── domain warping (4 snoise calls) ───
-          vec2 q = vec2(
-            snoise(vec3(uv * 3.0, t * 0.06)),
-            snoise(vec3(uv * 3.0 + 17.0, t * 0.06))
-          );
-          vec2 r = vec2(
-            snoise(vec3((uv + q * 0.14) * 3.0 + 1.7, t * 0.04)),
-            snoise(vec3((uv + q * 0.14) * 3.0 + 9.2, t * 0.04))
-          );
-          vec2 warped = uv + r * 0.12;
+          // ─── scattered puff layers ───
+          // each layer has puffs at noise-driven positions with varying size
+          float accum = 0.0;   // height accumulator
+          float hueAccum = 0.0;
+          float totalWeight = 0.0;
 
-          // height field — 5 octaves for full detail
-          float h0 = fbm5(vec3(warped * 4.0, t * 0.03));
+          // large puffs — background atmosphere
+          for (int i = 0; i < 6; i++) {
+            float fi = float(i);
+            vec2 center = vec2(
+              snoise(vec3(fi * 1.7, 0.0, t)) * 0.5 + 0.5,
+              snoise(vec3(0.0, fi * 1.7, t)) * 0.5 + 0.5
+            );
+            center.x *= aspect;
+            float radius = 0.25 + snoise(vec3(fi * 3.1, t, 0.0)) * 0.1;
+            float p = puff(auv, center, radius, fi * 5.0 + t);
+            float w = 0.6 + fi * 0.05;
+            accum += p * w;
+            hueAccum += p * w * (fi / 6.0);
+            totalWeight += w * 0.5;
+          }
 
-          // ─── proper height-gradient normals ───
-          float eps = 0.004;
-          float hx = fbm5(vec3((warped + vec2(eps, 0.0)) * 4.0, t * 0.03));
-          float hy = fbm5(vec3((warped + vec2(0.0, eps)) * 4.0, t * 0.03));
-          vec3 normal = normalize(vec3((h0 - hx) / eps * 0.15, (h0 - hy) / eps * 0.15, 1.0));
-          vec3 lightDir = normalize(vec3(0.4, 0.5, 0.8));
-          float light = 0.5 + max(dot(normal, lightDir), 0.0) * 0.5;
+          // medium puffs — the main visible tufts
+          for (int i = 0; i < 10; i++) {
+            float fi = float(i);
+            vec2 center = vec2(
+              snoise(vec3(fi * 2.3 + 50.0, 10.0, t)) * 0.6 + 0.5,
+              snoise(vec3(10.0, fi * 2.3 + 50.0, t)) * 0.6 + 0.5
+            );
+            center.x *= aspect;
+            float radius = 0.12 + snoise(vec3(fi * 4.7, t + 20.0, 0.0)) * 0.06;
+            float p = puff(auv, center, radius, fi * 7.0 + t + 100.0);
+            float w = 0.8 + fi * 0.03;
+            accum += p * w;
+            hueAccum += p * w * (fi / 10.0);
+            totalWeight += w * 0.5;
+          }
 
-          // ─── hue from flow ───
-          float hueDriver = (q.x * 0.4 + r.x * 0.3 + h0 * 0.3) * 0.5 + 0.5;
-          float hueRad = radians(195.0 + hueDriver * 60.0 + t * 3.0);
+          // small puffs — fine detail tufts
+          for (int i = 0; i < 8; i++) {
+            float fi = float(i);
+            vec2 center = vec2(
+              snoise(vec3(fi * 3.1 + 100.0, 30.0, t)) * 0.7 + 0.5,
+              snoise(vec3(30.0, fi * 3.1 + 100.0, t)) * 0.7 + 0.5
+            );
+            center.x *= aspect;
+            float radius = 0.06 + snoise(vec3(fi * 5.3, t + 40.0, 0.0)) * 0.03;
+            float p = puff(auv, center, radius, fi * 11.0 + t + 200.0);
+            float w = 0.4;
+            accum += p * w;
+            hueAccum += p * w * (fi / 8.0);
+            totalWeight += w * 0.5;
+          }
 
-          // OKLCH
-          float L = 0.16 + light * 0.06 + h0 * 0.02;
-          float C_val = 0.03 + hueDriver * 0.02;
+          // normalize
+          float height = accum / totalWeight;
+          float hueBlend = totalWeight > 0.0 ? hueAccum / (accum + 0.001) : 0.5;
+
+          // ─── lighting from height gradient ───
+          float eps = 0.002;
+          // cheap finite difference using the puff accumulator's local variation
+          float nx = snoise(vec3((auv + vec2(eps, 0.0)) * 2.0, t));
+          float ny = snoise(vec3((auv + vec2(0.0, eps)) * 2.0, t));
+          float nc = snoise(vec3(auv * 2.0, t));
+          vec3 normal = normalize(vec3(
+            (height + nc - nx) * 8.0,
+            (height + nc - ny) * 8.0,
+            1.0
+          ));
+          vec3 lightDir = normalize(vec3(0.4, 0.6, 0.8));
+          float light = 0.45 + max(dot(normal, lightDir), 0.0) * 0.55;
+
+          // ─── color from OKLCH ───
+          float hueRad = radians(195.0 + hueBlend * 45.0);
+          float L = 0.13 + height * 0.08 + light * 0.05;
+          float C_val = 0.02 + height * 0.025;
           vec3 color = oklchToSrgb(L, C_val, hueRad);
 
-          // ─── grain — 5 octaves for fine texture (5 snoise calls) ───
-          float grain = fbm5(vec3(uv * u_res / 2.8, t * 0.5)) * 0.5 + 0.5;
-          color += (grain - 0.5) * 0.08;
+          // ─── grain — fine fibre texture ───
+          float grain = fbm5(vec3(uv * u_res / 2.8, t)) * 0.5 + 0.5;
+          color += (grain - 0.5) * 0.07;
 
           // vignette
-          float vig = smoothstep(0.0, 0.8, distance(uv, vec2(0.5)));
-          color -= vig * 0.02;
+          float vig = smoothstep(0.0, 0.85, distance(uv, vec2(0.5)));
+          color -= vig * 0.015;
 
           fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
         }
@@ -1809,14 +1870,6 @@
 
       const overlay = document.getElementById('perf-overlay');
       const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
-      let rafId = 0;
-      let resizeRaf = 0;
-      let running = false;
-      let inViewport = true;
-      let pageVisible = document.visibilityState === 'visible';
-      let frames = 0, lastFpsTime = 0, lastOverlayTime = 0;
-      let fps = 0, frameMs = 0, gpuMs = null;
-      let pendingQuery = null;
       let width = 0, height = 0;
 
       function fit() {
@@ -1824,98 +1877,50 @@
         const rect = panel.getBoundingClientRect();
         const nextWidth = Math.max(1, Math.round(rect.width * dpr));
         const nextHeight = Math.max(1, Math.round(rect.height * dpr));
-        if (nextWidth === width && nextHeight === height) return false;
+        if (nextWidth === width && nextHeight === height) return;
         width = nextWidth;
         height = nextHeight;
         canvas.width = width;
         canvas.height = height;
         gl.viewport(0, 0, width, height);
-        return true;
+        render();
       }
 
-      function scheduleFit() {
-        if (resizeRaf) return;
-        resizeRaf = requestAnimationFrame(() => {
-          resizeRaf = 0;
-          const resized = fit();
-          if (resized && !running) render(performance.now());
-        });
-      }
-
-      function collectGpuTime() {
-        if (!ext || !pendingQuery) return;
-        const available = gl.getQueryParameter(pendingQuery, gl.QUERY_RESULT_AVAILABLE);
-        if (!available) return;
-        const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
-        if (!disjoint) {
-          gpuMs = gl.getQueryParameter(pendingQuery, gl.QUERY_RESULT) / 1e6;
-        }
-        gl.deleteQuery(pendingQuery);
-        pendingQuery = null;
-      }
-
-      function updateOverlay(now) {
-        if (!overlay || now - lastOverlayTime < 250) return;
-        lastOverlayTime = now;
-        let text = `${fps} fps · ${frameMs.toFixed(1)}ms cpu`;
-        if (gpuMs !== null) text += ` · ${gpuMs.toFixed(1)}ms gpu`;
-        text += `\n${canvas.width}×${canvas.height}px`;
-        overlay.textContent = text;
-      }
-
-      function render(now) {
-        if (!width || !height) fit();
-        collectGpuTime();
-
+      function render() {
         const t0 = performance.now();
         let query = null;
-        if (ext && !pendingQuery) {
+        if (ext) {
           query = gl.createQuery();
           gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
         }
 
         gl.uniform2f(uRes, canvas.width, canvas.height);
-        gl.uniform1f(uTime, now * 0.0001);
+        gl.uniform1f(uTime, 42.0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
         if (query) {
           gl.endQuery(ext.TIME_ELAPSED_EXT);
-          pendingQuery = query;
         }
 
-        frameMs = performance.now() - t0;
-        updateOverlay(now);
-      }
+        gl.finish();
+        const cpuMs = performance.now() - t0;
 
-      function draw(now) {
-        if (!running) return;
-        frames++;
-        if (!lastFpsTime) lastFpsTime = now;
-        if (now - lastFpsTime >= 1000) {
-          fps = Math.round((frames * 1000) / (now - lastFpsTime));
-          frames = 0;
-          lastFpsTime = now;
-        }
-        render(now);
-        rafId = requestAnimationFrame(draw);
-      }
-
-      function syncLoop() {
-        const shouldRun = pageVisible && inViewport;
-        if (shouldRun === running) return;
-        running = shouldRun;
-
-        if (running) {
-          frames = 0;
-          fps = 0;
-          lastFpsTime = 0;
-          rafId = requestAnimationFrame(draw);
-          return;
-        }
-
-        if (rafId) {
-          cancelAnimationFrame(rafId);
-          rafId = 0;
+        // read GPU time async
+        if (query) {
+          requestAnimationFrame(function poll() {
+            const available = gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE);
+            if (!available) { requestAnimationFrame(poll); return; }
+            const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
+            let gpuMs = null;
+            if (!disjoint) gpuMs = gl.getQueryParameter(query, gl.QUERY_RESULT) / 1e6;
+            gl.deleteQuery(query);
+            let text = `${cpuMs.toFixed(1)}ms cpu`;
+            if (gpuMs !== null) text += ` · ${gpuMs.toFixed(1)}ms gpu`;
+            text += ` · ${canvas.width}×${canvas.height}px · static`;
+            overlay.textContent = text;
+          });
+        } else {
+          overlay.textContent = `${cpuMs.toFixed(1)}ms cpu · ${canvas.width}×${canvas.height}px · static`;
         }
       }
 
@@ -1928,27 +1933,13 @@
         }
       });
 
-      window.addEventListener('resize', scheduleFit, { passive: true });
-      document.addEventListener('fullscreenchange', scheduleFit);
-      document.addEventListener('visibilitychange', () => {
-        pageVisible = document.visibilityState === 'visible';
-        syncLoop();
-      });
-
+      window.addEventListener('resize', () => fit(), { passive: true });
+      document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
       if ('ResizeObserver' in window) {
-        new ResizeObserver(scheduleFit).observe(panel);
-      }
-
-      if ('IntersectionObserver' in window) {
-        new IntersectionObserver((entries) => {
-          inViewport = entries[0]?.isIntersecting ?? true;
-          syncLoop();
-        }, { threshold: 0.01 }).observe(panel);
+        new ResizeObserver(() => fit()).observe(panel);
       }
 
       fit();
-      render(performance.now());
-      syncLoop();
     })();
   </script>
 </body>
