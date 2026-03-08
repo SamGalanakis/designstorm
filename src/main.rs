@@ -10,7 +10,10 @@ use axum::{
     extract::{Json, Path, State},
     http::{
         HeaderMap, HeaderValue, StatusCode,
-        header::{CONTENT_TYPE, COOKIE, SET_COOKIE},
+        header::{
+            CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, SET_COOKIE,
+            X_CONTENT_TYPE_OPTIONS,
+        },
     },
     response::{
         Html, IntoResponse, Redirect, Response, Sse,
@@ -817,6 +820,17 @@ struct GenerateStormSignals {
     source_ids: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClientTelemetryEvent {
+    event_type: String,
+    message: Option<String>,
+    details: Option<serde_json::Value>,
+    href: String,
+    user_agent: String,
+    timestamp: String,
+}
+
 #[derive(Debug, Clone)]
 struct StormGenerationInput {
     prompt: String,
@@ -944,6 +958,7 @@ async fn main() -> Result<(), AppError> {
         .route("/settings/provider/codex/poll", post(poll_codex_auth))
         .route("/settings/provider/logout", post(disconnect_provider))
         .route("/storms/generate", post(generate_storm_datastar))
+        .route("/telemetry/client", post(client_telemetry))
         .route("/api/storms", get(list_storms).post(create_storm))
         .route("/preview/{run_id}", get(preview_index_redirect))
         .route("/preview/{run_id}/", get(preview_index))
@@ -1460,11 +1475,30 @@ async fn preview_index(
 ) -> Result<Response, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
     let run = get_owned_run(&state, viewer.id, run_id).await?;
+    info!(user_id = %viewer.id, run_id = %run_id, "serving preview index");
     let html = tokio::fs::read_to_string(run.workspace_dir.join("index.html")).await?;
+    let (html, removed_refresh_tags) = strip_meta_refresh_tags(&html);
+    if removed_refresh_tags > 0 {
+        warn!(
+            user_id = %viewer.id,
+            run_id = %run_id,
+            removed_refresh_tags,
+            "sanitized preview html"
+        );
+    }
     Ok((
         [(
             CONTENT_TYPE,
             HeaderValue::from_static("text/html; charset=utf-8"),
+        ), (
+            CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("default-src 'self' data: https:; img-src 'self' data: https: blob:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"),
+        ), (
+            CACHE_CONTROL,
+            HeaderValue::from_static("private, max-age=300"),
+        ), (
+            X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
         )],
         Html(html),
     )
@@ -1480,14 +1514,44 @@ async fn preview_asset(
     let run = get_owned_run(&state, viewer.id, run_id).await?;
     let asset_path = resolve_workspace_path(&run.workspace_dir, &path)
         .map_err(AppError::BadRequest)?;
+    info!(
+        user_id = %viewer.id,
+        run_id = %run_id,
+        path = %path,
+        "serving preview asset"
+    );
     let bytes = tokio::fs::read(&asset_path).await?;
     let mime = from_path(&asset_path).first_or_octet_stream();
 
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, mime.as_ref())
+        .header(CACHE_CONTROL, "private, max-age=300")
+        .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
         .body(Body::from(bytes))
         .map_err(|error| AppError::Internal(error.to_string()))?)
+}
+
+async fn client_telemetry(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(event): Json<ClientTelemetryEvent>,
+) -> Result<StatusCode, AppError> {
+    let viewer = current_viewer(&state, &headers).await?;
+    info!(
+        user_id = viewer
+            .as_ref()
+            .map(|user| user.id.to_string())
+            .unwrap_or_else(|| "anonymous".to_string()),
+        event_type = %event.event_type,
+        message = ?event.message,
+        href = %event.href,
+        user_agent = %event.user_agent,
+        timestamp = %event.timestamp,
+        details = ?event.details,
+        "client telemetry"
+    );
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn verify_clerk_token(state: &AppState, token: &str) -> Result<ClerkClaims, AppError> {
@@ -1705,6 +1769,33 @@ fn truncate_for_log(value: &str, max_chars: usize) -> String {
     } else {
         truncated
     }
+}
+
+fn strip_meta_refresh_tags(html: &str) -> (String, usize) {
+    let mut output = String::with_capacity(html.len());
+    let lower = html.to_ascii_lowercase();
+    let mut cursor = 0usize;
+    let mut removed = 0usize;
+
+    while let Some(relative_start) = lower[cursor..].find("<meta") {
+        let start = cursor + relative_start;
+        output.push_str(&html[cursor..start]);
+        let Some(relative_end) = lower[start..].find('>') else {
+            output.push_str(&html[start..]);
+            return (output, removed);
+        };
+        let end = start + relative_end + 1;
+        let tag = &lower[start..end];
+        if tag.contains("http-equiv") && tag.contains("refresh") {
+            removed += 1;
+        } else {
+            output.push_str(&html[start..end]);
+        }
+        cursor = end;
+    }
+
+    output.push_str(&html[cursor..]);
+    (output, removed)
 }
 
 fn datastar_event_stream(

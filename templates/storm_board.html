@@ -18,7 +18,14 @@
           <span class="{{ run.status_class() }}">{{ run.status_label() }}</span>
         </div>
         <div class="storm-node-preview">
-          <iframe src="{{ run.preview_url }}" loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
+          <iframe
+            src="{{ run.preview_url }}"
+            loading="lazy"
+            sandbox=""
+            referrerpolicy="no-referrer"
+            tabindex="-1"
+            aria-hidden="true"
+          ></iframe>
         </div>
         <div class="storm-node-copy">
           <h3>{{ run.title }}</h3>

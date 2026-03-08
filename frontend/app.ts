@@ -38,6 +38,15 @@ type CodexPollResponse = {
   message?: string | null;
 };
 
+type ClientTelemetryPayload = {
+  eventType: string;
+  message?: string | null;
+  details?: Record<string, unknown> | null;
+  href: string;
+  userAgent: string;
+  timestamp: string;
+};
+
 type Point = { x: number; y: number };
 
 type DraftContext = {
@@ -107,6 +116,7 @@ const INITIAL_PAN: Point = { x: 160, y: 120 };
 let clerk: ClerkLike | null = null;
 let isSyncing = false;
 let authPollTimer: number | null = null;
+const telemetryCooldowns = new Map<string, number>();
 
 const state: StormState = {
   runs: [],
@@ -139,6 +149,46 @@ function getConfig(): AppConfig {
 
 function escapeHtml(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+function reportClientEvent(
+  eventType: string,
+  details?: Record<string, unknown>,
+  opts?: { cooldownMs?: number; message?: string },
+): void {
+  const key = `${eventType}:${JSON.stringify(details ?? {})}`;
+  const now = Date.now();
+  const cooldownMs = opts?.cooldownMs ?? 0;
+  const previous = telemetryCooldowns.get(key) ?? 0;
+  if (cooldownMs > 0 && now - previous < cooldownMs) return;
+  telemetryCooldowns.set(key, now);
+
+  const payload: ClientTelemetryPayload = {
+    eventType,
+    message: opts?.message ?? null,
+    details: details ?? null,
+    href: window.location.href,
+    userAgent: window.navigator.userAgent,
+    timestamp: new Date(now).toISOString(),
+  };
+
+  try {
+    const body = JSON.stringify(payload);
+    const blob = new Blob([body], { type: "application/json" });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon("/telemetry/client", blob);
+      return;
+    }
+    void fetch("/telemetry/client", {
+      method: "POST",
+      credentials: "include",
+      keepalive: true,
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  } catch {
+    // Telemetry must never break the app.
+  }
 }
 
 function setBoundValue(id: string, value: string): void {
@@ -278,6 +328,16 @@ function setStatus(msg: string): void {
   const el = $("storm-status");
   if (el) el.textContent = msg;
   setBoundValue("storm-status-signal", msg);
+}
+
+function setIframeSource(frame: HTMLIFrameElement, src: string | null): void {
+  const current = frame.getAttribute("src");
+  if (!src) {
+    if (current !== null) frame.removeAttribute("src");
+    return;
+  }
+  if (current === src) return;
+  frame.setAttribute("src", src);
 }
 
 // ─── URL sync ───
@@ -488,6 +548,16 @@ function hydrateBoardFromDom(): void {
   runs.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
   state.runs = runs;
   state.lineage = lineage;
+  reportClientEvent(
+    "board_hydrated",
+    {
+      runCount: runs.length,
+      previousCount,
+      activeRunId: state.activeRunId,
+      focusedRunId: state.focusedRunId,
+    },
+    { cooldownMs: 4000 },
+  );
 
   if (state.activeRunId && !getRun(state.activeRunId)) state.activeRunId = null;
   if (state.focusedRunId && !getRun(state.focusedRunId)) state.focusedRunId = null;
@@ -561,7 +631,7 @@ function renderInspector(): void {
     chips.hidden = true;
     seedCard.hidden = true;
     notesCard.hidden = true;
-    iframe.removeAttribute("src");
+    setIframeSource(iframe, null);
     fork.disabled = combine.disabled = fs.disabled = true;
     return;
   }
@@ -576,7 +646,7 @@ function renderInspector(): void {
   prompt.textContent = run.prompt;
   notesCard.hidden = !run.assistantSummary;
   notes.textContent = run.assistantSummary || "";
-  iframe.src = run.previewUrl;
+  setIframeSource(iframe, run.previewUrl);
   fork.disabled = combine.disabled = fs.disabled = false;
 }
 
@@ -586,10 +656,15 @@ function renderFocus(): void {
   const title = $("storm-focus-title");
   const run = getRun(state.focusedRunId);
   if (!overlay || !frame || !title) return;
-  if (!run) { overlay.hidden = true; overlay.setAttribute("aria-hidden", "true"); frame.removeAttribute("src"); return; }
+  if (!run) {
+    overlay.hidden = true;
+    overlay.setAttribute("aria-hidden", "true");
+    setIframeSource(frame, null);
+    return;
+  }
   overlay.hidden = false;
   overlay.setAttribute("aria-hidden", "false");
-  frame.src = run.previewUrl;
+  setIframeSource(frame, run.previewUrl);
   title.textContent = run.title;
 }
 
@@ -689,6 +764,11 @@ function bindAppChrome(): void {
     }
     state.awaitingGeneratedRun = true;
     setStatus("Generating storm...");
+    reportClientEvent("storm_generate_clicked", {
+      promptLength: prompt.length,
+      draftMode: state.draftContext?.mode ?? null,
+      sourceIds: state.draftContext?.sourceIds ?? [],
+    });
   });
   $("storm-clear-context")?.addEventListener("click", () => clearDraftContext());
   $("storm-composer-backdrop")?.addEventListener("click", () => hideComposer());
@@ -1036,11 +1116,26 @@ function bindBoardObserver(): void {
   const board = $("storm-board");
   if (!board) return;
   const observer = new MutationObserver((mutations) => {
-    if (mutations.some((mutation) => mutation.type === "childList")) {
+    const relevant = mutations.some((mutation) =>
+      mutation.type === "childList"
+      && [...mutation.addedNodes, ...mutation.removedNodes].some((node) =>
+        node instanceof HTMLElement
+        && (node.id === "storm-runs" || node.classList.contains("storm-node"))
+      )
+    );
+    if (relevant) {
+      reportClientEvent(
+        "board_mutation",
+        {
+          mutationCount: mutations.length,
+          runCount: $("storm-runs")?.querySelectorAll(".storm-node[data-run-id]").length ?? 0,
+        },
+        { cooldownMs: 3000 },
+      );
       hydrateBoardFromDom();
     }
   });
-  observer.observe(board, { childList: true, subtree: true });
+  observer.observe(board, { childList: true });
 }
 
 function bindStormApp(): void {
@@ -1054,11 +1149,95 @@ function bindStormApp(): void {
   bindAppChrome();
   bindRadialMenu();
   hydrateBoardFromDom();
+
+  const preview = $("storm-preview") as HTMLIFrameElement | null;
+  preview?.addEventListener("load", () => {
+    reportClientEvent(
+      "preview_loaded",
+      { frame: "inspector", src: preview.getAttribute("src") },
+      { cooldownMs: 5000 },
+    );
+  });
+  preview?.addEventListener("error", () => {
+    reportClientEvent(
+      "preview_failed",
+      { frame: "inspector", src: preview.getAttribute("src") },
+      { message: "Inspector preview failed to load." },
+    );
+  });
+
+  const focus = $("storm-focus-preview") as HTMLIFrameElement | null;
+  focus?.addEventListener("load", () => {
+    reportClientEvent(
+      "preview_loaded",
+      { frame: "focus", src: focus.getAttribute("src") },
+      { cooldownMs: 5000 },
+    );
+  });
+  focus?.addEventListener("error", () => {
+    reportClientEvent(
+      "preview_failed",
+      { frame: "focus", src: focus.getAttribute("src") },
+      { message: "Fullscreen preview failed to load." },
+    );
+  });
+}
+
+function bindDiagnostics(): void {
+  window.addEventListener("error", (event) => {
+    reportClientEvent(
+      "window_error",
+      {
+        message: event.message,
+        source: event.filename,
+        line: event.lineno,
+        column: event.colno,
+        stack: event.error instanceof Error ? event.error.stack ?? null : null,
+      },
+      { message: event.message, cooldownMs: 2000 },
+    );
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    let reason = "";
+    try {
+      reason = typeof event.reason === "string" ? event.reason : JSON.stringify(event.reason);
+    } catch {
+      reason = String(event.reason);
+    }
+    reportClientEvent(
+      "unhandled_rejection",
+      { reason },
+      { cooldownMs: 2000 },
+    );
+  });
+
+  if ("PerformanceObserver" in window) {
+    try {
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          reportClientEvent(
+            "long_task",
+            {
+              name: entry.name,
+              duration: Math.round(entry.duration),
+              startTime: Math.round(entry.startTime),
+            },
+            { cooldownMs: 1000 },
+          );
+        }
+      });
+      observer.observe({ entryTypes: ["longtask"] });
+    } catch {
+      // Unsupported browser or entry type.
+    }
+  }
 }
 
 // ─── Bootstrap ───
 
 async function bootstrap(): Promise<void> {
+  bindDiagnostics();
   const instance = await ensureClerk();
   if (!instance) return;
   const res = await fetch("/auth/me", { credentials: "include" });
