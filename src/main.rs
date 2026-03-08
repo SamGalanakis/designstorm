@@ -830,6 +830,8 @@ struct BoardNodeRow {
     locked: bool,
     #[allow(dead_code)]
     created_at: DateTime<Utc>,
+    width: Option<f64>,
+    height: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -841,6 +843,8 @@ struct BoardNodeSummary {
     position_y: f64,
     content: serde_json::Value,
     locked: bool,
+    width: Option<f64>,
+    height: Option<f64>,
 }
 
 impl BoardNodeSummary {
@@ -872,6 +876,8 @@ impl From<BoardNodeRow> for BoardNodeSummary {
             position_y: row.position_y,
             content: row.content,
             locked: row.locked,
+            width: row.width,
+            height: row.height,
         }
     }
 }
@@ -885,6 +891,10 @@ struct BoardEdgeRow {
     source_type: String,
     target_id: Uuid,
     target_type: String,
+    source_anchor_side: Option<String>,
+    source_anchor_t: Option<f64>,
+    target_anchor_side: Option<String>,
+    target_anchor_t: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -895,6 +905,10 @@ struct BoardEdgeSummary {
     source_type: String,
     target_id: Uuid,
     target_type: String,
+    source_anchor_side: Option<String>,
+    source_anchor_t: Option<f64>,
+    target_anchor_side: Option<String>,
+    target_anchor_t: Option<f64>,
 }
 
 impl From<BoardEdgeRow> for BoardEdgeSummary {
@@ -905,6 +919,10 @@ impl From<BoardEdgeRow> for BoardEdgeSummary {
             source_type: row.source_type,
             target_id: row.target_id,
             target_type: row.target_type,
+            source_anchor_side: row.source_anchor_side,
+            source_anchor_t: row.source_anchor_t,
+            target_anchor_side: row.target_anchor_side,
+            target_anchor_t: row.target_anchor_t,
         }
     }
 }
@@ -920,6 +938,8 @@ struct CreateNodeRequest {
 struct UpdatePositionRequest {
     position_x: f64,
     position_y: f64,
+    width: Option<f64>,
+    height: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -928,6 +948,10 @@ struct CreateEdgeRequest {
     source_type: String,
     target_id: Uuid,
     target_type: String,
+    source_anchor_side: Option<String>,
+    source_anchor_t: Option<f64>,
+    target_anchor_side: Option<String>,
+    target_anchor_t: Option<f64>,
 }
 
 #[derive(Template)]
@@ -2661,7 +2685,7 @@ fn html_escape(input: &str) -> String {
 async fn load_board_nodes(state: &AppState, user_id: Uuid) -> Vec<BoardNodeSummary> {
     match sqlx::query_as::<_, BoardNodeRow>(
         r#"
-        SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at
+        SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height
         FROM board_nodes
         WHERE owner_user_id = $1
         ORDER BY created_at ASC
@@ -2682,7 +2706,8 @@ async fn load_board_nodes(state: &AppState, user_id: Uuid) -> Vec<BoardNodeSumma
 async fn load_board_edges(state: &AppState, user_id: Uuid) -> Vec<BoardEdgeSummary> {
     match sqlx::query_as::<_, BoardEdgeRow>(
         r#"
-        SELECT id, owner_user_id, source_id, source_type, target_id, target_type
+        SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
+               source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t
         FROM board_edges
         WHERE owner_user_id = $1
         ORDER BY created_at ASC
@@ -2768,7 +2793,7 @@ async fn create_board_node(
         r#"
         INSERT INTO board_nodes (owner_user_id, node_type, position_x, position_y, content)
         VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, owner_user_id, node_type, position_x, position_y, content, locked, created_at
+        RETURNING id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height
         "#,
     )
     .bind(viewer.id)
@@ -2851,10 +2876,12 @@ async fn update_board_node_position(
 ) -> Result<StatusCode, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
     sqlx::query(
-        r#"UPDATE board_nodes SET position_x = $1, position_y = $2 WHERE id = $3 AND owner_user_id = $4"#,
+        r#"UPDATE board_nodes SET position_x = $1, position_y = $2, width = $3, height = $4 WHERE id = $5 AND owner_user_id = $6"#,
     )
     .bind(payload.position_x)
     .bind(payload.position_y)
+    .bind(payload.width)
+    .bind(payload.height)
     .bind(id)
     .bind(viewer.id)
     .execute(&state.db)
@@ -2918,10 +2945,17 @@ async fn create_board_edge(
 
     let row = sqlx::query_as::<_, BoardEdgeRow>(
         r#"
-        INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type)
-        VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (source_id, target_id) DO UPDATE SET source_type = EXCLUDED.source_type
-        RETURNING id, owner_user_id, source_id, source_type, target_id, target_type
+        INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type,
+                                 source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (source_id, target_id) DO UPDATE SET
+            source_type = EXCLUDED.source_type,
+            source_anchor_side = EXCLUDED.source_anchor_side,
+            source_anchor_t = EXCLUDED.source_anchor_t,
+            target_anchor_side = EXCLUDED.target_anchor_side,
+            target_anchor_t = EXCLUDED.target_anchor_t
+        RETURNING id, owner_user_id, source_id, source_type, target_id, target_type,
+                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t
         "#,
     )
     .bind(viewer.id)
@@ -2929,6 +2963,10 @@ async fn create_board_edge(
     .bind(&payload.source_type)
     .bind(payload.target_id)
     .bind(&payload.target_type)
+    .bind(&payload.source_anchor_side)
+    .bind(payload.source_anchor_t)
+    .bind(&payload.target_anchor_side)
+    .bind(payload.target_anchor_t)
     .fetch_one(&state.db)
     .await?;
 

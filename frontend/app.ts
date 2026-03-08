@@ -70,13 +70,27 @@ type BoardEdge = {
   sourceType: string;
   targetId: string;
   targetType: string;
+  sourceAnchorSide: string | null;
+  sourceAnchorT: number | null;
+  targetAnchorSide: string | null;
+  targetAnchorT: number | null;
+};
+
+type AnchorSide = "top" | "bottom" | "left" | "right";
+
+type AnchorPoint = {
+  side: AnchorSide;
+  t: number;
+  worldX: number;
+  worldY: number;
 };
 
 type PointerState =
   | { mode: "pan"; pointerId: number; startClient: Point; startPan: Point }
   | { mode: "drag"; pointerId: number; runId: string; startClient: Point; startPos: Point; moved: boolean }
   | { mode: "drag-board-node"; pointerId: number; nodeId: string; startClient: Point; startPos: Point; moved: boolean }
-  | { mode: "wire"; pointerId: number; sourceRunId: string; sourceType: string; startWorld: Point; currentWorld: Point; targetRunId: string | null; targetType: string | null }
+  | { mode: "wire"; pointerId: number; sourceRunId: string; sourceType: string; sourceAnchor: AnchorPoint; startWorld: Point; currentWorld: Point; targetRunId: string | null; targetType: string | null; targetAnchor: AnchorPoint | null }
+  | { mode: "resize"; pointerId: number; nodeId: string; startClient: Point; startSize: { w: number; h: number } }
   | null;
 
 type RadialItem = {
@@ -179,6 +193,9 @@ const CARD_WIDTH = 310;
 const CARD_HEIGHT = 332;
 const ENTROPY_NODE_WIDTH = 240;
 const ENTROPY_NODE_HEIGHT = 180;
+const GENERATE_NODE_WIDTH = 200;
+const GENERATE_NODE_HEIGHT = 140;
+const EDGE_HANDLE_PROXIMITY = 30;
 const INITIAL_PAN: Point = { x: 160, y: 120 };
 const BACKGROUND_CHUNK_WORLD_SIZE = 1536;
 const BACKGROUND_CHUNK_PIXEL_SIZE = 768;
@@ -308,8 +325,57 @@ function getVisibleWorldBounds(): WorldBounds {
 
 function getNodeDimensions(id: string): { w: number; h: number } {
   const boardNode = state.boardNodes.find((n) => n.id === id);
-  if (boardNode) return { w: ENTROPY_NODE_WIDTH, h: ENTROPY_NODE_HEIGHT };
+  if (boardNode) {
+    if (boardNode.nodeType === "generate") return { w: GENERATE_NODE_WIDTH, h: GENERATE_NODE_HEIGHT };
+    return { w: ENTROPY_NODE_WIDTH, h: ENTROPY_NODE_HEIGHT };
+  }
   return { w: CARD_WIDTH, h: CARD_HEIGHT };
+}
+
+function getAnchorWorldPos(nodeId: string, side: AnchorSide, t: number): { x: number; y: number } {
+  const pos = state.positions.get(nodeId);
+  if (!pos) return { x: 0, y: 0 };
+  const { w, h } = getNodeDimensions(nodeId);
+  switch (side) {
+    case "top": return { x: pos.x + w * t, y: pos.y };
+    case "bottom": return { x: pos.x + w * t, y: pos.y + h };
+    case "left": return { x: pos.x, y: pos.y + h * t };
+    case "right": return { x: pos.x + w, y: pos.y + h * t };
+  }
+}
+
+function getEdgeProximity(nodeId: string, worldPt: Point): AnchorPoint | null {
+  const pos = state.positions.get(nodeId);
+  if (!pos) return null;
+  const { w, h } = getNodeDimensions(nodeId);
+
+  const sides: { side: AnchorSide; dist: number; t: number; wx: number; wy: number }[] = [];
+
+  // Top edge
+  if (worldPt.x >= pos.x && worldPt.x <= pos.x + w) {
+    const d = Math.abs(worldPt.y - pos.y);
+    if (d < EDGE_HANDLE_PROXIMITY) sides.push({ side: "top", dist: d, t: (worldPt.x - pos.x) / w, wx: worldPt.x, wy: pos.y });
+  }
+  // Bottom edge
+  if (worldPt.x >= pos.x && worldPt.x <= pos.x + w) {
+    const d = Math.abs(worldPt.y - (pos.y + h));
+    if (d < EDGE_HANDLE_PROXIMITY) sides.push({ side: "bottom", dist: d, t: (worldPt.x - pos.x) / w, wx: worldPt.x, wy: pos.y + h });
+  }
+  // Left edge
+  if (worldPt.y >= pos.y && worldPt.y <= pos.y + h) {
+    const d = Math.abs(worldPt.x - pos.x);
+    if (d < EDGE_HANDLE_PROXIMITY) sides.push({ side: "left", dist: d, t: (worldPt.y - pos.y) / h, wx: pos.x, wy: worldPt.y });
+  }
+  // Right edge
+  if (worldPt.y >= pos.y && worldPt.y <= pos.y + h) {
+    const d = Math.abs(worldPt.x - (pos.x + w));
+    if (d < EDGE_HANDLE_PROXIMITY) sides.push({ side: "right", dist: d, t: (worldPt.y - pos.y) / h, wx: pos.x + w, wy: worldPt.y });
+  }
+
+  if (sides.length === 0) return null;
+  sides.sort((a, b) => a.dist - b.dist);
+  const best = sides[0];
+  return { side: best.side, t: Math.max(0.1, Math.min(0.9, best.t)), worldX: best.wx, worldY: best.wy };
 }
 
 function getRunWorldBounds(): WorldBounds | null {
@@ -1261,6 +1327,15 @@ function syncRootsNavigatorState(): void {
   });
 }
 
+function getControlOffset(side: AnchorSide, tension: number): Point {
+  switch (side) {
+    case "top": return { x: 0, y: -Math.abs(tension) };
+    case "bottom": return { x: 0, y: Math.abs(tension) };
+    case "left": return { x: -Math.abs(tension), y: 0 };
+    case "right": return { x: Math.abs(tension), y: 0 };
+  }
+}
+
 function renderConnections(): void {
   const svg = $("storm-lines") as unknown as SVGSVGElement | null;
   if (!svg) return;
@@ -1281,12 +1356,12 @@ function renderConnections(): void {
       const parent = state.positions.get(pid);
       if (!parent) return;
       const sx = parent.x + CARD_WIDTH * 0.5 - bounds.minX;
-      const sy = parent.y + CARD_HEIGHT * 0.56 - bounds.minY;
+      const sy = parent.y + CARD_HEIGHT - bounds.minY;
       const ex = child.x + CARD_WIDTH * 0.5 - bounds.minX;
-      const ey = child.y + 20 - bounds.minY;
-      const cy = sy + (ey - sy) * 0.45;
+      const ey = child.y - bounds.minY;
+      const tension = Math.min(Math.abs(ey - sy) * 0.4, 80);
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("d", `M ${sx} ${sy} C ${sx} ${cy}, ${ex} ${cy}, ${ex} ${ey}`);
+      path.setAttribute("d", `M ${sx} ${sy} C ${sx} ${sy + tension}, ${ex} ${ey - tension}, ${ex} ${ey}`);
       path.setAttribute("class", "storm-line");
       svg.appendChild(path);
     });
@@ -1299,13 +1374,41 @@ function renderConnections(): void {
     if (!srcPos || !tgtPos) return;
     const srcDim = getNodeDimensions(edge.sourceId);
     const tgtDim = getNodeDimensions(edge.targetId);
-    const sx = srcPos.x + srcDim.w * 0.5 - bounds.minX;
-    const sy = srcPos.y + srcDim.h * 0.56 - bounds.minY;
-    const ex = tgtPos.x + tgtDim.w * 0.5 - bounds.minX;
-    const ey = tgtPos.y + 20 - bounds.minY;
-    const cy = sy + (ey - sy) * 0.45;
+
+    let sx: number, sy: number, ex: number, ey: number;
+    let srcSide: AnchorSide = "bottom";
+    let tgtSide: AnchorSide = "top";
+
+    if (edge.sourceAnchorSide && edge.sourceAnchorT != null) {
+      srcSide = edge.sourceAnchorSide as AnchorSide;
+      const anchor = getAnchorWorldPos(edge.sourceId, srcSide, edge.sourceAnchorT);
+      sx = anchor.x - bounds.minX;
+      sy = anchor.y - bounds.minY;
+    } else {
+      sx = srcPos.x + srcDim.w * 0.5 - bounds.minX;
+      sy = srcPos.y + srcDim.h - bounds.minY;
+    }
+
+    if (edge.targetAnchorSide && edge.targetAnchorT != null) {
+      tgtSide = edge.targetAnchorSide as AnchorSide;
+      const anchor = getAnchorWorldPos(edge.targetId, tgtSide, edge.targetAnchorT);
+      ex = anchor.x - bounds.minX;
+      ey = anchor.y - bounds.minY;
+    } else {
+      ex = tgtPos.x + tgtDim.w * 0.5 - bounds.minX;
+      ey = tgtPos.y - bounds.minY;
+    }
+
+    const dx = ex - sx;
+    const dy = ey - sy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const tension = Math.min(dist * 0.4, 80);
+
+    const srcCtrl = getControlOffset(srcSide, tension);
+    const tgtCtrl = getControlOffset(tgtSide, -tension);
+
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", `M ${sx} ${sy} C ${sx} ${cy}, ${ex} ${cy}, ${ex} ${ey}`);
+    path.setAttribute("d", `M ${sx} ${sy} C ${sx + srcCtrl.x} ${sy + srcCtrl.y}, ${ex + tgtCtrl.x} ${ey + tgtCtrl.y}, ${ex} ${ey}`);
     path.setAttribute("class", "board-edge-line");
     svg.appendChild(path);
   });
@@ -1318,14 +1421,9 @@ function renderWire(): void {
   svg.querySelectorAll(".storm-wire, .storm-wire-head").forEach((el) => el.remove());
   if (!state.pointerState || state.pointerState.mode !== "wire") return;
 
-  const { sourceRunId, currentWorld } = state.pointerState;
-  const srcPos = state.positions.get(sourceRunId);
-  if (!srcPos) return;
-
-  // Source point: bottom center of card
-  const srcDim = getNodeDimensions(sourceRunId);
-  const sx = srcPos.x + srcDim.w * 0.5;
-  const sy = srcPos.y + srcDim.h * 0.56;
+  const { sourceAnchor, currentWorld } = state.pointerState;
+  const sx = sourceAnchor.worldX;
+  const sy = sourceAnchor.worldY;
   const ex = currentWorld.x;
   const ey = currentWorld.y;
 
@@ -1339,9 +1437,12 @@ function renderWire(): void {
   const lex = ex - svgLeft;
   const ley = ey - svgTop;
 
-  const cy = lsy + (ley - lsy) * 0.45;
+  const dist = Math.sqrt((lex - lsx) ** 2 + (ley - lsy) ** 2);
+  const tension = Math.min(dist * 0.4, 80);
+  const srcCtrl = getControlOffset(sourceAnchor.side, tension);
+
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", `M ${lsx} ${lsy} C ${lsx} ${cy}, ${lex} ${cy}, ${lex} ${ley}`);
+  path.setAttribute("d", `M ${lsx} ${lsy} C ${lsx + srcCtrl.x} ${lsy + srcCtrl.y}, ${lex} ${ley}, ${lex} ${ley}`);
   path.setAttribute("class", "storm-wire");
   svg.appendChild(path);
 
@@ -1374,7 +1475,8 @@ function hitTestNode(worldPt: Point, excludeId?: string): string | null {
     if (node.id === excludeId) continue;
     const pos = state.positions.get(node.id);
     if (!pos) continue;
-    if (worldPt.x >= pos.x && worldPt.x <= pos.x + ENTROPY_NODE_WIDTH && worldPt.y >= pos.y && worldPt.y <= pos.y + ENTROPY_NODE_HEIGHT) {
+    const dim = getNodeDimensions(node.id);
+    if (worldPt.x >= pos.x && worldPt.x <= pos.x + dim.w && worldPt.y >= pos.y && worldPt.y <= pos.y + dim.h) {
       return node.id;
     }
   }
@@ -1470,6 +1572,7 @@ function hydrateBoardFromDom(): void {
   applyUrlState();
   renderRuns();
   renderBoardNodes();
+  updateGenerateInputs();
   renderInspector();
   renderFocus();
   syncRootsNavigatorState();
@@ -1668,7 +1771,7 @@ function bindNodeInteractions(): void {
     if (state.spacePanHeld) return;
     if (wireJustCompleted) { wireJustCompleted = false; return; }
     const target = e.target as HTMLElement;
-    if (target.closest(".node-handle")) return;
+    if (target.closest(".edge-handle")) return;
     const action = target.closest<HTMLElement>("[data-run-action]")?.dataset.runAction;
     const node = target.closest<HTMLElement>(".storm-node");
     const runId = node?.dataset.runId;
@@ -1690,25 +1793,49 @@ function bindNodeInteractions(): void {
     const target = e.target as HTMLElement;
     if (target.closest("[data-run-action]")) return;
 
-    // Wire mode: dragging from a connection handle
-    if (target.closest(".node-handle")) {
+    // Wire mode: dragging from a dynamic edge handle
+    if (target.closest(".edge-handle")) {
+      const handleEl = target.closest<HTMLElement>(".edge-handle");
       const stormNode = target.closest<HTMLElement>(".storm-node");
       const boardNode = target.closest<HTMLElement>(".board-node");
       const nodeEl = stormNode ?? boardNode;
       const nodeId = stormNode?.dataset.runId ?? boardNode?.dataset.nodeId;
-      if (!nodeEl || !nodeId) return;
+      if (!nodeEl || !nodeId || !handleEl) return;
       e.preventDefault();
       e.stopPropagation();
-      const srcPos = state.positions.get(nodeId);
-      if (!srcPos) return;
-      const srcDim = getNodeDimensions(nodeId);
-      const startWorld: Point = { x: srcPos.x + srcDim.w * 0.5, y: srcPos.y + srcDim.h * 0.56 };
+      const side = (handleEl.dataset.side ?? "bottom") as AnchorSide;
+      const t = parseFloat(handleEl.dataset.t ?? "0.5");
+      const anchorPos = getAnchorWorldPos(nodeId, side, t);
       const srcType = getNodeType(nodeId);
-      state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nodeId, sourceType: srcType, startWorld, currentWorld: { ...startWorld }, targetRunId: null, targetType: null };
+      const sourceAnchor: AnchorPoint = { side, t, worldX: anchorPos.x, worldY: anchorPos.y };
+      state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nodeId, sourceType: srcType, sourceAnchor, startWorld: { x: anchorPos.x, y: anchorPos.y }, currentWorld: { x: anchorPos.x, y: anchorPos.y }, targetRunId: null, targetType: null, targetAnchor: null };
       nodeEl.classList.add("is-wire-source");
       document.body.classList.add("is-wiring");
       nodeEl.setPointerCapture(e.pointerId);
       return;
+    }
+
+    // Edge proximity wire initiation: pointerdown near node edge
+    {
+      const world = clientToWorld(e.clientX, e.clientY);
+      // Check all nodes for edge proximity
+      const allNodeIds = [...state.runs.map((r) => r.id), ...state.boardNodes.map((n) => n.id)];
+      for (const nid of allNodeIds) {
+        const anchor = getEdgeProximity(nid, world);
+        if (anchor) {
+          const nodeEl = container.querySelector<HTMLElement>(`.storm-node[data-run-id="${nid}"]`)
+            ?? container.querySelector<HTMLElement>(`.board-node[data-node-id="${nid}"]`);
+          if (!nodeEl) continue;
+          e.preventDefault();
+          e.stopPropagation();
+          const srcType = getNodeType(nid);
+          state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nid, sourceType: srcType, sourceAnchor: anchor, startWorld: { x: anchor.worldX, y: anchor.worldY }, currentWorld: { x: anchor.worldX, y: anchor.worldY }, targetRunId: null, targetType: null, targetAnchor: null };
+          nodeEl.classList.add("is-wire-source");
+          document.body.classList.add("is-wiring");
+          nodeEl.setPointerCapture(e.pointerId);
+          return;
+        }
+      }
     }
 
     const node = target.closest<HTMLElement>(".storm-node");
@@ -1728,7 +1855,7 @@ function bindNodeInteractions(): void {
       state.pointerState.currentWorld = world;
       const hit = hitTestNode(world, state.pointerState.sourceRunId);
 
-      // Update target highlight
+      // Update target highlight and target anchor
       if (hit !== state.pointerState.targetRunId) {
         if (state.pointerState.targetRunId) {
           const prevEl = container.querySelector(`.storm-node[data-run-id="${state.pointerState.targetRunId}"]`)
@@ -1742,6 +1869,12 @@ function bindNodeInteractions(): void {
             ?? container.querySelector(`.board-node[data-node-id="${hit}"]`);
           hitEl?.classList.add("is-wire-target");
         }
+      }
+      // Track target anchor for snapping
+      if (hit) {
+        state.pointerState.targetAnchor = getEdgeProximity(hit, world);
+      } else {
+        state.pointerState.targetAnchor = null;
       }
       renderWire();
       return;
@@ -1774,7 +1907,7 @@ function bindNodeInteractions(): void {
     if (!state.pointerState || state.pointerState.pointerId !== e.pointerId) return;
 
     if (state.pointerState.mode === "wire") {
-      const { sourceRunId, sourceType, targetRunId, targetType } = state.pointerState;
+      const { sourceRunId, sourceType, sourceAnchor, targetRunId, targetType, targetAnchor } = state.pointerState;
       // Clean up wire visuals
       const srcEl = container.querySelector(`.storm-node[data-run-id="${sourceRunId}"]`)
         ?? container.querySelector(`.board-node[data-node-id="${sourceRunId}"]`);
@@ -1785,28 +1918,19 @@ function bindNodeInteractions(): void {
         tgtEl?.classList.remove("is-wire-target");
       }
       document.body.classList.remove("is-wiring");
+      removeEdgeHandles();
       state.pointerState = null;
       wireJustCompleted = true;
       renderWire();
 
       if (targetRunId && targetRunId !== sourceRunId) {
-        const srcIsDesign = sourceType === "design";
-        const tgtIsDesign = targetType === "design";
+        // Compute target anchor — use tracked one or default to closest edge
+        const finalTargetAnchor = targetAnchor ?? { side: "top" as AnchorSide, t: 0.5, worldX: 0, worldY: 0 };
 
-        if (srcIsDesign && tgtIsDesign) {
-          // Design-to-design: keep existing combine behavior
-          const src = getRun(sourceRunId);
-          const tgt = getRun(targetRunId);
-          if (src && tgt) {
-            showDraftContext({ mode: "combine", sourceIds: [src.id, tgt.id], label: `Hybridizing ${src.title} and ${tgt.title}` });
-            setActiveRun(tgt.id, { sync: true });
-            state.radialMenu.position = { x: e.clientX, y: e.clientY };
-            showComposer();
-          }
-        } else {
-          // Cross-type wire: create a board edge
-          createBoardEdge(sourceRunId, sourceType, targetRunId, targetType ?? getNodeType(targetRunId));
-        }
+        createBoardEdge(
+          sourceRunId, sourceType, targetRunId, targetType ?? getNodeType(targetRunId),
+          sourceAnchor, finalTargetAnchor
+        );
       } else if (!targetRunId) {
         // Dropped on empty canvas: fork behavior for design nodes
         const src = getRun(sourceRunId);
@@ -1873,8 +1997,6 @@ async function createBoardNode(nodeType: string, worldPos: Point): Promise<void>
     // Create DOM element
     const container = $("storm-runs");
     if (!container) return;
-    const title = (node.content.title as string) ?? "Random page";
-    const url = (node.content.url as string) ?? "";
     const article = document.createElement("article");
     article.className = `board-node board-node-${node.nodeType}`;
     article.dataset.nodeId = node.id;
@@ -1883,23 +2005,41 @@ async function createBoardNode(nodeType: string, worldPos: Point): Promise<void>
     article.dataset.positionY = String(node.positionY);
     article.dataset.content = JSON.stringify(node.content);
     article.dataset.locked = String(node.locked);
-    article.innerHTML = `
-      <div class="entropy-shell">
-        <div class="entropy-header">
-          <span class="eyebrow entropy-eyebrow">Entropy</span>
-          <div class="entropy-actions">
-            <button class="entropy-btn" title="Re-roll"
-              data-on:click__prevent="@post('/nodes/${node.id}/reroll')">&#x27F3;</button>
-            <button class="entropy-btn" title="Toggle lock"
-              data-on:click__prevent="@post('/nodes/${node.id}/lock')">${node.locked ? "&#x1F512;" : "&#x1F513;"}</button>
+
+    if (node.nodeType === "entropy") {
+      const title = (node.content.title as string) ?? "Random page";
+      const url = (node.content.url as string) ?? "";
+      article.innerHTML = `
+        <div class="entropy-shell">
+          <div class="entropy-header">
+            <span class="eyebrow entropy-eyebrow">Entropy</span>
+            <div class="entropy-actions">
+              <button class="entropy-btn" title="Re-roll"
+                data-on:click__prevent="@post('/nodes/${node.id}/reroll')">&#x27F3;</button>
+              <button class="entropy-btn" title="Toggle lock"
+                data-on:click__prevent="@post('/nodes/${node.id}/lock')">${node.locked ? "&#x1F512;" : "&#x1F513;"}</button>
+            </div>
           </div>
-        </div>
-        <div class="entropy-preview">
-          <iframe src="${escapeHtml(url)}" loading="lazy" sandbox="allow-same-origin" referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true"></iframe>
-        </div>
-        <div class="entropy-label">${escapeHtml(title)}</div>
-        <div class="node-handle" aria-label="Drag to connect"></div>
-      </div>`;
+          <div class="entropy-preview">
+            <iframe src="${escapeHtml(url)}" loading="lazy" sandbox="allow-scripts allow-forms allow-modals" referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true"></iframe>
+          </div>
+          <div class="entropy-label">${escapeHtml(title)}</div>
+        </div>`;
+    } else if (node.nodeType === "generate") {
+      article.innerHTML = `
+        <div class="generate-shell">
+          <div class="generate-header">
+            <span class="eyebrow generate-eyebrow">Generate</span>
+          </div>
+          <div class="generate-inputs" id="gen-inputs-${node.id}">
+            <span class="generate-placeholder">Wire inputs here</span>
+          </div>
+          <button class="generate-run-btn" data-node-action="run" title="Run generation">
+            <span class="generate-run-icon">&#x25B6;</span>
+          </button>
+        </div>`;
+    }
+
     article.style.transform = `translate(${node.positionX}px, ${node.positionY}px)`;
     container.appendChild(article);
     renderBoardNodes();
@@ -1910,21 +2050,115 @@ async function createBoardNode(nodeType: string, worldPos: Point): Promise<void>
   }
 }
 
-async function createBoardEdge(sourceId: string, sourceType: string, targetId: string, targetType: string): Promise<void> {
+async function createBoardEdge(
+  sourceId: string, sourceType: string, targetId: string, targetType: string,
+  sourceAnchor?: AnchorPoint, targetAnchor?: AnchorPoint
+): Promise<void> {
   try {
     const resp = await fetch("/edges", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ source_id: sourceId, source_type: sourceType, target_id: targetId, target_type: targetType }),
+      body: JSON.stringify({
+        source_id: sourceId, source_type: sourceType,
+        target_id: targetId, target_type: targetType,
+        source_anchor_side: sourceAnchor?.side ?? null,
+        source_anchor_t: sourceAnchor?.t ?? null,
+        target_anchor_side: targetAnchor?.side ?? null,
+        target_anchor_t: targetAnchor?.t ?? null,
+      }),
     });
     if (!resp.ok) { console.error("Failed to create edge:", resp.statusText); return; }
     const edge: BoardEdge = await resp.json();
     state.edges.push(edge);
     renderConnections();
+    updateGenerateInputs();
   } catch (err) {
     console.error("Failed to create edge:", err);
   }
+}
+
+// ─── Dynamic edge handles ───
+
+let activeEdgeHandle: HTMLElement | null = null;
+
+function showEdgeHandle(nodeEl: HTMLElement, anchor: AnchorPoint): void {
+  removeEdgeHandles();
+  const handle = document.createElement("div");
+  handle.className = "edge-handle is-visible";
+  handle.dataset.side = anchor.side;
+  handle.dataset.t = String(anchor.t);
+
+  const { w, h } = getNodeDimensions(nodeEl.dataset.runId ?? nodeEl.dataset.nodeId ?? "");
+  switch (anchor.side) {
+    case "top": handle.style.left = `${anchor.t * w - 5}px`; handle.style.top = "-5px"; break;
+    case "bottom": handle.style.left = `${anchor.t * w - 5}px`; handle.style.bottom = "-5px"; break;
+    case "left": handle.style.top = `${anchor.t * h - 5}px`; handle.style.left = "-5px"; break;
+    case "right": handle.style.top = `${anchor.t * h - 5}px`; handle.style.right = "-5px"; break;
+  }
+
+  // Append to the shell element (first child)
+  const shell = nodeEl.firstElementChild as HTMLElement;
+  if (shell) shell.appendChild(handle);
+  activeEdgeHandle = handle;
+}
+
+function removeEdgeHandles(): void {
+  if (activeEdgeHandle) {
+    activeEdgeHandle.remove();
+    activeEdgeHandle = null;
+  }
+}
+
+function updateGenerateInputs(): void {
+  for (const node of state.boardNodes) {
+    if (node.nodeType !== "generate") continue;
+    const inputsEl = document.getElementById(`gen-inputs-${node.id}`);
+    if (!inputsEl) continue;
+
+    const connectedEdges = state.edges.filter((e) => e.targetId === node.id);
+    if (connectedEdges.length === 0) {
+      inputsEl.innerHTML = '<span class="generate-placeholder">Wire inputs here</span>';
+      continue;
+    }
+
+    inputsEl.innerHTML = connectedEdges.map((edge) => {
+      const srcNode = state.boardNodes.find((n) => n.id === edge.sourceId);
+      const srcRun = state.runs.find((r) => r.id === edge.sourceId);
+      let label = edge.sourceType;
+      if (srcNode?.nodeType === "entropy") label = (srcNode.content.title as string) ?? "Entropy";
+      else if (srcRun) label = srcRun.title;
+      return `<span class="generate-input-chip">${escapeHtml(label)}</span>`;
+    }).join("");
+  }
+}
+
+function bindEdgeHover(): void {
+  const canvas = $("storm-canvas");
+  if (!canvas) return;
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (state.pointerState) return; // don't show handles while dragging/wiring
+    const world = clientToWorld(e.clientX, e.clientY);
+    const container = $("storm-runs");
+    if (!container) return;
+
+    // Check all nodes for edge proximity
+    const allNodes = [
+      ...state.runs.map((r) => ({ id: r.id, sel: `.storm-node[data-run-id="${r.id}"]` })),
+      ...state.boardNodes.map((n) => ({ id: n.id, sel: `.board-node[data-node-id="${n.id}"]` })),
+    ];
+
+    for (const { id, sel } of allNodes) {
+      const anchor = getEdgeProximity(id, world);
+      if (anchor) {
+        const nodeEl = container.querySelector<HTMLElement>(sel);
+        if (nodeEl) showEdgeHandle(nodeEl, anchor);
+        return;
+      }
+    }
+    removeEdgeHandles();
+  }, { passive: true });
 }
 
 function bindBoardNodeInteractions(): void {
@@ -1938,9 +2172,13 @@ function bindBoardNodeInteractions(): void {
     const nodeId = boardNode.dataset.nodeId;
     if (!nodeId) return;
 
-    // Reroll/lock buttons are handled by Datastar data-on:click attributes
+    // Reroll/lock/run buttons are handled by Datastar or JS
     if (target.closest(".entropy-btn")) return;
-    if (target.closest(".node-handle")) return;
+    if (target.closest(".edge-handle")) return;
+    if (target.closest(".generate-run-btn")) {
+      // TODO: trigger generation workflow
+      return;
+    }
 
     // Select the node
     state.activeNodeId = nodeId;
@@ -1953,7 +2191,7 @@ function bindBoardNodeInteractions(): void {
     if (state.spacePanHeld) return;
     const target = e.target as HTMLElement;
     if (target.closest("[data-node-action]")) return;
-    if (target.closest(".node-handle")) return;
+    if (target.closest(".edge-handle")) return;
 
     const boardNode = target.closest<HTMLElement>(".board-node");
     if (!boardNode) return;
@@ -2118,7 +2356,7 @@ function getRadialItems(): RadialItem[] {
   if (!state.activeRunId && !state.activeNodeId) {
     const worldPos = clientToWorld(state.radialMenu.position.x, state.radialMenu.position.y);
     return [
-      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary", action: showComposer },
+      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary", action: () => { createBoardNode("generate", worldPos); } },
       { id: "entropy", angle: 120, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos); } },
       { id: "input", angle: 240, label: "Input", icon: "✎", disabled: true, action: () => {} },
     ];
@@ -2405,6 +2643,7 @@ function bindStormApp(): void {
   bindCanvasInteractions();
   bindNodeInteractions();
   bindBoardNodeInteractions();
+  bindEdgeHover();
   bindAppChrome();
   bindRootsNavigatorActions();
   bindRadialMenu();

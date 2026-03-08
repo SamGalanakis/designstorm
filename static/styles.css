@@ -863,32 +863,7 @@ h1, h2, h3 {
   box-shadow: 0 0 6px var(--accent-glow);
 }
 
-/* ─── Connection handle ─── */
-
-.node-handle {
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--surface-overlay);
-  border: 2px solid var(--border-strong);
-  cursor: crosshair;
-  opacity: 0;
-  transition: opacity 150ms, background 150ms, border-color 150ms, transform 150ms;
-  z-index: 3;
-}
-
-.storm-node:hover .node-handle { opacity: 1; }
-.storm-node.is-active .node-handle { opacity: 1; }
-
-.node-handle:hover {
-  background: var(--accent);
-  border-color: var(--accent-strong);
-  transform: translateX(-50%) scale(1.3);
-}
+/* Connection handles are now dynamic — see .edge-handle below */
 
 /* ─── Live wire ─── */
 
@@ -915,12 +890,7 @@ h1, h2, h3 {
   box-shadow: 0 0 24px var(--accent-glow), 0 20px 60px rgba(0,0,0,0.4);
 }
 
-.storm-node.is-wire-source .node-handle {
-  opacity: 1;
-  background: var(--accent);
-  border-color: var(--accent-strong);
-  transform: translateX(-50%) scale(1.3);
-}
+/* Wire source handled by .edge-handle.is-visible */
 
 body.is-wiring { cursor: crosshair !important; }
 body.is-wiring .storm-node { cursor: crosshair; }
@@ -1028,28 +998,139 @@ body.is-wiring .canvas { cursor: crosshair; }
   text-overflow: ellipsis;
 }
 
-.entropy-shell .node-handle {
-  bottom: -6px;
-}
 
-.entropy-shell .node-handle:hover {
-  background: var(--warm);
-  border-color: var(--warm);
-}
-
-.board-node:hover .node-handle { opacity: 1; }
-.board-node.is-active .node-handle { opacity: 1; }
-
-.board-node.is-wire-target .entropy-shell {
+.board-node.is-wire-target .entropy-shell,
+.board-node.is-wire-target .generate-shell {
   border-color: var(--accent-strong);
   box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
 }
 
-.board-node.is-wire-source .node-handle {
+/* ─── Generate node ─── */
+
+.board-node-generate {
+  width: 200px;
+}
+
+.generate-shell {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  border: 1px solid rgba(91, 156, 184, 0.25);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.25);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.board-node-generate:hover .generate-shell {
+  transform: translateY(-2px);
+  border-color: rgba(91, 156, 184, 0.4);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.35), 0 0 12px var(--accent-glow);
+}
+
+.board-node-generate.is-active .generate-shell {
+  border-color: rgba(91, 156, 184, 0.5);
+  box-shadow: 0 16px 44px rgba(0,0,0,0.4), 0 0 16px var(--accent-glow);
+}
+
+.generate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.generate-eyebrow {
+  color: var(--accent);
+}
+
+.generate-inputs {
+  min-height: 32px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px dashed var(--border-strong);
+  font-size: 0.75rem;
+  color: var(--text-faint);
+}
+
+.generate-placeholder {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
+.generate-input-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--surface-overlay);
+  font-size: 10px;
+  color: var(--text-dim);
+  margin: 2px;
+}
+
+.generate-run-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(91, 156, 184, 0.12);
+  border: 1px solid rgba(91, 156, 184, 0.25);
+  color: var(--accent);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.generate-run-btn:hover {
+  background: rgba(91, 156, 184, 0.2);
+  border-color: rgba(91, 156, 184, 0.4);
+}
+
+.generate-run-icon {
+  font-size: 14px;
+}
+
+/* ─── Dynamic edge handles ─── */
+
+.edge-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--accent-strong);
+  opacity: 0;
+  pointer-events: auto;
+  cursor: crosshair;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 10;
+}
+
+.edge-handle.is-visible {
   opacity: 1;
-  background: var(--warm);
-  border-color: var(--warm);
-  transform: translateX(-50%) scale(1.3);
+}
+
+.edge-handle:hover {
+  transform: scale(1.4);
+}
+
+.edge-handle[data-side="top"] { top: -5px; }
+.edge-handle[data-side="bottom"] { bottom: -5px; }
+.edge-handle[data-side="left"] { left: -5px; }
+.edge-handle[data-side="right"] { right: -5px; }
+
+/* ─── Resize handles ─── */
+
+.board-node.is-resizing,
+.storm-node.is-resizing {
+  cursor: nwse-resize;
 }
 
 /* ─── Board edge lines ─── */

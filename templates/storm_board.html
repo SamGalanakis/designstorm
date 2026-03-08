@@ -30,7 +30,6 @@
         <div class="storm-node-copy">
           <h3>{{ run.title }}</h3>
         </div>
-        <div class="node-handle" aria-label="Drag to fork or combine"></div>
       </div>
     </article>
   {% endfor %}
@@ -45,6 +44,7 @@
       data-content='{{ node.content_json() }}'
       data-locked="{{ node.locked }}"
     >
+      {% if node.node_type == "entropy" %}
       <div class="entropy-shell">
         <div class="entropy-header">
           <span class="eyebrow entropy-eyebrow">Entropy</span>
@@ -59,15 +59,27 @@
           <iframe
             src="{{ node.entropy_url() }}"
             loading="lazy"
-            sandbox="allow-same-origin"
+            sandbox="allow-scripts allow-forms allow-modals"
             referrerpolicy="no-referrer"
             tabindex="-1"
             aria-hidden="true"
           ></iframe>
         </div>
         <div class="entropy-label">{{ node.entropy_title() }}</div>
-        <div class="node-handle" aria-label="Drag to connect"></div>
       </div>
+      {% else if node.node_type == "generate" %}
+      <div class="generate-shell">
+        <div class="generate-header">
+          <span class="eyebrow generate-eyebrow">Generate</span>
+        </div>
+        <div class="generate-inputs" id="gen-inputs-{{ node.id }}">
+          <span class="generate-placeholder">Wire inputs here</span>
+        </div>
+        <button class="generate-run-btn" data-node-action="run" title="Run generation">
+          <span class="generate-run-icon">&#x25B6;</span>
+        </button>
+      </div>
+      {% endif %}
     </article>
   {% endfor %}
 
