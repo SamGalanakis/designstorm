@@ -381,7 +381,7 @@ function getEdgeProximity(nodeId: string, worldPt: Point): AnchorPoint | null {
   return { side: best.side, t: Math.max(0.1, Math.min(0.9, best.t)), worldX: best.wx, worldY: best.wy };
 }
 
-function getRunWorldBounds(): WorldBounds | null {
+function getOccupiedWorldBounds(): WorldBounds | null {
   if (state.positions.size === 0) return null;
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
@@ -403,9 +403,18 @@ function getRunWorldBounds(): WorldBounds | null {
 }
 
 function getConnectionWorldBounds(): WorldBounds {
-  const runBounds = getRunWorldBounds();
+  const runBounds = getOccupiedWorldBounds();
   if (!runBounds) return createWorldBounds(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
   return padWorldBounds(runBounds, CONNECTION_PADDING);
+}
+
+function getOccupiedNodeBounds(): WorldBounds[] {
+  const bounds: WorldBounds[] = [];
+  state.positions.forEach((point, id) => {
+    const { w, h } = getNodeDimensions(id);
+    bounds.push(createWorldBounds(point.x, point.y, point.x + w, point.y + h));
+  });
+  return bounds;
 }
 
 function getRootIdForRun(runId: string | null): string | null {
@@ -424,56 +433,63 @@ function getRootIdForRun(runId: string | null): string | null {
   return runId;
 }
 
-function getPanConstraintWorldBounds(): WorldBounds | null {
-  const runBounds = getRunWorldBounds();
-  if (!runBounds) {
-    const centerX = BOARD_WIDTH * 0.5;
-    const centerY = BOARD_HEIGHT * 0.5;
-    return createWorldBounds(
+function getPanConstraintRegions(): WorldBounds[] {
+  const occupied = getOccupiedNodeBounds();
+  if (occupied.length > 0) {
+    return occupied.map((bounds) => padWorldBounds(bounds, BOARD_PAN_WORLD_PADDING));
+  }
+
+  const centerX = BOARD_WIDTH * 0.5;
+  const centerY = BOARD_HEIGHT * 0.5;
+  return [
+    createWorldBounds(
       centerX - EMPTY_BOARD_PAN_WORLD_RADIUS,
       centerY - EMPTY_BOARD_PAN_WORLD_RADIUS,
       centerX + EMPTY_BOARD_PAN_WORLD_RADIUS,
       centerY + EMPTY_BOARD_PAN_WORLD_RADIUS,
-    );
-  }
-  return padWorldBounds(runBounds, BOARD_PAN_WORLD_PADDING);
+    ),
+  ];
+}
+
+function pointWithinBounds(point: Point, bounds: WorldBounds): boolean {
+  return point.x >= bounds.minX && point.x <= bounds.maxX && point.y >= bounds.minY && point.y <= bounds.maxY;
+}
+
+function clampPointToBounds(point: Point, bounds: WorldBounds): Point {
+  return {
+    x: Math.min(bounds.maxX, Math.max(bounds.minX, point.x)),
+    y: Math.min(bounds.maxY, Math.max(bounds.minY, point.y)),
+  };
 }
 
 function clampPanToWorldBounds(pan: Point, scale: number): Point {
   const canvas = $("storm-canvas");
-  const bounds = getPanConstraintWorldBounds();
-  if (!canvas || !bounds) return pan;
+  const regions = getPanConstraintRegions();
+  if (!canvas || regions.length === 0) return pan;
 
   const rect = canvas.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return pan;
 
-  const viewWidth = rect.width / scale;
-  const viewHeight = rect.height / scale;
-  const boundsWidth = bounds.maxX - bounds.minX;
-  const boundsHeight = bounds.maxY - bounds.minY;
-  const centerX = (bounds.minX + bounds.maxX) * 0.5;
-  const centerY = (bounds.minY + bounds.maxY) * 0.5;
+  const viewportCenterWorld = {
+    x: (rect.width * 0.5 - pan.x) / scale,
+    y: (rect.height * 0.5 - pan.y) / scale,
+  };
+  const containingRegion = regions.find((bounds) => pointWithinBounds(viewportCenterWorld, bounds));
+  const clampedCenterWorld = containingRegion
+    ? viewportCenterWorld
+    : regions.reduce<{ point: Point; distSq: number }>((best, bounds) => {
+      const projected = clampPointToBounds(viewportCenterWorld, bounds);
+      const dx = projected.x - viewportCenterWorld.x;
+      const dy = projected.y - viewportCenterWorld.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < best.distSq) return { point: projected, distSq };
+      return best;
+    }, { point: clampPointToBounds(viewportCenterWorld, regions[0]), distSq: Number.POSITIVE_INFINITY }).point;
 
-  let nextX = pan.x;
-  let nextY = pan.y;
-
-  if (viewWidth >= boundsWidth) {
-    nextX = rect.width * 0.5 - centerX * scale;
-  } else {
-    const minPanX = -(bounds.maxX - viewWidth) * scale;
-    const maxPanX = -bounds.minX * scale;
-    nextX = Math.min(maxPanX, Math.max(minPanX, nextX));
-  }
-
-  if (viewHeight >= boundsHeight) {
-    nextY = rect.height * 0.5 - centerY * scale;
-  } else {
-    const minPanY = -(bounds.maxY - viewHeight) * scale;
-    const maxPanY = -bounds.minY * scale;
-    nextY = Math.min(maxPanY, Math.max(minPanY, nextY));
-  }
-
-  return { x: nextX, y: nextY };
+  return {
+    x: rect.width * 0.5 - clampedCenterWorld.x * scale,
+    y: rect.height * 0.5 - clampedCenterWorld.y * scale,
+  };
 }
 
 let boardViewAnimationFrame: number | null = null;
@@ -1120,20 +1136,25 @@ function getRun(id: string | null): StormRun | null {
   return state.runs.find((r) => r.id === id) ?? null;
 }
 
-function assignPosition(run: StormRun, index: number, sourceIds?: string[]): void {
-  if (state.positions.has(run.id)) return;
+function assignPosition(
+  run: StormRun,
+  index: number,
+  sourceIds?: string[],
+  positions: Map<string, Point> = state.positions,
+): void {
+  if (positions.has(run.id)) return;
   if (sourceIds?.length) {
-    const pts = sourceIds.map((id) => state.positions.get(id)).filter((p): p is Point => Boolean(p));
+    const pts = sourceIds.map((id) => positions.get(id)).filter((p): p is Point => Boolean(p));
     if (pts.length > 0) {
       const c = pts.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y }), { x: 0, y: 0 });
       const off = sourceIds.length > 1 ? 170 : 250;
-      state.positions.set(run.id, { x: c.x / pts.length + off, y: c.y / pts.length + 110 });
+      positions.set(run.id, { x: c.x / pts.length + off, y: c.y / pts.length + 110 });
       return;
     }
   }
   const col = index % 4;
   const row = Math.floor(index / 4);
-  state.positions.set(run.id, { x: 220 + col * 360 + (row % 2) * 70, y: 240 + row * 290 + (col % 2) * 28 });
+  positions.set(run.id, { x: 220 + col * 360 + (row % 2) * 70, y: 240 + row * 290 + (col % 2) * 28 });
 }
 
 function setStatus(msg: string): void {
@@ -1496,7 +1517,10 @@ function hydrateBoardFromDom(): void {
   const container = $("storm-runs");
   if (!container) {
     state.runs = [];
+    state.boardNodes = [];
+    state.edges = [];
     state.lineage = new Map();
+    state.positions = new Map();
     renderConnections();
     return;
   }
@@ -1528,12 +1552,11 @@ function hydrateBoardFromDom(): void {
   state.runs = runs;
   state.lineage = lineage;
 
-  // Hydrate board nodes
   const boardNodeEls = Array.from(container.querySelectorAll<HTMLElement>(".board-node[data-node-id]"));
-  state.boardNodes = boardNodeEls.map((el) => {
+  const boardNodes = boardNodeEls.map((el) => {
     let content: Record<string, unknown> = {};
     try { content = JSON.parse(el.dataset.content ?? "{}"); } catch { /* noop */ }
-    const node: BoardNode = {
+    return {
       id: el.dataset.nodeId ?? "",
       nodeType: (el.dataset.nodeType ?? "entropy") as BoardNode["nodeType"],
       positionX: parseFloat(el.dataset.positionX ?? "0"),
@@ -1541,12 +1564,26 @@ function hydrateBoardFromDom(): void {
       content,
       locked: el.dataset.locked === "true",
     };
-    // Set position from server data if not already positioned
-    if (!state.positions.has(node.id)) {
-      state.positions.set(node.id, { x: node.positionX, y: node.positionY });
-    }
-    return node;
   });
+  state.boardNodes = boardNodes;
+
+  const previousPositions = state.positions;
+  const nextPositions = new Map<string, Point>();
+
+  runs.forEach((run, index) => {
+    const existing = previousPositions.get(run.id);
+    if (existing) {
+      nextPositions.set(run.id, existing);
+      return;
+    }
+    assignPosition(run, index, lineage.get(run.id), nextPositions);
+  });
+
+  boardNodes.forEach((node) => {
+    nextPositions.set(node.id, { x: node.positionX, y: node.positionY });
+  });
+
+  state.positions = nextPositions;
 
   // Hydrate edges
   const edgesScript = container.querySelector<HTMLScriptElement>("#board-edges-data");
