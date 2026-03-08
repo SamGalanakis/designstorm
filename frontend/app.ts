@@ -2037,7 +2037,8 @@ async function createBoardNode(nodeType: string, worldPos: Point): Promise<void>
           <div class="generate-inputs" id="gen-inputs-${node.id}">
             <span class="generate-placeholder">Wire inputs here</span>
           </div>
-          <button class="generate-run-btn" data-node-action="run" title="Run generation">
+          <button class="generate-run-btn" title="Run generation"
+            data-on:click__prevent="@post('/nodes/${node.id}/run')">
             <span class="generate-run-icon">&#x25B6;</span>
           </button>
         </div>`;
@@ -2188,10 +2189,7 @@ function bindBoardNodeInteractions(): void {
     if (target.closest(".entropy-btn")) return;
     if (target.closest(".edge-handle")) return;
     if (target.closest(".input-body")) return; // let contenteditable handle clicks
-    if (target.closest(".generate-run-btn")) {
-      // TODO: trigger generation workflow
-      return;
-    }
+    if (target.closest(".generate-run-btn")) return; // handled by Datastar
 
     // Select the node
     state.activeNodeId = nodeId;

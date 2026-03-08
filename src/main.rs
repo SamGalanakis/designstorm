@@ -1172,6 +1172,7 @@ async fn main() -> Result<(), AppError> {
         .route("/nodes/{id}/lock", post(toggle_board_node_lock))
         .route("/nodes/{id}/position", post(update_board_node_position))
         .route("/nodes/{id}/content", post(update_board_node_content))
+        .route("/nodes/{id}/run", post(run_generate_node))
         .route("/nodes/{id}", axum::routing::delete(delete_board_node))
         .route("/edges", post(create_board_edge))
         .route("/edges/{id}", axum::routing::delete(delete_board_edge))
@@ -1519,6 +1520,195 @@ async fn generate_storm_datastar(
                             "draftMode": "",
                             "sourceIds": "",
                             "_latestRunId": response.run.id.to_string(),
+                        }).to_string()));
+                    }
+                    (Err(error), _) | (_, Err(error)) => {
+                        yield Ok::<_, Infallible>(patch_signals(json!({
+                            "_generating": false,
+                            "_latestRunId": "",
+                            "_status": error.to_string(),
+                        }).to_string()));
+                    }
+                }
+            }
+            Err(error) => {
+                yield Ok::<_, Infallible>(patch_signals(json!({
+                    "_generating": false,
+                    "_latestRunId": "",
+                    "_status": error.to_string(),
+                }).to_string()));
+            }
+        }
+    })))
+}
+
+async fn run_generate_node(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(node_id): Path<Uuid>,
+) -> Result<impl IntoResponse, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+
+    // Load the generate node and verify ownership/type
+    let node = sqlx::query_as::<_, BoardNodeRow>(
+        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
+    )
+    .bind(node_id)
+    .bind(viewer.id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::BadRequest("Generate node not found.".to_string()))?;
+
+    if node.node_type != "generate" {
+        return Err(AppError::BadRequest("Node is not a generate node.".to_string()));
+    }
+
+    // Collect all inputs wired into this generate node
+    let edges = sqlx::query_as::<_, BoardEdgeRow>(
+        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
+                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t
+           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2"#,
+    )
+    .bind(node_id)
+    .bind(viewer.id)
+    .fetch_all(&state.db)
+    .await?;
+
+    // Build prompt from wired inputs
+    let mut entropy_parts = Vec::new();
+    let mut user_parts = Vec::new();
+    let mut design_parts = Vec::new();
+
+    for edge in &edges {
+        match edge.source_type.as_str() {
+            "entropy" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(
+                    "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
+                )
+                .bind(edge.source_id)
+                .bind(viewer.id)
+                .fetch_optional(&state.db)
+                .await
+                {
+                    let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
+                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                    entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
+                }
+            }
+            "user_input" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(
+                    "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
+                )
+                .bind(edge.source_id)
+                .bind(viewer.id)
+                .fetch_optional(&state.db)
+                .await
+                {
+                    let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                    if !text.is_empty() {
+                        user_parts.push(format!("User direction: \"{}\"", text));
+                    }
+                }
+            }
+            "design" => {
+                // Design nodes reference storm_runs by their run_id (the node id IS the run id)
+                if let Ok(Some(run)) = sqlx::query_as::<_, StormRunRow>(
+                    "SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url, submitted, created_at, workspace_dir, parent_ids FROM storm_runs WHERE id = $1 AND owner_user_id = $2",
+                )
+                .bind(edge.source_id)
+                .bind(viewer.id)
+                .fetch_optional(&state.db)
+                .await
+                {
+                    let record = StormRunRecord::from(run);
+                    design_parts.push(format!(
+                        "Build on: \"{}\" — {}\nOriginal seed: {}",
+                        record.title, record.summary, record.prompt
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if entropy_parts.is_empty() && user_parts.is_empty() && design_parts.is_empty() {
+        return Ok(datastar_event_stream(Box::pin(stream! {
+            yield Ok::<_, Infallible>(patch_signals(json!({
+                "_generating": false,
+                "_status": "Wire some inputs to the Generate node first.",
+            }).to_string()));
+        })));
+    }
+
+    let mut prompt = String::from("Design Direction:\n\n");
+    if !entropy_parts.is_empty() {
+        prompt.push_str(&entropy_parts.join("\n"));
+        prompt.push('\n');
+    }
+    if !user_parts.is_empty() {
+        if !entropy_parts.is_empty() { prompt.push('\n'); }
+        prompt.push_str(&user_parts.join("\n"));
+        prompt.push('\n');
+    }
+    if !design_parts.is_empty() {
+        if !entropy_parts.is_empty() || !user_parts.is_empty() { prompt.push('\n'); }
+        prompt.push_str(&design_parts.join("\n\n"));
+        prompt.push('\n');
+    }
+    prompt.push_str("\n---\nCreate a bold design language artifact that synthesizes these inputs.");
+
+    let input = StormGenerationInput {
+        prompt,
+        draft_mode: None,
+        source_ids: vec![],
+    };
+
+    let gen_node_id = node_id;
+
+    Ok(datastar_event_stream(Box::pin(stream! {
+        yield Ok::<_, Infallible>(patch_signals(json!({
+            "_generating": true,
+            "_status": "Generating storm...",
+            "_latestRunId": "",
+        }).to_string()));
+
+        match generate_storm_internal(&state, &viewer, input).await {
+            Ok(response) => {
+                let new_run_id = response.run.id;
+
+                // Create board_edge from generate node → new design run
+                let _ = sqlx::query(
+                    r#"INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type)
+                       VALUES ($1, $2, 'generate', $3, 'design')
+                       ON CONFLICT (source_id, target_id) DO NOTHING"#,
+                )
+                .bind(viewer.id)
+                .bind(gen_node_id)
+                .bind(new_run_id)
+                .execute(&state.db)
+                .await;
+
+                match (
+                    render_storm_board_html(&state, viewer.id).await,
+                    render_roots_html(&state, viewer.id).await,
+                ) {
+                    (Ok(board_html), Ok(roots_html)) => {
+                        yield Ok::<_, Infallible>(
+                            PatchElements::new(roots_html)
+                                .selector("#roots-list")
+                                .mode(ElementPatchMode::Inner)
+                                .write_as_axum_sse_event(),
+                        );
+                        yield Ok::<_, Infallible>(
+                            PatchElements::new(board_html)
+                                .selector("#storm-runs")
+                                .mode(ElementPatchMode::Outer)
+                                .write_as_axum_sse_event(),
+                        );
+                        yield Ok::<_, Infallible>(patch_signals(json!({
+                            "_generating": false,
+                            "_status": "Storm generated.",
+                            "_latestRunId": new_run_id.to_string(),
                         }).to_string()));
                     }
                     (Err(error), _) | (_, Err(error)) => {
