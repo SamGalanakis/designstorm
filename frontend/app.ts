@@ -51,6 +51,22 @@ type PointerState =
   | { mode: "drag"; pointerId: number; runId: string; startClient: Point; startPos: Point; moved: boolean }
   | null;
 
+type RadialItem = {
+  id: string;
+  angle: number;
+  label: string;
+  icon: string;
+  variant?: "default" | "primary" | "danger";
+  disabled?: boolean;
+  action: () => void;
+};
+
+type RadialMenuState = {
+  open: boolean;
+  position: Point;
+  selectedIndex: number | null;
+};
+
 type StormState = {
   runs: StormRun[];
   positions: Map<string, Point>;
@@ -63,6 +79,8 @@ type StormState = {
   pan: Point;
   scale: number;
   pointerState: PointerState;
+  radialMenu: RadialMenuState;
+  lastCursor: Point;
 };
 
 declare global {
@@ -103,6 +121,8 @@ const state: StormState = {
   pan: { ...INITIAL_PAN },
   scale: 1,
   pointerState: null,
+  radialMenu: { open: false, position: { x: 0, y: 0 }, selectedIndex: null },
+  lastCursor: { x: 0, y: 0 },
 };
 
 // ─── Helpers ───
@@ -439,10 +459,8 @@ function renderConnections(): void {
 
 function renderRuns(): void {
   const container = $("storm-runs");
-  const empty = $("storm-empty-state");
-  if (!container || !empty) return;
-  if (state.runs.length === 0) { container.innerHTML = ""; empty.hidden = false; renderConnections(); return; }
-  empty.hidden = true;
+  if (!container) return;
+  if (state.runs.length === 0) { container.innerHTML = ""; renderConnections(); return; }
   container.innerHTML = "";
   state.runs.forEach((run, i) => {
     const lineage = state.lineage.get(run.id);
@@ -569,6 +587,7 @@ async function submitStorm(e: Event): Promise<void> {
     if (pending) { state.lineage.set(payload.run.id, pending.sourceIds); assignPosition(payload.run, state.runs.length, pending.sourceIds); }
     clearDraftContext({ keepStatus: true });
     ta.value = "";
+    hideComposer();
     setStatus("Storm generated.");
     await loadStorms();
     setActiveRun(payload.run.id, { sync: true });
@@ -590,6 +609,7 @@ function bindCanvasInteractions(): void {
   }, { passive: false });
 
   canvas.addEventListener("pointerdown", (e) => {
+    if (e.button === 2) return;
     if ((e.target as HTMLElement).closest(".storm-node")) return;
     state.pointerState = { mode: "pan", pointerId: e.pointerId, startClient: { x: e.clientX, y: e.clientY }, startPan: { ...state.pan } };
     canvas.setPointerCapture(e.pointerId);
@@ -674,9 +694,14 @@ function bindAppChrome(): void {
   $("inspector-combine")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "combine"); });
   $("inspector-fullscreen")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "fullscreen"); });
 
-  // Keyboard — fullscreen escape (popovers handled by Datastar)
+  // Keyboard — escape priority: radial > composer > fullscreen (popovers handled by Datastar)
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && state.focusedRunId) closeFullscreen();
+    if (e.key === "Escape") {
+      if (state.radialMenu.open) { closeRadialMenu(); e.preventDefault(); return; }
+      const form = $("storm-form");
+      if (form && !form.hidden) { hideComposer(); e.preventDefault(); return; }
+      if (state.focusedRunId) closeFullscreen();
+    }
   });
 
   // History
@@ -690,6 +715,287 @@ function setAvatarInitials(): void {
   el.textContent = name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");
 }
 
+// ─── Composer show/hide ───
+
+function showComposer(): void {
+  const form = $("storm-form");
+  if (!form) return;
+  form.hidden = false;
+  const ta = $("storm-prompt") as HTMLTextAreaElement | null;
+  ta?.focus();
+}
+
+function hideComposer(): void {
+  const form = $("storm-form");
+  if (!form) return;
+  form.hidden = true;
+  clearDraftContext({ keepStatus: true });
+}
+
+// ─── Radial menu geometry ───
+
+const RADIAL_RADIUS = 100;
+const RADIAL_DEAD_ZONE = 15;
+const RADIAL_MAX_DIST = 200;
+
+function findClosestItem(offsetX: number, offsetY: number, items: RadialItem[], deadZone: number): { index: number; angle: number } | null {
+  const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
+  if (distance < deadZone) return null;
+  let angle = Math.atan2(-offsetY, offsetX) * (180 / Math.PI);
+  angle = (90 - angle + 360) % 360;
+  let closestIndex = 0;
+  let closestDiff = 360;
+  for (let i = 0; i < items.length; i++) {
+    let diff = Math.abs(items[i].angle - angle);
+    if (diff > 180) diff = 360 - diff;
+    if (diff < closestDiff) { closestDiff = diff; closestIndex = i; }
+  }
+  return { index: closestIndex, angle };
+}
+
+function renderSlicePath(cx: number, cy: number, startAngle: number, endAngle: number, innerR: number, outerR: number): string {
+  const startRad = ((startAngle - 90) * Math.PI) / 180;
+  const endRad = ((endAngle - 90) * Math.PI) / 180;
+  const x1 = cx + Math.cos(startRad) * innerR, y1 = cy + Math.sin(startRad) * innerR;
+  const x2 = cx + Math.cos(startRad) * outerR, y2 = cy + Math.sin(startRad) * outerR;
+  const x3 = cx + Math.cos(endRad) * outerR, y3 = cy + Math.sin(endRad) * outerR;
+  const x4 = cx + Math.cos(endRad) * innerR, y4 = cy + Math.sin(endRad) * innerR;
+  return `M ${x1} ${y1} L ${x2} ${y2} A ${outerR} ${outerR} 0 0 1 ${x3} ${y3} L ${x4} ${y4} A ${innerR} ${innerR} 0 0 0 ${x1} ${y1} Z`;
+}
+
+// ─── Radial menu items ───
+
+function getRadialItems(): RadialItem[] {
+  if (!state.activeRunId) {
+    return [{ id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary", action: showComposer }];
+  }
+  return [
+    { id: "fork", angle: 0, label: "Fork", icon: "⑂", action: () => { if (state.activeRunId) { handleRunAction(state.activeRunId, "fork"); showComposer(); } } },
+    { id: "fullscreen", angle: 90, label: "Fullscreen", icon: "⛶", action: () => { if (state.activeRunId) openFullscreen(state.activeRunId); } },
+    { id: "combine", angle: 180, label: "Combine", icon: "⊕", action: () => { if (state.activeRunId) beginCombine(state.activeRunId); } },
+    { id: "generate", angle: 270, label: "Generate", icon: "✦", variant: "primary", action: showComposer },
+  ];
+}
+
+// ─── Radial menu rendering ───
+
+function renderRadialMenu(items: RadialItem[]): void {
+  const center = $("radial-center");
+  const itemsContainer = $("radial-items");
+  const svg = $("radial-svg") as unknown as SVGSVGElement | null;
+  if (!center || !itemsContainer || !svg) return;
+
+  const pos = state.radialMenu.position;
+  center.style.left = `${pos.x}px`;
+  center.style.top = `${pos.y}px`;
+
+  // Clear and rebuild items
+  itemsContainer.innerHTML = "";
+  items.forEach((item, i) => {
+    const rads = ((item.angle - 90) * Math.PI) / 180;
+    const x = pos.x + Math.cos(rads) * RADIAL_RADIUS;
+    const y = pos.y + Math.sin(rads) * RADIAL_RADIUS;
+    const div = document.createElement("div");
+    div.className = "radial-item";
+    if (state.radialMenu.selectedIndex === i) div.classList.add("is-selected");
+    if (item.disabled) div.classList.add("is-disabled");
+    if (item.variant && item.variant !== "default") div.dataset.variant = item.variant;
+    div.style.left = `${x}px`;
+    div.style.top = `${y}px`;
+    const iconSpan = document.createElement("span");
+    iconSpan.textContent = item.icon;
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = item.label;
+    div.appendChild(iconSpan);
+    div.appendChild(labelSpan);
+    itemsContainer.appendChild(div);
+  });
+
+  // Update SVG
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const sliceAngle = 360 / items.length;
+
+  // Divider lines
+  if (items.length > 1) {
+    items.forEach((item) => {
+      const dividerAngle = item.angle - sliceAngle / 2;
+      const rads = ((dividerAngle - 90) * Math.PI) / 180;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", String(pos.x + Math.cos(rads) * 20));
+      line.setAttribute("y1", String(pos.y + Math.sin(rads) * 20));
+      line.setAttribute("x2", String(pos.x + Math.cos(rads) * (RADIAL_RADIUS - 10)));
+      line.setAttribute("y2", String(pos.y + Math.sin(rads) * (RADIAL_RADIUS - 10)));
+      line.setAttribute("stroke", "rgba(255, 255, 255, 0.08)");
+      line.setAttribute("stroke-width", "1");
+      svg.appendChild(line);
+    });
+  }
+
+  // Selected slice highlight + direction indicator
+  if (state.radialMenu.selectedIndex !== null) {
+    const item = items[state.radialMenu.selectedIndex];
+    if (item && !item.disabled) {
+      const startAngle = item.angle - sliceAngle / 2;
+      const endAngle = item.angle + sliceAngle / 2;
+      const pathD = renderSlicePath(pos.x, pos.y, startAngle, endAngle, 18, RADIAL_RADIUS - 5);
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", pathD);
+      path.setAttribute("fill", "rgba(91, 156, 184, 0.1)");
+      path.setAttribute("stroke", "rgba(91, 156, 184, 0.4)");
+      path.setAttribute("stroke-width", "1");
+      svg.appendChild(path);
+
+      const rads = ((item.angle - 90) * Math.PI) / 180;
+      const len = RADIAL_RADIUS - 15;
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", String(pos.x));
+      line.setAttribute("y1", String(pos.y));
+      line.setAttribute("x2", String(pos.x + Math.cos(rads) * len));
+      line.setAttribute("y2", String(pos.y + Math.sin(rads) * len));
+      line.setAttribute("stroke", "rgba(91, 156, 184, 0.6)");
+      line.setAttribute("stroke-width", "2");
+      line.setAttribute("stroke-linecap", "square");
+      svg.appendChild(line);
+    }
+  }
+}
+
+// ─── Radial menu open/close ───
+
+let radialCleanup: (() => void) | null = null;
+
+function openRadialMenu(x: number, y: number): void {
+  state.radialMenu = { open: true, position: { x, y }, selectedIndex: null };
+  const menu = $("radial-menu");
+  if (menu) { menu.hidden = false; menu.setAttribute("aria-hidden", "false"); }
+  const items = getRadialItems();
+  renderRadialMenu(items);
+  bindRadialMenuListeners(items);
+}
+
+function closeRadialMenu(): void {
+  state.radialMenu.open = false;
+  state.radialMenu.selectedIndex = null;
+  const menu = $("radial-menu");
+  if (menu) { menu.hidden = true; menu.setAttribute("aria-hidden", "true"); }
+  if (radialCleanup) { radialCleanup(); radialCleanup = null; }
+}
+
+function executeRadialSelected(items: RadialItem[]): boolean {
+  const idx = state.radialMenu.selectedIndex;
+  if (idx !== null) {
+    const item = items[idx];
+    if (item && !item.disabled) { item.action(); return true; }
+  }
+  return false;
+}
+
+function bindRadialMenuListeners(items: RadialItem[]): void {
+  if (radialCleanup) { radialCleanup(); radialCleanup = null; }
+
+  const handleMouseMove = (e: MouseEvent) => {
+    const offsetX = e.clientX - state.radialMenu.position.x;
+    const offsetY = e.clientY - state.radialMenu.position.y;
+    const distance = Math.hypot(offsetX, offsetY);
+    if (distance > RADIAL_MAX_DIST) { closeRadialMenu(); return; }
+    const result = findClosestItem(offsetX, offsetY, items, RADIAL_DEAD_ZONE);
+    state.radialMenu.selectedIndex = result?.index ?? null;
+    renderRadialMenu(items);
+  };
+
+  const handleClick = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    executeRadialSelected(items);
+    closeRadialMenu();
+  };
+
+  const handleMouseUp = (e: MouseEvent) => {
+    if (e.button === 2) {
+      if (executeRadialSelected(items)) closeRadialMenu();
+    }
+  };
+
+  const handleMouseDown = (e: MouseEvent) => {
+    if (e.button === 2) { e.preventDefault(); closeRadialMenu(); }
+  };
+
+  const handleContextMenu = (e: MouseEvent) => { e.preventDefault(); };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") { e.preventDefault(); closeRadialMenu(); return; }
+    if (e.key === "`" || e.code === "Backquote") { e.preventDefault(); executeRadialSelected(items); closeRadialMenu(); return; }
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const enabled = items.map((item, i) => ({ i, disabled: item.disabled })).filter((x) => !x.disabled).map((x) => x.i);
+      if (enabled.length === 0) return;
+      const cur = state.radialMenu.selectedIndex;
+      const pos = cur !== null ? enabled.indexOf(cur) : -1;
+      const next = e.shiftKey ? (pos <= 0 ? enabled.length - 1 : pos - 1) : (pos < 0 || pos >= enabled.length - 1 ? 0 : pos + 1);
+      state.radialMenu.selectedIndex = enabled[next];
+      renderRadialMenu(items);
+      return;
+    }
+    if (e.key === "Enter") { e.preventDefault(); executeRadialSelected(items); closeRadialMenu(); }
+  };
+
+  const handleKeyUp = (e: KeyboardEvent) => {
+    if (e.key === "`" || e.code === "Backquote") {
+      e.preventDefault();
+      if (executeRadialSelected(items)) closeRadialMenu();
+    }
+  };
+
+  document.addEventListener("mousemove", handleMouseMove);
+  document.addEventListener("click", handleClick);
+  document.addEventListener("mouseup", handleMouseUp);
+  document.addEventListener("mousedown", handleMouseDown);
+  document.addEventListener("contextmenu", handleContextMenu);
+  document.addEventListener("keydown", handleKeyDown);
+  document.addEventListener("keyup", handleKeyUp);
+
+  radialCleanup = () => {
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("click", handleClick);
+    document.removeEventListener("mouseup", handleMouseUp);
+    document.removeEventListener("mousedown", handleMouseDown);
+    document.removeEventListener("contextmenu", handleContextMenu);
+    document.removeEventListener("keydown", handleKeyDown);
+    document.removeEventListener("keyup", handleKeyUp);
+  };
+}
+
+// ─── Radial menu triggers ───
+
+function bindRadialMenu(): void {
+  const canvas = $("storm-canvas");
+  if (!canvas) return;
+
+  // Track cursor position
+  canvas.addEventListener("mousemove", (e) => { state.lastCursor = { x: e.clientX, y: e.clientY }; }, { passive: true });
+
+  // Right-click on canvas
+  canvas.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    if (state.radialMenu.open) return;
+    // If right-clicked on a node, select it first
+    const node = (e.target as HTMLElement).closest<HTMLElement>(".storm-node");
+    if (node?.dataset.runId) setActiveRun(node.dataset.runId);
+    openRadialMenu(e.clientX, e.clientY);
+  });
+
+  // Backtick key
+  window.addEventListener("keydown", (e) => {
+    if (state.radialMenu.open) return;
+    if (e.key === "`" || e.code === "Backquote") {
+      // Don't trigger if typing in textarea
+      if ((e.target as HTMLElement).tagName === "TEXTAREA" || (e.target as HTMLElement).tagName === "INPUT") return;
+      e.preventDefault();
+      openRadialMenu(state.lastCursor.x, state.lastCursor.y);
+    }
+  });
+}
+
 function bindStormApp(): void {
   if (getConfig().currentPath !== "/app") return;
   setAvatarInitials();
@@ -698,6 +1004,7 @@ function bindStormApp(): void {
   bindCanvasInteractions();
   bindNodeInteractions();
   bindAppChrome();
+  bindRadialMenu();
   void loadStorms();
 }
 

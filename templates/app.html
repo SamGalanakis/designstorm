@@ -58,7 +58,7 @@
     </div>
   </section>
 
-  <form id="storm-form" class="composer">
+  <form id="storm-form" class="composer" hidden>
     <div id="storm-draft-context" class="draft-context" hidden></div>
 
     <textarea
@@ -80,10 +80,6 @@
     <div id="storm-board" class="board">
       <svg id="storm-lines" class="board-lines" aria-hidden="true"></svg>
       <div id="storm-runs" class="board-nodes"></div>
-    </div>
-
-    <div id="storm-empty-state" class="empty-state">
-      <p>Generate a storm to begin.</p>
     </div>
   </section>
 
@@ -134,5 +130,14 @@
       </div>
     </div>
   </section>
+
+  <div id="radial-menu" hidden aria-hidden="true">
+    <div id="radial-capture" class="radial-capture"></div>
+    <svg id="radial-svg" class="radial-svg"></svg>
+    <div id="radial-center" class="radial-center">
+      <div class="radial-center-dot"></div>
+    </div>
+    <div id="radial-items"></div>
+  </div>
 </div>
 {% endblock %}
