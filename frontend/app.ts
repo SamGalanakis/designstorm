@@ -91,11 +91,9 @@ declare global {
       signIn(): Promise<void>;
       signUp(): Promise<void>;
       signOut(): Promise<void>;
-      refreshPanel(): Promise<void>;
     };
     designstormSettings: {
       connectCodex(): Promise<void>;
-      disconnectProvider(): Promise<void>;
     };
   }
 }
@@ -188,18 +186,10 @@ async function syncServerSession(): Promise<boolean> {
       body: JSON.stringify({ token }),
     });
     if (!res.ok) return false;
-    await refreshPanel();
     return true;
   } finally {
     isSyncing = false;
   }
-}
-
-async function refreshPanel(): Promise<void> {
-  const panel = $("auth-panel");
-  if (!panel) return;
-  const res = await fetch("/partials/auth-panel", { credentials: "include", headers: { Accept: "text/html" } });
-  if (res.ok) panel.outerHTML = await res.text();
 }
 
 async function signIn(): Promise<void> {
@@ -234,13 +224,6 @@ function setProviderStatus(msg: string, tone: "muted" | "error" | "success" = "m
   if (tone === "success") el.classList.add("is-success");
 }
 
-async function refreshProviderPanel(): Promise<void> {
-  const panel = $("provider-panel");
-  if (!panel) return;
-  const res = await fetch("/settings/provider", { credentials: "include", headers: { Accept: "text/html" } });
-  if (res.ok) panel.outerHTML = await res.text();
-}
-
 async function connectCodex(): Promise<void> {
   setProviderStatus("Starting Codex device flow...");
   const res = await fetch("/settings/provider/codex/start", { method: "POST", credentials: "include" });
@@ -257,18 +240,15 @@ function startCodexPolling(interval: number): void {
     const res = await fetch("/settings/provider/codex/poll", { method: "POST", credentials: "include" });
     if (!res.ok) { setProviderStatus("Failed to verify.", "error"); return; }
     const p = (await res.json()) as CodexPollResponse;
-    if (p.status === "connected") { setProviderStatus(p.message ?? "Connected.", "success"); await refreshProviderPanel(); return; }
+    if (p.status === "connected") {
+      setProviderStatus(p.message ?? "Connected.", "success");
+      ($("provider-refresh") as HTMLButtonElement | null)?.click();
+      return;
+    }
     if (p.status === "pending") { setProviderStatus(p.message ?? "Waiting..."); authPollTimer = window.setTimeout(() => void tick(), interval * 1000); return; }
     setProviderStatus("No pending session.");
   };
   authPollTimer = window.setTimeout(() => void tick(), interval * 1000);
-}
-
-async function disconnectProvider(): Promise<void> {
-  const res = await fetch("/settings/provider/logout", { method: "POST", credentials: "include" });
-  if (!res.ok) { setProviderStatus("Failed to disconnect.", "error"); return; }
-  const panel = $("provider-panel");
-  if (panel) panel.outerHTML = await res.text();
 }
 
 // ─── Storm state ───
@@ -1090,7 +1070,7 @@ async function bootstrap(): Promise<void> {
   bindStormApp();
 }
 
-window.designstormAuth = { signIn, signUp, signOut, refreshPanel };
-window.designstormSettings = { connectCodex, disconnectProvider };
+window.designstormAuth = { signIn, signUp, signOut };
+window.designstormSettings = { connectCodex };
 
 void bootstrap();

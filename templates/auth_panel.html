@@ -4,16 +4,16 @@
     <h2>{{ viewer.name }}</h2>
     <p>{{ viewer.secondary_line() }}</p>
     <div class="auth-actions">
-      <button class="btn btn-accent" onclick="window.location.href='/app'">Open app</button>
-      <button class="btn btn-ghost" onclick="window.designstormAuth.signOut()">Sign out</button>
+      <button class="btn btn-accent" type="button" data-on:click="window.location.href='/app'">Open app</button>
+      <button class="btn btn-ghost" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
     </div>
   {% else %}
     <span class="eyebrow">Clerk Access</span>
     <h2>Sign in</h2>
     <p>Use Clerk to enter the app.</p>
     <div class="auth-actions">
-      <button class="btn btn-accent" onclick="window.designstormAuth.signIn()">Sign in</button>
-      <button class="btn btn-ghost" onclick="window.designstormAuth.signUp()">Create account</button>
+      <button class="btn btn-accent" type="button" data-on:click="window.designstormAuth.signIn()">Sign in</button>
+      <button class="btn btn-ghost" type="button" data-on:click="window.designstormAuth.signUp()">Create account</button>
     </div>
   {% endif %}
 </section>

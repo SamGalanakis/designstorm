@@ -9,12 +9,13 @@
   <div class="provider-actions">
     {% if status.connected %}
       {% if !status.using_fallback %}
-        <button class="btn btn-ghost" type="button" data-on-click="window.designstormSettings.disconnectProvider()">Disconnect</button>
+        <button class="btn btn-ghost" type="button" data-on:click="@post('/settings/provider/logout')">Disconnect</button>
       {% endif %}
     {% else %}
-      <button class="btn btn-accent" type="button" data-on-click="window.designstormSettings.connectCodex()">Connect Codex</button>
+      <button class="btn btn-accent" type="button" data-on:click="window.designstormSettings.connectCodex()">Connect Codex</button>
     {% endif %}
   </div>
 
   <div id="provider-connect-status" class="provider-connect-status"></div>
+  <button id="provider-refresh" type="button" hidden data-on:click="@get('/settings/provider')"></button>
 </section>
