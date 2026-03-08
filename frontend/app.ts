@@ -1678,6 +1678,47 @@ function renderBoardNodes(): void {
   });
 }
 
+function renderInspector(): void {
+  const panel = $("storm-inspector");
+  const title = $("active-run-title");
+  const summary = $("storm-summary");
+  const prompt = $("inspector-prompt");
+  const notes = $("storm-notes");
+  const created = $("inspector-created");
+  const statusLabel = $("inspector-status-label");
+  const details = $("inspector-details");
+  const seedCard = $("inspector-seed");
+  const notesCard = $("inspector-notes");
+  const iframe = $("storm-preview") as HTMLIFrameElement | null;
+  const fork = $("inspector-fork") as HTMLButtonElement | null;
+  const fs = $("inspector-fullscreen") as HTMLButtonElement | null;
+  const run = getRun(state.activeRunId);
+  if (!panel || !title || !summary || !prompt || !notes || !created || !statusLabel || !details || !seedCard || !notesCard || !iframe || !fork || !fs) return;
+  if (!run) {
+    panel.classList.add("is-empty");
+    title.textContent = "Select an artifact";
+    summary.textContent = "";
+    details.hidden = true;
+    seedCard.hidden = true;
+    notesCard.hidden = true;
+    setIframeSource(iframe, null);
+    fork.disabled = fs.disabled = true;
+    return;
+  }
+  panel.classList.remove("is-empty");
+  title.textContent = run.title;
+  summary.textContent = run.summary;
+  details.hidden = false;
+  statusLabel.textContent = run.submitted ? "Submitted" : "Draft";
+  created.textContent = new Date(run.createdAt).toLocaleString();
+  seedCard.hidden = false;
+  prompt.textContent = run.prompt;
+  notesCard.hidden = !run.assistantSummary;
+  notes.textContent = run.assistantSummary || "";
+  setIframeSource(iframe, run.previewUrl);
+  fork.disabled = fs.disabled = false;
+}
+
 
 function renderFocus(): void {
   const overlay = $("storm-focus");
@@ -2065,27 +2106,40 @@ function canConnect(sourceType: string, targetType: string): boolean {
 // ─── Delete board node ───
 
 async function deleteBoardNode(nodeId: string): Promise<void> {
-  // Remove from client state immediately
+  try {
+    const resp = await fetch(`/nodes/${nodeId}`, { method: "DELETE", credentials: "include" });
+    if (!resp.ok) {
+      console.error("Failed to delete board node:", resp.status, resp.statusText);
+      return;
+    }
+  } catch (err) {
+    console.error("Failed to delete board node:", err);
+    return;
+  }
+
   state.boardNodes = state.boardNodes.filter((n) => n.id !== nodeId);
   state.edges = state.edges.filter((e) => e.sourceId !== nodeId && e.targetId !== nodeId);
   state.positions.delete(nodeId);
   if (state.activeNodeId === nodeId) state.activeNodeId = null;
 
-  // Remove DOM element
   const el = document.querySelector(`.board-node[data-node-id="${nodeId}"]`);
   el?.remove();
   renderConnections();
   updateGenerateInputs();
-
-  // Persist to backend
-  try {
-    await fetch(`/nodes/${nodeId}`, { method: "DELETE", credentials: "include" });
-  } catch (err) {
-    console.error("Failed to delete board node:", err);
-  }
 }
 
 async function deleteRun(runId: string): Promise<void> {
+  try {
+    const resp = await fetch(`/storms/${runId}`, { method: "DELETE", credentials: "include" });
+    if (!resp.ok) {
+      console.error("Failed to delete run:", resp.status, resp.statusText);
+      return;
+    }
+  } catch (err) {
+    console.error("Failed to delete run:", err);
+    return;
+  }
+
   state.runs = state.runs.filter((run) => run.id !== runId);
   state.edges = state.edges.filter((edge) => edge.sourceId !== runId && edge.targetId !== runId);
   state.positions.delete(runId);
@@ -2106,12 +2160,6 @@ async function deleteRun(runId: string): Promise<void> {
   renderFocus();
   syncRootsNavigatorState();
   syncUrl(false);
-
-  try {
-    await fetch(`/storms/${runId}`, { method: "DELETE", credentials: "include" });
-  } catch (err) {
-    console.error("Failed to delete run:", err);
-  }
 }
 
 // ─── Dynamic edge handles ───

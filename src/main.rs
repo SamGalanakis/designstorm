@@ -1817,14 +1817,21 @@ async fn delete_storm_run(
     let viewer = require_viewer(&state, &headers).await?;
 
     if let Some(storage) = &state.artifact_storage {
-        storage
+        if let Err(error) = storage
             .client
             .delete_object()
             .bucket(&storage.bucket)
             .key(artifact_archive_key(viewer.id, id))
             .send()
             .await
-            .map_err(|error| AppError::Internal(format!("Failed to delete persisted artifact archive: {error}")))?;
+        {
+            warn!(
+                user_id = %viewer.id,
+                run_id = %id,
+                error = %error,
+                "failed to delete persisted artifact archive; continuing with db deletion"
+            );
+        }
     }
 
     sqlx::query(
