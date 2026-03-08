@@ -75,26 +75,7 @@
 
   <main class="storm-workspace">
     <section class="canvas-shell">
-      <div class="canvas-header">
-        <div class="canvas-heading">
-          <span class="eyebrow">Canvas</span>
-          <h1>Stormboard</h1>
-        </div>
-        <div class="canvas-meta">
-          <p class="text-muted">Seed a direction, fork a branch, or combine two artifacts on the board.</p>
-          <div class="zoom-readout">
-            <span class="eyebrow">Zoom</span>
-            <strong id="storm-zoom-readout">100%</strong>
-          </div>
-        </div>
-      </div>
-
       <form id="storm-form" class="composer">
-        <div class="composer-heading">
-          <span class="eyebrow">Seed Composer</span>
-          <h2>Start Or Mutate</h2>
-        </div>
-
         <div id="storm-draft-context" class="draft-context" hidden></div>
 
         <label class="field" for="storm-prompt">
@@ -111,6 +92,7 @@
           <button id="storm-submit" class="btn btn-accent" type="submit">Generate Storm</button>
           <button id="storm-clear-context" class="btn btn-ghost btn-sm" type="button" disabled>Clear Draft</button>
           <span id="storm-status" class="status-text">Seed a direction or select a card to branch from it.</span>
+          <span class="zoom-chip"><span id="storm-zoom-readout">100%</span> zoom</span>
         </div>
       </form>
 
@@ -122,17 +104,14 @@
         </div>
 
         <div id="storm-empty-state" class="empty-state">
-          <span class="eyebrow">No Artifacts Yet</span>
-          <h3>The board is ready.</h3>
-          <p>Generate a storm and the canvas will populate with design-language artifacts you can inspect, fork, and combine.</p>
+          <p>Generate a storm to begin.</p>
         </div>
       </section>
     </section>
 
     <aside id="storm-inspector" class="inspector is-empty">
       <div class="inspector-heading">
-        <span class="eyebrow">Inspect</span>
-        <h2 id="active-run-title">No artifact selected</h2>
+        <h2 id="active-run-title">Select an artifact</h2>
       </div>
 
       <div class="inspector-preview">
@@ -140,22 +119,22 @@
       </div>
 
       <div class="inspector-meta">
-        <p id="storm-summary" class="text-muted">Select an artifact card to inspect it in place.</p>
+        <p id="storm-summary" class="text-muted"></p>
 
-        <div class="inspector-chips">
-          <span id="inspector-status-pill" class="pill pill-muted">Canvas</span>
-          <span id="inspector-created" class="chip">Waiting for a run</span>
+        <div id="inspector-chips" class="inspector-chips" hidden>
+          <span id="inspector-status-pill" class="pill pill-muted"></span>
+          <span id="inspector-created" class="chip"></span>
         </div>
 
-        <article class="note-card">
+        <div id="inspector-seed" class="note-card" hidden>
           <strong>Seed</strong>
-          <div id="inspector-prompt" class="text-muted">The selected artifact's original seed will appear here.</div>
-        </article>
+          <div id="inspector-prompt" class="text-muted"></div>
+        </div>
 
-        <article class="note-card">
-          <strong>Agent Summary</strong>
-          <div id="storm-notes" class="text-muted">The agent summary will appear here after generation.</div>
-        </article>
+        <div id="inspector-notes" class="note-card" hidden>
+          <strong>Summary</strong>
+          <div id="storm-notes" class="text-muted"></div>
+        </div>
       </div>
 
       <div class="inspector-actions">

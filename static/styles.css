@@ -461,59 +461,20 @@ h1, h2, h3 {
   overflow: hidden;
 }
 
-.canvas-header {
-  position: absolute;
-  top: 18px;
-  left: 18px;
-  z-index: 4;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-  width: min(650px, calc(100% - 440px));
-  padding: 16px 18px;
-  border-radius: var(--radius);
-  background: rgba(15, 21, 32, 0.85);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border);
+.zoom-chip {
+  margin-left: auto;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
-
-.canvas-heading {
-  display: grid;
-  gap: 4px;
-}
-
-.canvas-heading h1 {
-  font-size: clamp(2.4rem, 4vw, 3.8rem);
-  line-height: 0.9;
-}
-
-.canvas-meta {
-  display: grid;
-  gap: 10px;
-  justify-items: end;
-  text-align: right;
-  max-width: 28ch;
-}
-
-.zoom-readout {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-}
-
-.zoom-readout strong { font-size: 0.9rem; }
 
 /* ─── Composer ─── */
 
 .composer {
   position: absolute;
-  top: 130px;
+  top: 18px;
   left: 18px;
   z-index: 4;
   width: min(400px, calc(100% - 36px));
@@ -526,12 +487,6 @@ h1, h2, h3 {
   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
 }
 
-.composer-heading {
-  display: grid;
-  gap: 3px;
-}
-
-.composer-heading h2 { font-size: 1.1rem; }
 
 .field {
   display: grid;
@@ -825,26 +780,14 @@ textarea:focus {
 
 .empty-state {
   position: absolute;
-  right: 24px;
-  bottom: 24px;
-  z-index: 3;
-  width: min(340px, calc(100% - 48px));
+  inset: 0;
+  z-index: 1;
   display: grid;
-  gap: 8px;
-  padding: 20px;
-  border-radius: var(--radius-lg);
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  box-shadow: 0 16px 48px rgba(0,0,0,0.3);
-}
-
-.empty-state h3 {
-  font-size: 1.8rem;
-}
-
-.empty-state p {
-  color: var(--text-dim);
-  line-height: 1.65;
+  place-content: center;
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  pointer-events: none;
 }
 
 /* ─── Inspector ─── */
@@ -995,11 +938,6 @@ textarea:focus {
 /* ─── Responsive ─── */
 
 @media (max-width: 1180px) {
-  .canvas-header {
-    width: calc(100% - 36px);
-    padding-right: 100px;
-  }
-
   .inspector {
     position: fixed;
     left: 16px;
@@ -1020,7 +958,6 @@ textarea:focus {
 @media (max-width: 860px) {
   .storm-app { padding: 10px; }
 
-  .canvas-header,
   .composer {
     position: relative;
     top: auto;
@@ -1028,9 +965,6 @@ textarea:focus {
     width: auto;
     margin: 14px;
   }
-
-  .canvas-header { margin-bottom: 0; }
-  .composer { margin-top: 0; }
 
   .canvas-shell {
     min-height: auto;
@@ -1061,17 +995,6 @@ textarea:focus {
   }
 
   .storm-topbar-actions { justify-content: flex-end; }
-
-  .canvas-header {
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .canvas-meta {
-    justify-items: start;
-    text-align: left;
-    max-width: none;
-  }
 
   .storm-node { width: 270px; }
 

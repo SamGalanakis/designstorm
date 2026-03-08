@@ -489,20 +489,22 @@ function renderInspector(): void {
   const notes = $("storm-notes");
   const created = $("inspector-created");
   const pill = $("inspector-status-pill");
+  const chips = $("inspector-chips");
+  const seedCard = $("inspector-seed");
+  const notesCard = $("inspector-notes");
   const iframe = $("storm-preview") as HTMLIFrameElement | null;
   const fork = $("inspector-fork") as HTMLButtonElement | null;
   const combine = $("inspector-combine") as HTMLButtonElement | null;
   const fs = $("inspector-fullscreen") as HTMLButtonElement | null;
   const run = getRun(state.activeRunId);
-  if (!panel || !title || !summary || !prompt || !notes || !created || !pill || !iframe || !fork || !combine || !fs) return;
+  if (!panel || !title || !summary || !prompt || !notes || !created || !pill || !chips || !seedCard || !notesCard || !iframe || !fork || !combine || !fs) return;
   if (!run) {
     panel.classList.add("is-empty");
-    title.textContent = "No artifact selected";
-    summary.textContent = "Select an artifact card to inspect it.";
-    prompt.textContent = "Original seed will appear here.";
-    notes.textContent = "Agent summary will appear here.";
-    created.textContent = "Waiting for a run";
-    pill.textContent = "Canvas"; pill.className = "pill pill-muted";
+    title.textContent = "Select an artifact";
+    summary.textContent = "";
+    chips.hidden = true;
+    seedCard.hidden = true;
+    notesCard.hidden = true;
     iframe.removeAttribute("src");
     fork.disabled = combine.disabled = fs.disabled = true;
     return;
@@ -510,11 +512,14 @@ function renderInspector(): void {
   panel.classList.remove("is-empty");
   title.textContent = run.title;
   summary.textContent = run.summary;
-  prompt.textContent = run.prompt;
-  notes.textContent = run.assistantSummary || "No summary returned.";
-  created.textContent = new Date(run.createdAt).toLocaleString();
+  chips.hidden = false;
   pill.textContent = run.submitted ? "Submitted" : "Draft";
   pill.className = `pill ${run.submitted ? "pill-accent" : "pill-muted"}`;
+  created.textContent = new Date(run.createdAt).toLocaleString();
+  seedCard.hidden = false;
+  prompt.textContent = run.prompt;
+  notesCard.hidden = !run.assistantSummary;
+  notes.textContent = run.assistantSummary || "";
   iframe.src = run.previewUrl;
   fork.disabled = combine.disabled = fs.disabled = false;
 }
