@@ -487,6 +487,10 @@ h1, h2, h3 {
   border: 1px solid rgba(91, 156, 184, 0.2);
 }
 
+.draft-context[hidden] {
+  display: none;
+}
+
 .draft-pill {
   display: inline-flex;
   align-items: center;

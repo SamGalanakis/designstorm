@@ -468,6 +468,10 @@ impl StormToolProvider {
             .ok_or_else(|| ToolResult::err_fmt(format_args!("Missing required parameter: {key}")))
     }
 
+    async fn run_id(&self) -> Uuid {
+        self.workspace.lock().await.run_id
+    }
+
     async fn workspace_list(&self) -> ToolResult {
         let workspace_dir = { self.workspace.lock().await.workspace_dir.clone() };
         let mut stack = vec![workspace_dir];
@@ -729,7 +733,15 @@ impl ToolProvider for StormToolProvider {
     }
 
     async fn execute(&self, name: &str, args: &serde_json::Value) -> ToolResult {
-        match name {
+        let run_id = self.run_id().await;
+        info!(
+            run_id = %run_id,
+            tool = name,
+            args = %summarize_tool_args(args),
+            "storm tool call started"
+        );
+        let started = Instant::now();
+        let result = match name {
             "workspace_list" => self.workspace_list().await,
             "workspace_read" => self.workspace_read(args).await,
             "workspace_write" => self.workspace_write(args).await,
@@ -737,7 +749,16 @@ impl ToolProvider for StormToolProvider {
             "view_result" => self.view_result().await,
             "submit_result" => self.submit_result(args).await,
             _ => ToolResult::err_fmt(format_args!("Unknown tool: {name}")),
-        }
+        };
+        info!(
+            run_id = %run_id,
+            tool = name,
+            elapsed_ms = started.elapsed().as_millis(),
+            success = result.success,
+            result = %truncate_for_log(&result.result.to_string(), 480),
+            "storm tool call finished"
+        );
+        result
     }
 }
 
@@ -1655,6 +1676,37 @@ fn patch_signals(signals: String) -> Event {
     PatchSignals::new(signals).write_as_axum_sse_event()
 }
 
+fn summarize_tool_args(args: &serde_json::Value) -> String {
+    let Some(object) = args.as_object() else {
+        return truncate_for_log(&args.to_string(), 240);
+    };
+    let mut parts = Vec::new();
+    for (key, value) in object {
+        let rendered = match value {
+            serde_json::Value::String(text) => {
+                if key == "content" {
+                    format!("\"{}\"", truncate_for_log(text, 120))
+                } else {
+                    format!("\"{}\"", truncate_for_log(text, 80))
+                }
+            }
+            _ => truncate_for_log(&value.to_string(), 120),
+        };
+        parts.push(format!("{key}={rendered}"));
+    }
+    parts.join(", ")
+}
+
+fn truncate_for_log(value: &str, max_chars: usize) -> String {
+    let mut iter = value.chars();
+    let truncated: String = iter.by_ref().take(max_chars).collect();
+    if iter.next().is_some() {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
+}
+
 fn datastar_event_stream(
     stream: Pin<Box<dyn futures_core::Stream<Item = Result<Event, Infallible>> + Send>>,
 ) -> impl IntoResponse {
@@ -1989,9 +2041,13 @@ async fn run_design_agent(
     runtime: StormRuntimeCtx,
     prompt: String,
 ) -> Result<lash_core::AssembledTurn, String> {
-    let workspace_dir = { workspace.lock().await.workspace_dir.clone() };
+    let (workspace_dir, run_id) = {
+        let workspace = workspace.lock().await;
+        (workspace.workspace_dir.clone(), workspace.run_id)
+    };
     let started = Instant::now();
     info!(
+        run_id = %run_id,
         role = role.label(),
         model = %runtime.model,
         workspace_dir = %workspace_dir.display(),
@@ -2016,6 +2072,7 @@ async fn run_design_agent(
         .await
         .map_err(|error| {
             error!(
+                run_id = %run_id,
                 role = role.label(),
                 elapsed_ms = started.elapsed().as_millis(),
                 error = %error,
@@ -2031,19 +2088,42 @@ async fn run_design_agent(
         mode: None,
         plan_file: None,
     };
-    let result = engine
-        .run_turn_assembled(input, CancellationToken::new())
-        .await
-        .map_err(|error| {
-            error!(
-                role = role.label(),
-                elapsed_ms = started.elapsed().as_millis(),
-                error = %error,
-                "lash turn failed"
-            );
-            error.to_string()
-        })?;
     info!(
+        run_id = %run_id,
+        role = role.label(),
+        "starting lash turn"
+    );
+    let turn = engine.run_turn_assembled(input, CancellationToken::new());
+    tokio::pin!(turn);
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let result = loop {
+        tokio::select! {
+            result = &mut turn => {
+                let result = result.map_err(|error| {
+                    error!(
+                        run_id = %run_id,
+                        role = role.label(),
+                        elapsed_ms = started.elapsed().as_millis(),
+                        error = %error,
+                        "lash turn failed"
+                    );
+                    error.to_string()
+                })?;
+                break result;
+            }
+            _ = heartbeat.tick() => {
+                info!(
+                    run_id = %run_id,
+                    role = role.label(),
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "lash turn still running"
+                );
+            }
+        }
+    };
+    info!(
+        run_id = %run_id,
         role = role.label(),
         elapsed_ms = started.elapsed().as_millis(),
         status = ?result.status,
