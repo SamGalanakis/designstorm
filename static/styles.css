@@ -816,6 +816,7 @@ h1, h2, h3 {
   width: 310px;
   cursor: grab;
   user-select: none;
+  touch-action: none;
 }
 
 .storm-node:active { cursor: grabbing; }
@@ -823,7 +824,10 @@ h1, h2, h3 {
 .storm-node-shell {
   position: relative;
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 12px;
   border-radius: var(--radius-lg);
   background: var(--surface-raised);
@@ -921,7 +925,7 @@ h1, h2, h3 {
 
 .storm-node-preview {
   position: relative;
-  height: 170px;
+  min-height: 170px;
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--bg);
@@ -1023,6 +1027,7 @@ body.is-wiring .canvas { cursor: crosshair; }
   position: absolute;
   cursor: grab;
   user-select: none;
+  touch-action: none;
 }
 
 .board-node:active { cursor: grabbing; }
@@ -1033,7 +1038,10 @@ body.is-wiring .canvas { cursor: crosshair; }
 
 .entropy-shell {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-raised);
@@ -1092,7 +1100,8 @@ body.is-wiring .canvas { cursor: crosshair; }
 
 .entropy-preview {
   position: relative;
-  height: 120px;
+  min-height: 120px;
+  height: 100%;
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg);
@@ -1134,7 +1143,10 @@ body.is-wiring .canvas { cursor: crosshair; }
 .generate-shell {
   position: relative;
   display: grid;
+  grid-template-rows: auto minmax(32px, 1fr) auto;
   gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 12px 14px;
   border-radius: var(--radius);
   background: var(--surface-raised);
@@ -1227,7 +1239,10 @@ body.is-wiring .canvas { cursor: crosshair; }
 .input-shell {
   position: relative;
   display: grid;
+  grid-template-rows: auto minmax(48px, 1fr);
   gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-raised);
@@ -1333,6 +1348,8 @@ body.is-wiring .canvas { cursor: crosshair; }
   position: relative;
   display: grid;
   gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-raised);
@@ -1425,6 +1442,8 @@ body.is-wiring .canvas { cursor: crosshair; }
   position: relative;
   display: grid;
   gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-raised);
@@ -1513,7 +1532,10 @@ body.is-wiring .canvas { cursor: crosshair; }
 .set-shell {
   position: relative;
   display: grid;
+  align-content: start;
   gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-raised);
@@ -1600,6 +1622,8 @@ body.is-wiring .canvas { cursor: crosshair; }
   position: relative;
   display: grid;
   gap: 0;
+  height: 100%;
+  box-sizing: border-box;
   border-radius: var(--radius);
   background: var(--surface-raised);
   border: 1px solid var(--border);
@@ -1621,9 +1645,8 @@ body.is-wiring .canvas { cursor: crosshair; }
 
 .image-node-preview {
   width: 100%;
-  height: auto;
+  height: 100%;
   min-height: 80px;
-  max-height: 240px;
   object-fit: cover;
   display: block;
 }
@@ -1634,7 +1657,8 @@ body.is-wiring .canvas { cursor: crosshair; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 120px;
+  min-height: 120px;
+  height: 100%;
   cursor: pointer;
   color: var(--text-faint);
   transition: background 0.15s;
@@ -1661,6 +1685,8 @@ body.is-wiring .canvas { cursor: crosshair; }
   position: relative;
   display: grid;
   gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-raised);
@@ -1818,6 +1844,8 @@ body.is-wiring .canvas { cursor: crosshair; }
   position: relative;
   display: grid;
   gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
   padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-raised);
@@ -2137,6 +2165,7 @@ body.is-wiring .canvas { cursor: crosshair; }
     rgba(13, 19, 31, 0.72);
   box-shadow: inset 0 0 0 1px rgba(91, 156, 184, 0.08);
   cursor: nwse-resize;
+  touch-action: none;
   opacity: 0;
   transition: opacity 140ms ease, border-color 140ms ease, transform 140ms ease;
 }

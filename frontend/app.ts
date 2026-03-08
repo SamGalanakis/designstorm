@@ -195,6 +195,7 @@ type CreateBoardNodeOptions = {
   sourceType?: string;
   sourceAnchor?: AnchorPoint;
   preset?: string;
+  placement?: "anchor" | "center";
 };
 
 type ChunkRecord = {
@@ -462,6 +463,15 @@ function getViewportCenterWorld(): Point {
   if (!canvas) return clientToWorld(window.innerWidth * 0.5, window.innerHeight * 0.5);
   const rect = canvas.getBoundingClientRect();
   return clientToWorld(rect.left + rect.width * 0.5, rect.top + rect.height * 0.5);
+}
+
+function getNodeOriginForPlacement(nodeType: string, worldPos: Point, placement: "anchor" | "center"): Point {
+  if (placement !== "center") return worldPos;
+  const dims = nodeDimensions(nodeType);
+  return {
+    x: worldPos.x - dims.w * 0.5,
+    y: worldPos.y - dims.h * 0.5,
+  };
 }
 
 function renderToolDock(): void {
@@ -1926,6 +1936,26 @@ function bindNodeInteractions(): void {
 
   let wireJustCompleted = false;
 
+  const getPointerElement = (): HTMLElement | null => {
+    if (!state.pointerState) return null;
+    if (state.pointerState.mode === "drag") {
+      return container.querySelector<HTMLElement>(`.storm-node[data-run-id="${state.pointerState.runId}"]`);
+    }
+    if (state.pointerState.mode === "drag-board-node") {
+      return container.querySelector<HTMLElement>(`.board-node[data-node-id="${state.pointerState.nodeId}"]`);
+    }
+    if (state.pointerState.mode === "wire") {
+      return container.querySelector<HTMLElement>(`.storm-node[data-run-id="${state.pointerState.sourceRunId}"]`)
+        ?? container.querySelector<HTMLElement>(`.board-node[data-node-id="${state.pointerState.sourceRunId}"]`);
+    }
+    if (state.pointerState.mode === "resize") {
+      return state.pointerState.nodeKind === "run"
+        ? container.querySelector<HTMLElement>(`.storm-node[data-run-id="${state.pointerState.nodeId}"]`)
+        : container.querySelector<HTMLElement>(`.board-node[data-node-id="${state.pointerState.nodeId}"]`);
+    }
+    return null;
+  };
+
   container.addEventListener("click", (e) => {
     if (state.spacePanHeld || state.boardTool === "pan") return;
     if (wireJustCompleted) { wireJustCompleted = false; return; }
@@ -2025,14 +2055,16 @@ function bindNodeInteractions(): void {
     if (!node || !runId) return;
     const pt = state.positions.get(runId);
     if (!pt) return;
+    e.preventDefault();
     state.pointerState = { mode: "drag", pointerId: e.pointerId, runId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
     node.setPointerCapture(e.pointerId);
   });
 
-  container.addEventListener("pointermove", (e) => {
+  window.addEventListener("pointermove", (e) => {
     if (!state.pointerState || state.pointerState.pointerId !== e.pointerId) return;
 
     if (state.pointerState.mode === "resize") {
+      e.preventDefault();
       const dx = (e.clientX - state.pointerState.startClient.x) / state.scale;
       const dy = (e.clientY - state.pointerState.startClient.y) / state.scale;
       const defaults = getDefaultNodeDimensions(state.pointerState.nodeId);
@@ -2054,6 +2086,7 @@ function bindNodeInteractions(): void {
     }
 
     if (state.pointerState.mode === "wire") {
+      e.preventDefault();
       const world = clientToWorld(e.clientX, e.clientY);
       state.pointerState.currentWorld = world;
       const hit = hitTestNode(world, state.pointerState.sourceRunId);
@@ -2086,6 +2119,7 @@ function bindNodeInteractions(): void {
     }
 
     if (state.pointerState.mode === "drag-board-node") {
+      e.preventDefault();
       const dx = (e.clientX - state.pointerState.startClient.x) / state.scale;
       const dy = (e.clientY - state.pointerState.startClient.y) / state.scale;
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) state.pointerState.moved = true;
@@ -2100,6 +2134,7 @@ function bindNodeInteractions(): void {
     }
 
     if (state.pointerState.mode !== "drag") return;
+    e.preventDefault();
     const dx = (e.clientX - state.pointerState.startClient.x) / state.scale;
     const dy = (e.clientY - state.pointerState.startClient.y) / state.scale;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) state.pointerState.moved = true;
@@ -2110,7 +2145,7 @@ function bindNodeInteractions(): void {
     renderConnections();
   });
 
-  container.addEventListener("pointerup", (e) => {
+  window.addEventListener("pointerup", (e) => {
     if (!state.pointerState || state.pointerState.pointerId !== e.pointerId) return;
 
     if (state.pointerState.mode === "resize") {
@@ -2120,7 +2155,7 @@ function bindNodeInteractions(): void {
         : `.board-node[data-node-id="${nodeId}"]`;
       const el = container.querySelector<HTMLElement>(selector);
       el?.classList.remove("is-resizing");
-      el?.releasePointerCapture(e.pointerId);
+      if (el?.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
       const size = getNodeDimensions(nodeId);
       state.pointerState = null;
       renderConnections();
@@ -2174,13 +2209,14 @@ function bindNodeInteractions(): void {
         state.activeNodeId = null;
         openRadialMenu(e.clientX, e.clientY);
       }
-      (e.target as HTMLElement).closest<HTMLElement>(".storm-node, .board-node")?.releasePointerCapture(e.pointerId);
+      if (srcEl instanceof HTMLElement && srcEl.hasPointerCapture(e.pointerId)) srcEl.releasePointerCapture(e.pointerId);
       return;
     }
 
     if (state.pointerState.mode === "drag-board-node") {
       const { nodeId, moved } = state.pointerState;
-      (e.target as HTMLElement).closest<HTMLElement>(".board-node")?.releasePointerCapture(e.pointerId);
+      const boardNodeEl = container.querySelector<HTMLElement>(`.board-node[data-node-id="${nodeId}"]`);
+      if (boardNodeEl?.hasPointerCapture(e.pointerId)) boardNodeEl.releasePointerCapture(e.pointerId);
       // Clear set drop highlight
       document.querySelectorAll(".set-shell.is-drop-target").forEach((el) =>
         el.classList.remove("is-drop-target")
@@ -2208,8 +2244,9 @@ function bindNodeInteractions(): void {
     }
 
     if (state.pointerState.mode !== "drag") return;
-    (e.target as HTMLElement).closest<HTMLElement>(".storm-node")?.releasePointerCapture(e.pointerId);
     const { runId, moved } = state.pointerState;
+    const runNodeEl = container.querySelector<HTMLElement>(`.storm-node[data-run-id="${runId}"]`);
+    if (runNodeEl?.hasPointerCapture(e.pointerId)) runNodeEl.releasePointerCapture(e.pointerId);
     const pos = state.positions.get(runId);
     state.pointerState = null;
     updateBoardTransform();
@@ -2221,6 +2258,32 @@ function bindNodeInteractions(): void {
         body: JSON.stringify({ position_x: pos.x, position_y: pos.y, width: getNodeDimensions(runId).w, height: getNodeDimensions(runId).h }),
       }).catch(() => {});
     }
+  });
+
+  window.addEventListener("pointercancel", (e) => {
+    if (!state.pointerState || state.pointerState.pointerId !== e.pointerId) return;
+    const el = getPointerElement();
+    if (el?.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+    if (state.pointerState.mode === "resize") {
+      el?.classList.remove("is-resizing");
+    }
+    if (state.pointerState.mode === "drag-board-node") {
+      document.querySelectorAll(".set-shell.is-drop-target").forEach((dropEl) =>
+        dropEl.classList.remove("is-drop-target")
+      );
+    }
+    if (state.pointerState.mode === "wire") {
+      el?.classList.remove("is-wire-source");
+      if (state.pointerState.targetRunId) {
+        const targetEl = container.querySelector(`.storm-node[data-run-id="${state.pointerState.targetRunId}"]`)
+          ?? container.querySelector(`.board-node[data-node-id="${state.pointerState.targetRunId}"]`);
+        targetEl?.classList.remove("is-wire-target", "is-wire-invalid");
+      }
+      document.body.classList.remove("is-wiring");
+      removeEdgeHandles();
+      renderWire();
+    }
+    state.pointerState = null;
   });
 }
 
@@ -2242,15 +2305,12 @@ function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNo
     return;
   }
 
-  const dims = nodeDimensions(nodeType);
-  const centeredWorldPos = {
-    x: worldPos.x - dims.w * 0.5,
-    y: worldPos.y - dims.h * 0.5,
-  };
+  const placement = opts?.placement ?? "anchor";
+  const originWorldPos = getNodeOriginForPlacement(nodeType, worldPos, placement);
   const hasSource = Boolean(opts?.sourceId && opts?.sourceType);
   typeInput.value = nodeType;
-  xInput.value = String(centeredWorldPos.x);
-  yInput.value = String(centeredWorldPos.y);
+  xInput.value = String(originWorldPos.x);
+  yInput.value = String(originWorldPos.y);
   sourceIdInput.value = opts?.sourceId ?? "";
   sourceTypeInput.value = opts?.sourceType ?? "";
   sourceAnchorSideInput.value = opts?.sourceAnchor?.side ?? "";
@@ -3317,6 +3377,7 @@ function bindBoardNodeInteractions(): void {
 
     const pt = state.positions.get(nodeId);
     if (!pt) return;
+    e.preventDefault();
     state.pointerState = { mode: "drag-board-node", pointerId: e.pointerId, nodeId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
     boardNode.setPointerCapture(e.pointerId);
   });
@@ -3402,9 +3463,9 @@ function bindToolDock(): void {
     renderToolDock();
   });
 
-  addGenerate?.addEventListener("click", () => createBoardNode("generate", getViewportCenterWorld()));
-  addEntropy?.addEventListener("click", () => createBoardNode("entropy", getViewportCenterWorld()));
-  addInput?.addEventListener("click", () => createBoardNode("user_input", getViewportCenterWorld()));
+  addGenerate?.addEventListener("click", () => createBoardNode("generate", getViewportCenterWorld(), { placement: "center" }));
+  addEntropy?.addEventListener("click", () => createBoardNode("entropy", getViewportCenterWorld(), { placement: "center" }));
+  addInput?.addEventListener("click", () => createBoardNode("user_input", getViewportCenterWorld(), { placement: "center" }));
 
   // Subcategory triggers
   document.querySelectorAll<HTMLElement>(".tool-dock-sub-trigger").forEach((trigger) => {
@@ -3436,15 +3497,15 @@ function bindToolDock(): void {
     }
   });
 
-  $("tool-add-image")?.addEventListener("click", () => createBoardNode("image", getViewportCenterWorld()));
-  $("tool-add-palette")?.addEventListener("click", () => createBoardNode("color_palette", getViewportCenterWorld()));
-  $("tool-add-font")?.addEventListener("click", () => createBoardNode("font", getViewportCenterWorld()));
-  $("tool-add-set")?.addEventListener("click", () => createBoardNode("set", getViewportCenterWorld()));
-  $("tool-add-pickk")?.addEventListener("click", () => createBoardNode("pick_k", getViewportCenterWorld()));
-  $("tool-add-int")?.addEventListener("click", () => createBoardNode("int_value", getViewportCenterWorld()));
-  $("tool-add-float")?.addEventListener("click", () => createBoardNode("float_value", getViewportCenterWorld()));
-  $("tool-add-string")?.addEventListener("click", () => createBoardNode("string_value", getViewportCenterWorld()));
-  $("tool-add-bool")?.addEventListener("click", () => createBoardNode("bool_value", getViewportCenterWorld()));
+  $("tool-add-image")?.addEventListener("click", () => createBoardNode("image", getViewportCenterWorld(), { placement: "center" }));
+  $("tool-add-palette")?.addEventListener("click", () => createBoardNode("color_palette", getViewportCenterWorld(), { placement: "center" }));
+  $("tool-add-font")?.addEventListener("click", () => createBoardNode("font", getViewportCenterWorld(), { placement: "center" }));
+  $("tool-add-set")?.addEventListener("click", () => createBoardNode("set", getViewportCenterWorld(), { placement: "center" }));
+  $("tool-add-pickk")?.addEventListener("click", () => createBoardNode("pick_k", getViewportCenterWorld(), { placement: "center" }));
+  $("tool-add-int")?.addEventListener("click", () => createBoardNode("int_value", getViewportCenterWorld(), { placement: "center" }));
+  $("tool-add-float")?.addEventListener("click", () => createBoardNode("float_value", getViewportCenterWorld(), { placement: "center" }));
+  $("tool-add-string")?.addEventListener("click", () => createBoardNode("string_value", getViewportCenterWorld(), { placement: "center" }));
+  $("tool-add-bool")?.addEventListener("click", () => createBoardNode("bool_value", getViewportCenterWorld(), { placement: "center" }));
 
   window.addEventListener("keydown", (e) => {
     if (isEditableTarget(e.target)) return;
