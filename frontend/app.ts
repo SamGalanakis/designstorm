@@ -1983,6 +1983,7 @@ function bindNodeInteractions(): void {
 // ─── Board node interactions (entropy, etc.) ───
 
 function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNodeOptions): void {
+  const form = $("board-node-create-form") as HTMLFormElement | null;
   const typeInput = $("board-node-create-type") as HTMLInputElement | null;
   const xInput = $("board-node-create-x") as HTMLInputElement | null;
   const yInput = $("board-node-create-y") as HTMLInputElement | null;
@@ -1991,11 +1992,12 @@ function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNo
   const sourceAnchorSideInput = $("board-node-create-source-anchor-side") as HTMLInputElement | null;
   const sourceAnchorTInput = $("board-node-create-source-anchor_t") as HTMLInputElement | null;
   const submit = $("board-node-create-submit") as HTMLButtonElement | null;
-  if (!typeInput || !xInput || !yInput || !sourceIdInput || !sourceTypeInput || !sourceAnchorSideInput || !sourceAnchorTInput || !submit) {
+  if (!form || !typeInput || !xInput || !yInput || !sourceIdInput || !sourceTypeInput || !sourceAnchorSideInput || !sourceAnchorTInput || !submit) {
     console.error("Board node create form is missing.");
     return;
   }
 
+  const hasSource = Boolean(opts?.sourceId && opts?.sourceType);
   typeInput.value = nodeType;
   xInput.value = String(worldPos.x);
   yInput.value = String(worldPos.y);
@@ -2003,7 +2005,18 @@ function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNo
   sourceTypeInput.value = opts?.sourceType ?? "";
   sourceAnchorSideInput.value = opts?.sourceAnchor?.side ?? "";
   sourceAnchorTInput.value = opts?.sourceAnchor ? String(opts.sourceAnchor.t) : "";
-  submit.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+  sourceIdInput.disabled = !hasSource;
+  sourceTypeInput.disabled = !hasSource;
+  sourceAnchorSideInput.disabled = !hasSource || !opts?.sourceAnchor?.side;
+  sourceAnchorTInput.disabled = !hasSource || !opts?.sourceAnchor;
+
+  if (typeof form.requestSubmit === "function") {
+    form.requestSubmit(submit);
+    return;
+  }
+
+  form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
 
 async function createBoardEdge(
