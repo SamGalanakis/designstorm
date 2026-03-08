@@ -4,6 +4,8 @@ use aes_gcm::{
 };
 use askama::Template;
 use async_stream::stream;
+use aws_config::BehaviorVersion;
+use aws_sdk_s3::{Client as S3Client, config::Region, primitives::ByteStream};
 use axum::{
     Router,
     body::Body,
@@ -49,6 +51,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     env,
+    io::{Cursor, Read, Write},
     net::SocketAddr,
     pin::Pin,
     path::{Component, Path as StdPath, PathBuf},
@@ -66,6 +69,8 @@ use tower_http::{
 };
 use tracing::{Level, error, info, warn};
 use uuid::Uuid;
+use walkdir::WalkDir;
+use zip::{CompressionMethod, ZipArchive, ZipWriter, write::FileOptions};
 
 const SESSION_COOKIE_NAME: &str = "designstorm_session";
 const DATASTAR_CDN: &str =
@@ -76,9 +81,16 @@ struct AppState {
     config: Arc<Config>,
     db: PgPool,
     http: Client,
+    artifact_storage: Option<ArtifactStorage>,
     session_encoding_key: EncodingKey,
     session_decoding_key: DecodingKey,
     clerk_decoding_key: DecodingKey,
+}
+
+#[derive(Clone)]
+struct ArtifactStorage {
+    client: S3Client,
+    bucket: String,
 }
 
 #[derive(Clone)]
@@ -134,6 +146,33 @@ impl Config {
                 .unwrap_or_else(|_| env::temp_dir().join("designstorm")),
         })
     }
+}
+
+async fn build_artifact_storage(
+    config: &Config,
+) -> Result<Option<ArtifactStorage>, AppError> {
+    let Some(bucket) = config.bucket_name.clone() else {
+        return Ok(None);
+    };
+
+    let region = config
+        .aws_region
+        .clone()
+        .unwrap_or_else(|| "auto".to_string());
+    let shared_config = aws_config::defaults(BehaviorVersion::latest())
+        .region(Region::new(region))
+        .load()
+        .await;
+
+    let mut s3_config = aws_sdk_s3::config::Builder::from(&shared_config);
+    if let Some(endpoint_url) = &config.aws_endpoint_url_s3 {
+        s3_config = s3_config.endpoint_url(endpoint_url);
+    }
+
+    Ok(Some(ArtifactStorage {
+        client: S3Client::from_conf(s3_config.build()),
+        bucket,
+    }))
 }
 
 #[derive(Debug, Error)]
@@ -1148,9 +1187,12 @@ async fn main() -> Result<(), AppError> {
     sqlx::migrate!("./migrations").run(&db).await?;
     info!("sql migrations completed");
 
+    let artifact_storage = build_artifact_storage(&config).await?;
+
     let state = AppState {
         db,
         http: Client::new(),
+        artifact_storage,
         session_encoding_key: EncodingKey::from_secret(config.session_secret.as_bytes()),
         session_decoding_key: DecodingKey::from_secret(config.session_secret.as_bytes()),
         clerk_decoding_key: DecodingKey::from_rsa_pem(config.clerk_jwt_public_key.as_bytes())?,
@@ -1774,6 +1816,17 @@ async fn delete_storm_run(
 ) -> Result<StatusCode, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
 
+    if let Some(storage) = &state.artifact_storage {
+        storage
+            .client
+            .delete_object()
+            .bucket(&storage.bucket)
+            .key(artifact_archive_key(viewer.id, id))
+            .send()
+            .await
+            .map_err(|error| AppError::Internal(format!("Failed to delete persisted artifact archive: {error}")))?;
+    }
+
     sqlx::query(
         r#"
         DELETE FROM board_edges
@@ -1916,6 +1969,7 @@ async fn generate_storm_internal(
 
     let assistant_summary = result.assistant_output.safe_text.trim().to_string();
     let snapshot = workspace.lock().await.snapshot();
+    persist_workspace_archive(state, viewer.id, run_id, &snapshot.workspace_dir).await?;
     let record = StormRunRecord {
         id: snapshot.run_id,
         owner_user_id: viewer.id,
@@ -1960,13 +2014,18 @@ async fn preview_index(
     let html = match tokio::fs::read_to_string(run.workspace_dir.join("index.html")).await {
         Ok(html) => html,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            warn!(
-                user_id = %viewer.id,
-                run_id = %run_id,
-                workspace_dir = %run.workspace_dir.display(),
-                "preview workspace file missing"
-            );
-            render_missing_preview_html(&run)
+            match load_persisted_workspace_entry(&state, viewer.id, run_id, "index.html").await? {
+                Some(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                None => {
+                    warn!(
+                        user_id = %viewer.id,
+                        run_id = %run_id,
+                        workspace_dir = %run.workspace_dir.display(),
+                        "preview workspace file missing"
+                    );
+                    render_missing_preview_html(&run)
+                }
+            }
         }
         Err(error) => return Err(AppError::Io(error)),
     };
@@ -2018,7 +2077,10 @@ async fn preview_asset(
     let bytes = match tokio::fs::read(&asset_path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(StatusCode::NOT_FOUND.into_response());
+            match load_persisted_workspace_entry(&state, viewer.id, run_id, &normalized_path).await? {
+                Some(bytes) => bytes,
+                None => return Ok(StatusCode::NOT_FOUND.into_response()),
+            }
         }
         Err(error) => return Err(AppError::Io(error)),
     };
@@ -2939,6 +3001,125 @@ fn resolve_workspace_path(root: &StdPath, logical_path: &str) -> Result<PathBuf,
 
 fn normalize_workspace_asset_path(logical_path: &str) -> String {
     logical_path.trim_start_matches('/').to_string()
+}
+
+fn artifact_archive_key(user_id: Uuid, run_id: Uuid) -> String {
+    format!("storm-runs/{user_id}/{run_id}.zip")
+}
+
+async fn persist_workspace_archive(
+    state: &AppState,
+    user_id: Uuid,
+    run_id: Uuid,
+    workspace_dir: &StdPath,
+) -> Result<(), AppError> {
+    let Some(storage) = &state.artifact_storage else {
+        return Ok(());
+    };
+
+    let workspace_dir = workspace_dir.to_path_buf();
+    let archive_bytes = tokio::task::spawn_blocking(move || zip_workspace_dir(&workspace_dir))
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))??;
+
+    storage
+        .client
+        .put_object()
+        .bucket(&storage.bucket)
+        .key(artifact_archive_key(user_id, run_id))
+        .content_type("application/zip")
+        .body(ByteStream::from(archive_bytes))
+        .send()
+        .await
+        .map_err(|error| AppError::Internal(format!("Failed to upload artifact archive: {error}")))?;
+
+    Ok(())
+}
+
+async fn load_persisted_workspace_entry(
+    state: &AppState,
+    user_id: Uuid,
+    run_id: Uuid,
+    logical_path: &str,
+) -> Result<Option<Vec<u8>>, AppError> {
+    let Some(storage) = &state.artifact_storage else {
+        return Ok(None);
+    };
+
+    let response = match storage
+        .client
+        .get_object()
+        .bucket(&storage.bucket)
+        .key(artifact_archive_key(user_id, run_id))
+        .send()
+        .await
+    {
+        Ok(response) => response,
+        Err(error) => {
+            warn!(user_id = %user_id, run_id = %run_id, path = %logical_path, error = %error, "failed to fetch persisted artifact archive");
+            return Ok(None);
+        }
+    };
+
+    let bytes = response
+        .body
+        .collect()
+        .await
+        .map_err(|error| AppError::Internal(format!("Failed to read persisted artifact archive: {error}")))?
+        .into_bytes()
+        .to_vec();
+
+    tokio::task::spawn_blocking({
+        let logical_path = logical_path.to_string();
+        move || extract_zip_entry(&bytes, &logical_path)
+    })
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?
+}
+
+fn zip_workspace_dir(workspace_dir: &StdPath) -> Result<Vec<u8>, AppError> {
+    let cursor = Cursor::new(Vec::new());
+    let mut writer = ZipWriter::new(cursor);
+    let options = FileOptions::default()
+        .compression_method(CompressionMethod::Deflated)
+        .unix_permissions(0o644);
+
+    for entry in WalkDir::new(workspace_dir)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+    {
+        let path = entry.path();
+        let relative = path
+            .strip_prefix(workspace_dir)
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        let name = relative.to_string_lossy().replace('\\', "/");
+        writer
+            .start_file(name, options)
+            .map_err(|error| AppError::Internal(error.to_string()))?;
+        let bytes = std::fs::read(path)?;
+        writer.write_all(&bytes)?;
+    }
+
+    let cursor = writer
+        .finish()
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    Ok(cursor.into_inner())
+}
+
+fn extract_zip_entry(archive_bytes: &[u8], logical_path: &str) -> Result<Option<Vec<u8>>, AppError> {
+    let cursor = Cursor::new(archive_bytes.to_vec());
+    let mut archive =
+        ZipArchive::new(cursor).map_err(|error| AppError::Internal(error.to_string()))?;
+    let mut file = match archive.by_name(logical_path) {
+        Ok(file) => file,
+        Err(zip::result::ZipError::FileNotFound) => return Ok(None),
+        Err(error) => return Err(AppError::Internal(error.to_string())),
+    };
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    Ok(Some(bytes))
 }
 
 fn render_missing_preview_html(run: &StormRunRecord) -> String {

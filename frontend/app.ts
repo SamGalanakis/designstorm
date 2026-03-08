@@ -1272,7 +1272,6 @@ function setActiveRun(id: string | null, opts?: { sync?: boolean }): void {
   state.activeRunId = id;
   if (!id) state.focusedRunId = null;
   renderRuns();
-  renderInspector();
   renderFocus();
   syncRootsNavigatorState();
   if (opts?.sync) syncUrl(false);
@@ -1282,7 +1281,6 @@ function openFullscreen(id: string): void {
   state.activeRunId = id;
   state.focusedRunId = id;
   renderRuns();
-  renderInspector();
   renderFocus();
   syncRootsNavigatorState();
   syncUrl(false);
@@ -1680,46 +1678,6 @@ function renderBoardNodes(): void {
   });
 }
 
-function renderInspector(): void {
-  const panel = $("storm-inspector");
-  const title = $("active-run-title");
-  const summary = $("storm-summary");
-  const prompt = $("inspector-prompt");
-  const notes = $("storm-notes");
-  const created = $("inspector-created");
-  const statusLabel = $("inspector-status-label");
-  const details = $("inspector-details");
-  const seedCard = $("inspector-seed");
-  const notesCard = $("inspector-notes");
-  const iframe = $("storm-preview") as HTMLIFrameElement | null;
-  const fork = $("inspector-fork") as HTMLButtonElement | null;
-  const fs = $("inspector-fullscreen") as HTMLButtonElement | null;
-  const run = getRun(state.activeRunId);
-  if (!panel || !title || !summary || !prompt || !notes || !created || !statusLabel || !details || !seedCard || !notesCard || !iframe || !fork || !fs) return;
-  if (!run) {
-    panel.classList.add("is-empty");
-    title.textContent = "Select an artifact";
-    summary.textContent = "";
-    details.hidden = true;
-    seedCard.hidden = true;
-    notesCard.hidden = true;
-    setIframeSource(iframe, null);
-    fork.disabled = fs.disabled = true;
-    return;
-  }
-  panel.classList.remove("is-empty");
-  title.textContent = run.title;
-  summary.textContent = run.summary;
-  details.hidden = false;
-  statusLabel.textContent = run.submitted ? "Submitted" : "Draft";
-  created.textContent = new Date(run.createdAt).toLocaleString();
-  seedCard.hidden = false;
-  prompt.textContent = run.prompt;
-  notesCard.hidden = !run.assistantSummary;
-  notes.textContent = run.assistantSummary || "";
-  setIframeSource(iframe, run.previewUrl);
-  fork.disabled = fs.disabled = false;
-}
 
 function renderFocus(): void {
   const overlay = $("storm-focus");
@@ -2380,8 +2338,6 @@ function bindAppChrome(): void {
   $("storm-focus-back")?.addEventListener("click", () => closeFullscreen());
 
   // Inspector actions
-  $("inspector-fork")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "fork"); });
-  $("inspector-fullscreen")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "fullscreen"); });
 
   // Keyboard — escape priority: radial > composer > fullscreen (popovers handled by Datastar)
   window.addEventListener("keydown", (e) => {
@@ -2822,22 +2778,6 @@ function bindStormApp(): void {
   bindRootsNavigatorActions();
   bindRadialMenu();
   hydrateBoardFromDom();
-
-  const preview = $("storm-preview") as HTMLIFrameElement | null;
-  preview?.addEventListener("load", () => {
-    reportClientEvent(
-      "preview_loaded",
-      { frame: "inspector", src: preview.getAttribute("src") },
-      { cooldownMs: 5000 },
-    );
-  });
-  preview?.addEventListener("error", () => {
-    reportClientEvent(
-      "preview_failed",
-      { frame: "inspector", src: preview.getAttribute("src") },
-      { message: "Inspector preview failed to load." },
-    );
-  });
 
   const focus = $("storm-focus-preview") as HTMLIFrameElement | null;
   focus?.addEventListener("load", () => {

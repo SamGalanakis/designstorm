@@ -8,6 +8,8 @@ aes-gcm = { version = "0.10.3", features = ["std"] }
 async-trait = "0.1.88"
 async-stream = "0.3.6"
 askama = "0.12.1"
+aws-config = "1.5.17"
+aws-sdk-s3 = "1.77.0"
 axum = { version = "0.8.1", features = ["macros", "json"] }
 base64 = "0.22.1"
 chrono = { version = "0.4.40", features = ["serde"] }
@@ -31,3 +33,5 @@ tower-http = { version = "0.6.2", features = ["fs", "trace"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt"] }
 uuid = { version = "1.16.0", features = ["serde", "v4"] }
+walkdir = "2.5.0"
+zip = { version = "0.6.6", default-features = false, features = ["deflate"] }
