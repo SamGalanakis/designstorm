@@ -3,114 +3,115 @@
 {% block content %}
 <div
   class="storm-app"
-  data-signals:account-open="false"
-  data-signals:settings-open="false"
-  data-signals:roots-open="false"
+  data-signals:_account-open="false"
+  data-signals:_settings-open="false"
+  data-signals:_roots-open="false"
   data-signals:prompt="''"
   data-signals:draft-mode="''"
   data-signals:source-ids="''"
-  data-signals:status="'Seed a direction or select a card to branch from it.'"
-  data-signals:generating="false"
-  data-signals:latest-run-id="''"
-  data-on:keydown__window="evt.key === 'Escape' && ($settingsOpen ? ($settingsOpen = false, $accountOpen = true) : ($accountOpen = false, $settingsOpen = false))"
+  data-signals:_status="'Seed a direction or select a card to branch from it.'"
+  data-signals:_generating="false"
+  data-signals:_latest-run-id="''"
+  data-on:keydown__window="evt.key === 'Escape' && ($_settingsOpen ? ($_settingsOpen = false, $_accountOpen = true) : ($_accountOpen = false, $_settingsOpen = false))"
 >
 
-  <button
-    id="avatar-button"
-    class="avatar-btn"
-    type="button"
-    aria-label="Open account menu"
-    data-on:click="$accountOpen = !$accountOpen; $settingsOpen = false"
-  >
-    <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
-  </button>
-
-  <button
-    id="roots-trigger"
-    class="roots-trigger"
-    type="button"
-    aria-label="Open roots navigator"
-    data-on:click="$rootsOpen = !$rootsOpen"
-    data-attr:aria-expanded="$rootsOpen"
-    aria-controls="roots-panel"
-  >
-    <span class="roots-trigger-label">Roots</span>
-    <span id="roots-count" class="roots-trigger-count">0</span>
-  </button>
-
-  <section
-    id="roots-panel"
-    class="roots-panel"
-    style="display: none"
-    data-show="$rootsOpen"
-    data-on:click__outside="$rootsOpen = false"
-    aria-labelledby="roots-panel-title"
-  >
-    <div class="roots-panel-header">
-      <span class="eyebrow">Navigator</span>
-      <h2 id="roots-panel-title">Roots</h2>
-      <p class="text-muted">Jump to the seed branches on the board.</p>
-    </div>
-    <div id="roots-list" class="roots-list">{{ roots_html|safe }}</div>
-  </section>
-
-  <section
-    id="account-sheet"
-    class="sheet"
-    role="dialog"
-    aria-label="Account"
-    style="display: none"
-    data-show="$accountOpen && !$settingsOpen"
-    data-on:click__outside="$accountOpen = false; $settingsOpen = false"
-  >
-    <div class="sheet-header">
-      <span class="eyebrow">Account</span>
-      <h2>{{ viewer.name }}</h2>
-      <p class="text-muted">{{ viewer.secondary_line() }}</p>
-    </div>
-
-    <button id="settings-trigger" class="settings-link" type="button" data-on:click="$settingsOpen = true; $accountOpen = false">
-      <span class="settings-link-copy">
-        <span class="eyebrow">Settings</span>
-        <strong>Runtime Provider</strong>
-      </span>
-      <span class="settings-link-chevron" aria-hidden="true">&rsaquo;</span>
+  <div class="roots-shell" data-on:click__outside="$_rootsOpen = false">
+    <button
+      id="roots-trigger"
+      class="roots-trigger"
+      type="button"
+      aria-label="Open roots navigator"
+      data-on:click="$_rootsOpen = !$_rootsOpen"
+      data-attr:aria-expanded="$_rootsOpen"
+      aria-controls="roots-panel"
+    >
+      <span class="roots-trigger-label">Roots</span>
+      <span id="roots-count" class="roots-trigger-count">0</span>
     </button>
 
-    <div class="sheet-actions">
-      <button id="account-close" class="btn btn-ghost" type="button" data-on:click="$accountOpen = false; $settingsOpen = false">Close</button>
-      <button id="account-signout" class="btn btn-accent" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
-    </div>
-  </section>
-
-  <section
-    id="settings-sheet"
-    class="sheet"
-    role="dialog"
-    aria-label="Settings"
-    style="display: none"
-    data-show="$settingsOpen"
-    data-on:click__outside="$accountOpen = false; $settingsOpen = false"
-  >
-    <div class="sheet-header-row">
-      <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on:click="$settingsOpen = false; $accountOpen = true">&lsaquo;</button>
-      <div>
-        <span class="eyebrow">Settings</span>
-        <h2>Runtime Provider</h2>
+    <section
+      id="roots-panel"
+      class="roots-panel"
+      style="display: none"
+      data-show="$_rootsOpen"
+      aria-labelledby="roots-panel-title"
+    >
+      <div class="roots-panel-header">
+        <span class="eyebrow">Navigator</span>
+        <h2 id="roots-panel-title">Roots</h2>
+        <p class="text-muted">Jump to the seed branches on the board.</p>
       </div>
-    </div>
+      <div id="roots-list" class="roots-list">{{ roots_html|safe }}</div>
+    </section>
+  </div>
 
-    <div class="note-card">
-      <strong>Provider</strong>
-      <p>Connect Codex here, then generate storms from the canvas.</p>
-    </div>
+  <div class="account-shell" data-on:click__outside="$_accountOpen = false; $_settingsOpen = false">
+    <button
+      id="avatar-button"
+      class="avatar-btn"
+      type="button"
+      aria-label="Open account menu"
+      data-on:click="$_accountOpen = !$_accountOpen; $_settingsOpen = false"
+    >
+      <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
+    </button>
 
-    {{ provider_panel|safe }}
+    <section
+      id="account-sheet"
+      class="sheet"
+      role="dialog"
+      aria-label="Account"
+      style="display: none"
+      data-show="$_accountOpen && !$_settingsOpen"
+    >
+      <div class="sheet-header">
+        <span class="eyebrow">Account</span>
+        <h2>{{ viewer.name }}</h2>
+        <p class="text-muted">{{ viewer.secondary_line() }}</p>
+      </div>
 
-    <div class="sheet-actions">
-      <button id="settings-close" class="btn btn-ghost" type="button" data-on:click="$accountOpen = false; $settingsOpen = false">Close</button>
-    </div>
-  </section>
+      <button id="settings-trigger" class="settings-link" type="button" data-on:click="$_settingsOpen = true; $_accountOpen = false">
+        <span class="settings-link-copy">
+          <span class="eyebrow">Settings</span>
+          <strong>Runtime Provider</strong>
+        </span>
+        <span class="settings-link-chevron" aria-hidden="true">&rsaquo;</span>
+      </button>
+
+      <div class="sheet-actions">
+        <button id="account-close" class="btn btn-ghost" type="button" data-on:click="$_accountOpen = false; $_settingsOpen = false">Close</button>
+        <button id="account-signout" class="btn btn-accent" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
+      </div>
+    </section>
+
+    <section
+      id="settings-sheet"
+      class="sheet"
+      role="dialog"
+      aria-label="Settings"
+      style="display: none"
+      data-show="$_settingsOpen"
+    >
+      <div class="sheet-header-row">
+        <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on:click="$_settingsOpen = false; $_accountOpen = true">&lsaquo;</button>
+        <div>
+          <span class="eyebrow">Settings</span>
+          <h2>Runtime Provider</h2>
+        </div>
+      </div>
+
+      <div class="note-card">
+        <strong>Provider</strong>
+        <p>Connect Codex here, then generate storms from the canvas.</p>
+      </div>
+
+      {{ provider_panel|safe }}
+
+      <div class="sheet-actions">
+        <button id="settings-close" class="btn btn-ghost" type="button" data-on:click="$_accountOpen = false; $_settingsOpen = false">Close</button>
+      </div>
+    </section>
+  </div>
 
   <div id="storm-composer-backdrop" class="composer-backdrop" hidden></div>
   <form id="storm-form" class="composer" hidden>
@@ -119,8 +120,8 @@
 
       <input id="storm-draft-mode" data-bind:draft-mode type="hidden" value="">
       <input id="storm-source-ids" data-bind:source-ids type="hidden" value="">
-      <input id="storm-status-signal" data-bind:status type="hidden" value="Seed a direction or select a card to branch from it.">
-      <input id="storm-latest-run-id" data-bind:latest-run-id type="hidden" value="">
+      <input id="storm-status-signal" data-bind:_status type="hidden" value="Seed a direction or select a card to branch from it.">
+      <input id="storm-latest-run-id" data-bind:_latest-run-id type="hidden" value="">
 
       <textarea
         id="storm-prompt"
@@ -131,15 +132,15 @@
     </div>
 
     <div class="composer-bar">
-      <span id="storm-status" class="status-text" data-text="$status"></span>
+      <span id="storm-status" class="status-text" data-text="$_status"></span>
       <button id="storm-clear-context" class="btn btn-ghost" type="button" disabled>Clear</button>
       <button
         id="storm-submit"
         class="btn btn-accent"
         type="button"
         data-on:click="@post('/storms/generate')"
-        data-attr:disabled="$generating"
-        data-class:is-loading="$generating"
+        data-attr:disabled="$_generating"
+        data-class:is-loading="$_generating"
       >Generate</button>
     </div>
   </form>

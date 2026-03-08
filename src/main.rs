@@ -1293,8 +1293,8 @@ async fn generate_storm_datastar(
         Err(message) => {
             return Ok(datastar_event_stream(Box::pin(stream! {
                 yield Ok::<_, Infallible>(patch_signals(json!({
-                    "generating": false,
-                    "status": message,
+                    "_generating": false,
+                    "_status": message,
                 }).to_string()));
             })));
         }
@@ -1302,9 +1302,9 @@ async fn generate_storm_datastar(
 
     Ok(datastar_event_stream(Box::pin(stream! {
         yield Ok::<_, Infallible>(patch_signals(json!({
-            "generating": true,
-            "status": "Generating storm...",
-            "latestRunId": "",
+            "_generating": true,
+            "_status": "Generating storm...",
+            "_latestRunId": "",
         }).to_string()));
 
         match generate_storm_internal(&state, &viewer, input).await {
@@ -1327,28 +1327,28 @@ async fn generate_storm_datastar(
                                 .write_as_axum_sse_event(),
                         );
                         yield Ok::<_, Infallible>(patch_signals(json!({
-                            "generating": false,
-                            "status": "Storm generated.",
+                            "_generating": false,
+                            "_status": "Storm generated.",
                             "prompt": "",
                             "draftMode": "",
                             "sourceIds": "",
-                            "latestRunId": response.run.id.to_string(),
+                            "_latestRunId": response.run.id.to_string(),
                         }).to_string()));
                     }
                     (Err(error), _) | (_, Err(error)) => {
                         yield Ok::<_, Infallible>(patch_signals(json!({
-                            "generating": false,
-                            "latestRunId": "",
-                            "status": error.to_string(),
+                            "_generating": false,
+                            "_latestRunId": "",
+                            "_status": error.to_string(),
                         }).to_string()));
                     }
                 }
             }
             Err(error) => {
                 yield Ok::<_, Infallible>(patch_signals(json!({
-                    "generating": false,
-                    "latestRunId": "",
-                    "status": error.to_string(),
+                    "_generating": false,
+                    "_latestRunId": "",
+                    "_status": error.to_string(),
                 }).to_string()));
             }
         }
