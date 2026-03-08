@@ -1492,7 +1492,7 @@ async fn preview_index(
             HeaderValue::from_static("text/html; charset=utf-8"),
         ), (
             CONTENT_SECURITY_POLICY,
-            HeaderValue::from_static("default-src 'self' data: https:; img-src 'self' data: https: blob:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; script-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"),
+            HeaderValue::from_static("default-src 'self' data: blob: https:; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https:; connect-src 'self' blob: data: https: wss:; worker-src 'self' blob: data: https:; child-src 'self' blob: data: https:; object-src 'none'; base-uri 'none'; form-action 'self' https:; frame-ancestors 'self'"),
         ), (
             CACHE_CONTROL,
             HeaderValue::from_static("private, max-age=300"),

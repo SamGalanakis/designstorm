@@ -101,6 +101,15 @@ type WorldBounds = {
   maxY: number;
 };
 
+type RootNavigatorItem = {
+  runId: string;
+  label: string;
+  summary: string;
+  createdLabel: string;
+  branchSize: number;
+  isActive: boolean;
+};
+
 type ChunkCoord = {
   x: number;
   y: number;
@@ -163,6 +172,7 @@ const BACKGROUND_CHUNK_OVERSCAN = 1;
 const BACKGROUND_CHUNK_BLEED_PX = 2;
 const MAX_BACKGROUND_CHUNKS = 36;
 const CONNECTION_PADDING = 240;
+const BOARD_PAN_WORLD_PADDING = 1400;
 const MIN_BOARD_SCALE = 0.35;
 const MAX_BOARD_SCALE = 2.5;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
@@ -217,6 +227,11 @@ function getConfig(): AppConfig {
 
 function escapeHtml(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+function truncateText(value: string, max: number): string {
+  if (value.length <= max) return value;
+  return `${value.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -303,6 +318,184 @@ function getConnectionWorldBounds(): WorldBounds {
   const runBounds = getRunWorldBounds();
   if (!runBounds) return createWorldBounds(0, 0, BOARD_WIDTH, BOARD_HEIGHT);
   return padWorldBounds(runBounds, CONNECTION_PADDING);
+}
+
+function getChildrenByParent(): Map<string, string[]> {
+  const children = new Map<string, string[]>();
+  state.lineage.forEach((parents, childId) => {
+    parents.forEach((parentId) => {
+      const next = children.get(parentId) ?? [];
+      next.push(childId);
+      children.set(parentId, next);
+    });
+  });
+  return children;
+}
+
+function getRootRunIds(): string[] {
+  const runIds = new Set(state.runs.map((run) => run.id));
+  return state.runs
+    .filter((run) => {
+      const parents = (state.lineage.get(run.id) ?? []).filter((parentId) => runIds.has(parentId));
+      return parents.length === 0;
+    })
+    .map((run) => run.id);
+}
+
+function getRootIdForRun(runId: string | null): string | null {
+  if (!runId) return null;
+  const runIds = new Set(state.runs.map((run) => run.id));
+  let current: string | null = runId;
+  const seen = new Set<string>();
+
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const parents = (state.lineage.get(current) ?? []).filter((parentId) => runIds.has(parentId));
+    if (parents.length === 0) return current;
+    current = parents[0] ?? null;
+  }
+
+  return runId;
+}
+
+function getRunDisplayLabel(run: StormRun, index: number): string {
+  const title = run.title.trim();
+  if (title && title.toLowerCase() !== "storm artifact") return title;
+  const prompt = run.prompt.trim().replace(/\s+/g, " ");
+  if (prompt) return truncateText(prompt, 42);
+  return `Root ${index + 1}`;
+}
+
+function formatRootCreatedLabel(createdAt: string): string {
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function getRootNavigatorItems(): RootNavigatorItem[] {
+  const childrenByParent = getChildrenByParent();
+  const activeRootId = getRootIdForRun(state.focusedRunId ?? state.activeRunId);
+  const roots = getRootRunIds()
+    .map((runId) => getRun(runId))
+    .filter((run): run is StormRun => Boolean(run));
+
+  return roots.map((run, index) => {
+    const seen = new Set<string>();
+    const stack = [...(childrenByParent.get(run.id) ?? [])];
+
+    while (stack.length > 0) {
+      const childId = stack.pop();
+      if (!childId || seen.has(childId)) continue;
+      seen.add(childId);
+      const next = childrenByParent.get(childId) ?? [];
+      next.forEach((nextId) => stack.push(nextId));
+    }
+
+    return {
+      runId: run.id,
+      label: getRunDisplayLabel(run, index),
+      summary: truncateText(run.summary.trim() || run.prompt.trim() || "Seed branch", 112),
+      createdLabel: formatRootCreatedLabel(run.createdAt),
+      branchSize: seen.size + 1,
+      isActive: activeRootId === run.id,
+    };
+  });
+}
+
+function getPanConstraintWorldBounds(): WorldBounds | null {
+  const runBounds = getRunWorldBounds();
+  if (!runBounds) return null;
+  return padWorldBounds(runBounds, BOARD_PAN_WORLD_PADDING);
+}
+
+function clampPanToWorldBounds(pan: Point, scale: number): Point {
+  const canvas = $("storm-canvas");
+  const bounds = getPanConstraintWorldBounds();
+  if (!canvas || !bounds) return pan;
+
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return pan;
+
+  const viewWidth = rect.width / scale;
+  const viewHeight = rect.height / scale;
+  const boundsWidth = bounds.maxX - bounds.minX;
+  const boundsHeight = bounds.maxY - bounds.minY;
+  const centerX = (bounds.minX + bounds.maxX) * 0.5;
+  const centerY = (bounds.minY + bounds.maxY) * 0.5;
+
+  let nextX = pan.x;
+  let nextY = pan.y;
+
+  if (viewWidth >= boundsWidth) {
+    nextX = rect.width * 0.5 - centerX * scale;
+  } else {
+    const minPanX = -(bounds.maxX - viewWidth) * scale;
+    const maxPanX = -bounds.minX * scale;
+    nextX = Math.min(maxPanX, Math.max(minPanX, nextX));
+  }
+
+  if (viewHeight >= boundsHeight) {
+    nextY = rect.height * 0.5 - centerY * scale;
+  } else {
+    const minPanY = -(bounds.maxY - viewHeight) * scale;
+    const maxPanY = -bounds.minY * scale;
+    nextY = Math.min(maxPanY, Math.max(minPanY, nextY));
+  }
+
+  return { x: nextX, y: nextY };
+}
+
+let boardViewAnimationFrame: number | null = null;
+
+function stopBoardViewAnimation(): void {
+  if (boardViewAnimationFrame !== null) {
+    cancelAnimationFrame(boardViewAnimationFrame);
+    boardViewAnimationFrame = null;
+  }
+}
+
+function animateBoardView(targetPan: Point, targetScale: number, duration = 260): void {
+  stopBoardViewAnimation();
+  const startPan = { ...state.pan };
+  const startScale = state.scale;
+  const startedAt = performance.now();
+
+  const step = (now: number) => {
+    const t = Math.min(1, (now - startedAt) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    state.pan = {
+      x: startPan.x + (targetPan.x - startPan.x) * eased,
+      y: startPan.y + (targetPan.y - startPan.y) * eased,
+    };
+    state.scale = startScale + (targetScale - startScale) * eased;
+    updateBoardTransform();
+    if (t < 1) boardViewAnimationFrame = requestAnimationFrame(step);
+    else boardViewAnimationFrame = null;
+  };
+
+  boardViewAnimationFrame = requestAnimationFrame(step);
+}
+
+function centerRunInView(runId: string, opts?: { animate?: boolean; targetScale?: number }): void {
+  const canvas = $("storm-canvas");
+  const point = state.positions.get(runId);
+  if (!canvas || !point) return;
+  const rect = canvas.getBoundingClientRect();
+  const nextScale = opts?.targetScale ?? state.scale;
+  const targetPan = {
+    x: rect.width * 0.5 - (point.x + CARD_WIDTH * 0.5) * nextScale,
+    y: rect.height * 0.5 - (point.y + CARD_HEIGHT * 0.5) * nextScale,
+  };
+
+  if (opts?.animate === false) {
+    stopBoardViewAnimation();
+    state.scale = nextScale;
+    state.pan = targetPan;
+    updateBoardTransform();
+    return;
+  }
+
+  animateBoardView(targetPan, nextScale);
 }
 
 function getChunkKey(coord: ChunkCoord): string {
@@ -1018,6 +1211,7 @@ function setActiveRun(id: string | null, opts?: { sync?: boolean }): void {
   renderRuns();
   renderInspector();
   renderFocus();
+  renderRootsNavigator();
   if (opts?.sync) syncUrl(false);
 }
 
@@ -1027,12 +1221,14 @@ function openFullscreen(id: string): void {
   renderRuns();
   renderInspector();
   renderFocus();
+  renderRootsNavigator();
   syncUrl(false);
 }
 
 function closeFullscreen(): void {
   state.focusedRunId = null;
   renderFocus();
+  renderRootsNavigator();
   syncUrl(false);
 }
 
@@ -1070,8 +1266,68 @@ function handleRunAction(runId: string, action: string): void {
 function updateBoardTransform(): void {
   const board = $("storm-board");
   if (!board) return;
+  state.pan = clampPanToWorldBounds(state.pan, state.scale);
   board.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`;
   syncBoardBackground();
+}
+
+function isRootsNavigatorOpen(): boolean {
+  const panel = $("roots-panel");
+  return Boolean(panel && !panel.hidden);
+}
+
+function openRootsNavigator(): void {
+  const panel = $("roots-panel");
+  const trigger = $("roots-trigger") as HTMLButtonElement | null;
+  if (!panel || !trigger) return;
+  renderRootsNavigator();
+  panel.hidden = false;
+  panel.setAttribute("aria-hidden", "false");
+  trigger.setAttribute("aria-expanded", "true");
+}
+
+function closeRootsNavigator(): void {
+  const panel = $("roots-panel");
+  const trigger = $("roots-trigger") as HTMLButtonElement | null;
+  if (!panel || !trigger) return;
+  panel.hidden = true;
+  panel.setAttribute("aria-hidden", "true");
+  trigger.setAttribute("aria-expanded", "false");
+}
+
+function toggleRootsNavigator(): void {
+  if (isRootsNavigatorOpen()) closeRootsNavigator();
+  else openRootsNavigator();
+}
+
+function renderRootsNavigator(): void {
+  const list = $("roots-list");
+  const count = $("roots-count");
+  if (!list || !count) return;
+  const items = getRootNavigatorItems();
+  count.textContent = String(items.length);
+
+  if (items.length === 0) {
+    list.innerHTML = `<div class="root-item-empty">No root branches yet. Generate a seed to create the first branch.</div>`;
+    return;
+  }
+
+  list.innerHTML = items.map((item, index) => {
+    const branchLabel = item.branchSize === 1 ? "1 artifact" : `${item.branchSize} artifacts`;
+    return `
+      <button class="root-item${item.isActive ? " is-active" : ""}" type="button" data-root-id="${escapeHtml(item.runId)}">
+        <div class="root-item-header">
+          <h3 class="root-item-title">${escapeHtml(item.label)}</h3>
+          <span class="root-badge">Root ${index + 1}</span>
+        </div>
+        <p class="root-item-summary">${escapeHtml(item.summary)}</p>
+        <div class="root-item-meta">
+          <span>${escapeHtml(branchLabel)}</span>
+          <span>${escapeHtml(item.createdLabel)}</span>
+        </div>
+      </button>
+    `;
+  }).join("");
 }
 
 function renderConnections(): void {
@@ -1169,6 +1425,8 @@ function hydrateBoardFromDom(): void {
   renderRuns();
   renderInspector();
   renderFocus();
+  renderRootsNavigator();
+  updateBoardTransform();
 }
 
 function renderRuns(): void {
@@ -1267,6 +1525,7 @@ function bindCanvasInteractions(): void {
   if (!canvas) return;
 
   canvas.addEventListener("wheel", (e) => {
+    stopBoardViewAnimation();
     e.preventDefault();
     const deltaX = normalizeWheelDelta(e.deltaX, e.deltaMode);
     const deltaY = normalizeWheelDelta(e.deltaY, e.deltaMode);
@@ -1290,6 +1549,7 @@ function bindCanvasInteractions(): void {
   }, { passive: false });
 
   canvas.addEventListener("pointerdown", (e) => {
+    stopBoardViewAnimation();
     if (e.button === 2) return;
     if ((e.target as HTMLElement).closest(".storm-node") && !state.spacePanHeld && e.button !== 1) return;
     state.pointerState = { mode: "pan", pointerId: e.pointerId, startClient: { x: e.clientX, y: e.clientY }, startPan: { ...state.pan } };
@@ -1378,6 +1638,7 @@ function bindNodeInteractions(): void {
     if (!state.pointerState || state.pointerState.mode !== "drag" || state.pointerState.pointerId !== e.pointerId) return;
     (e.target as HTMLElement).closest<HTMLElement>(".storm-node")?.releasePointerCapture(e.pointerId);
     state.pointerState = null;
+    updateBoardTransform();
   });
 }
 
@@ -1419,6 +1680,7 @@ function bindAppChrome(): void {
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (state.radialMenu.open) { closeRadialMenu(); e.preventDefault(); return; }
+      if (isRootsNavigatorOpen()) { closeRootsNavigator(); e.preventDefault(); return; }
       const form = $("storm-form");
       if (form && !form.hidden) { hideComposer(); e.preventDefault(); return; }
       if (state.focusedRunId) closeFullscreen();
@@ -1426,7 +1688,36 @@ function bindAppChrome(): void {
   });
 
   // History
-  window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); });
+  window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); renderRootsNavigator(); });
+}
+
+function bindRootsNavigator(): void {
+  const trigger = $("roots-trigger") as HTMLButtonElement | null;
+  const panel = $("roots-panel");
+  const list = $("roots-list");
+  if (!trigger || !panel || !list) return;
+
+  trigger.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleRootsNavigator();
+  });
+
+  list.addEventListener("click", (e) => {
+    const item = (e.target as HTMLElement).closest<HTMLElement>("[data-root-id]");
+    const runId = item?.dataset.rootId;
+    if (!runId) return;
+    closeRootsNavigator();
+    setActiveRun(runId, { sync: true });
+    centerRunInView(runId);
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!isRootsNavigatorOpen()) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("#roots-trigger") || target.closest("#roots-panel")) return;
+    closeRootsNavigator();
+  });
 }
 
 function setAvatarInitials(): void {
@@ -1772,6 +2063,7 @@ function bindBoardObserver(): void {
 function bindStormApp(): void {
   if (getConfig().currentPath !== "/app") return;
   setAvatarInitials();
+  renderRootsNavigator();
   renderDraftContext();
   initBoardBackground();
   updateBoardTransform();
@@ -1779,6 +2071,7 @@ function bindStormApp(): void {
   bindCanvasInteractions();
   bindNodeInteractions();
   bindAppChrome();
+  bindRootsNavigator();
   bindRadialMenu();
   hydrateBoardFromDom();
 

@@ -24,6 +24,27 @@
     <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
   </button>
 
+  <button
+    id="roots-trigger"
+    class="roots-trigger"
+    type="button"
+    aria-label="Open roots navigator"
+    aria-expanded="false"
+    aria-controls="roots-panel"
+  >
+    <span class="roots-trigger-label">Roots</span>
+    <span id="roots-count" class="roots-trigger-count">0</span>
+  </button>
+
+  <section id="roots-panel" class="roots-panel" hidden aria-hidden="true" aria-labelledby="roots-panel-title">
+    <div class="roots-panel-header">
+      <span class="eyebrow">Navigator</span>
+      <h2 id="roots-panel-title">Roots</h2>
+      <p class="text-muted">Jump to the seed branches on the board.</p>
+    </div>
+    <div id="roots-list" class="roots-list"></div>
+  </section>
+
   <div id="account-backdrop" class="backdrop" style="display: none" data-show="$accountOpen || $settingsOpen" data-on:click="$accountOpen = false; $settingsOpen = false"></div>
 
   <section id="account-sheet" class="sheet" role="dialog" aria-label="Account" style="display: none" data-show="$accountOpen && !$settingsOpen">
@@ -117,7 +138,7 @@
       <iframe
         id="storm-preview"
         title="Selected storm preview"
-        sandbox="allow-same-origin"
+        sandbox="allow-scripts allow-forms allow-modals"
         referrerpolicy="no-referrer"
       ></iframe>
     </div>
@@ -159,7 +180,7 @@
         <iframe
           id="storm-focus-preview"
           title="Fullscreen storm preview"
-          sandbox="allow-same-origin"
+          sandbox="allow-scripts allow-forms allow-modals"
           referrerpolicy="no-referrer"
         ></iframe>
       </div>
