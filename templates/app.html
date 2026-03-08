@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="storm-app">
+<div class="storm-app" data-signals:account-open="false" data-signals:settings-open="false" data-on:keydown__window="evt.key === 'Escape' && ($settingsOpen ? ($settingsOpen = false, $accountOpen = true) : $accountOpen = false)">
   <header class="storm-topbar">
     <a class="brand" href="/app">
       <span class="brand-mark" aria-hidden="true"></span>
@@ -12,38 +12,33 @@
     </a>
 
     <div class="storm-topbar-actions">
-      <button id="storm-reset-view" class="button button-secondary button-small" type="button">Center View</button>
+      <button id="storm-reset-view" class="btn btn-ghost btn-sm" type="button">Center View</button>
       <button
         id="avatar-button"
-        class="avatar-button"
+        class="avatar-btn"
         type="button"
         aria-label="Open account menu"
         aria-haspopup="dialog"
-        aria-expanded="false"
         aria-controls="account-sheet"
+        data-on:click__stop="$accountOpen = !$accountOpen; $settingsOpen = false"
       >
         <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
       </button>
     </div>
   </header>
 
-  <div id="account-backdrop" class="popover-backdrop" hidden></div>
+  <div id="account-backdrop" class="backdrop" data-show="$accountOpen || $settingsOpen" data-on:click="$accountOpen = false; $settingsOpen = false"></div>
 
-  <section id="account-sheet" class="account-sheet" role="dialog" aria-label="Account" hidden>
-    <div class="account-sheet-header">
+  <section id="account-sheet" class="sheet" role="dialog" aria-label="Account" data-show="$accountOpen && !$settingsOpen">
+    <div class="sheet-header">
       <span class="eyebrow">Account</span>
       <h2>{{ viewer.name }}</h2>
-      <p>{{ viewer.secondary_line() }}</p>
+      <p class="text-muted">{{ viewer.secondary_line() }}</p>
     </div>
 
-    <button
-      id="settings-trigger"
-      class="account-settings-link"
-      type="button"
-      aria-haspopup="dialog"
-      aria-expanded="false"
-      aria-controls="settings-sheet"
-    >
+    <button id="settings-trigger" class="settings-link" type="button"
+      aria-haspopup="dialog" aria-controls="settings-sheet"
+      data-on:click__stop="$settingsOpen = true; $accountOpen = false">
       <span class="settings-link-copy">
         <span class="eyebrow">Settings</span>
         <strong>Runtime Provider</strong>
@@ -51,60 +46,58 @@
       <span class="settings-link-chevron" aria-hidden="true">&rsaquo;</span>
     </button>
 
-    <div class="account-section account-actions">
-      <button class="button button-secondary" type="button" data-action="close-account-sheet">Close</button>
-      <button class="button button-primary" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" type="button" data-on:click="$accountOpen = false; $settingsOpen = false">Close</button>
+      <button class="btn btn-accent" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
     </div>
   </section>
 
-  <section id="settings-sheet" class="settings-sheet" role="dialog" aria-label="Settings" hidden>
-    <div class="settings-sheet-header">
-      <button id="settings-back" class="settings-back-button" type="button" aria-label="Back to account">
-        <span aria-hidden="true">&lsaquo;</span>
-      </button>
+  <section id="settings-sheet" class="sheet" role="dialog" aria-label="Settings" data-show="$settingsOpen">
+    <div class="sheet-header-row">
+      <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on:click__stop="$settingsOpen = false; $accountOpen = true">&lsaquo;</button>
       <div>
         <span class="eyebrow">Settings</span>
         <h2>Runtime Provider</h2>
       </div>
     </div>
 
-    <div class="account-note">
+    <div class="note-card">
       <strong>Provider</strong>
       <p>Connect Codex here, then generate storms from the canvas.</p>
     </div>
 
     {{ provider_panel|safe }}
 
-    <div class="account-section account-actions">
-      <button class="button button-secondary" type="button" data-action="close-settings-sheet">Close</button>
+    <div class="sheet-actions">
+      <button class="btn btn-ghost" type="button" data-on:click="$accountOpen = false; $settingsOpen = false">Close</button>
     </div>
   </section>
 
   <main class="storm-workspace">
-    <section class="storm-canvas-shell">
-      <div class="storm-canvas-meta">
-        <div class="panel-heading compact">
+    <section class="canvas-shell">
+      <div class="canvas-header">
+        <div class="canvas-heading">
           <span class="eyebrow">Canvas</span>
           <h1>Stormboard</h1>
         </div>
-        <div class="canvas-meta-stack">
-          <p class="panel-copy">Seed a direction, fork a branch, or combine two artifacts directly on the board.</p>
-          <div class="canvas-readout">
+        <div class="canvas-meta">
+          <p class="text-muted">Seed a direction, fork a branch, or combine two artifacts on the board.</p>
+          <div class="zoom-readout">
             <span class="eyebrow">Zoom</span>
             <strong id="storm-zoom-readout">100%</strong>
           </div>
         </div>
       </div>
 
-      <form id="storm-form" class="seed-composer">
-        <div class="panel-heading compact">
+      <form id="storm-form" class="composer">
+        <div class="composer-heading">
           <span class="eyebrow">Seed Composer</span>
           <h2>Start Or Mutate</h2>
         </div>
 
         <div id="storm-draft-context" class="draft-context" hidden></div>
 
-        <label class="form-stack" for="storm-prompt">
+        <label class="field" for="storm-prompt">
           <span class="field-label">Prompt</span>
           <textarea
             id="storm-prompt"
@@ -114,76 +107,76 @@
           ></textarea>
         </label>
 
-        <div class="form-actions">
-          <button id="storm-submit" class="button button-primary" type="submit">Generate Storm</button>
-          <button id="storm-clear-context" class="button button-secondary button-small" type="button">Clear Draft</button>
-          <span id="storm-status" class="inline-status">Seed a direction or select a card to branch from it.</span>
+        <div class="composer-actions">
+          <button id="storm-submit" class="btn btn-accent" type="submit">Generate Storm</button>
+          <button id="storm-clear-context" class="btn btn-ghost btn-sm" type="button" disabled>Clear Draft</button>
+          <span id="storm-status" class="status-text">Seed a direction or select a card to branch from it.</span>
         </div>
       </form>
 
-      <section id="storm-canvas" class="storm-canvas" aria-label="Design storm canvas">
-        <div class="storm-canvas-grid" aria-hidden="true"></div>
-        <div id="storm-board" class="storm-board">
-          <svg id="storm-lines" class="storm-lines" aria-hidden="true"></svg>
-          <div id="storm-runs" class="storm-runs-board"></div>
+      <section id="storm-canvas" class="canvas" aria-label="Design storm canvas">
+        <div class="canvas-grid" aria-hidden="true"></div>
+        <div id="storm-board" class="board">
+          <svg id="storm-lines" class="board-lines" aria-hidden="true"></svg>
+          <div id="storm-runs" class="board-nodes"></div>
         </div>
 
-        <div id="storm-empty-state" class="canvas-empty-state">
+        <div id="storm-empty-state" class="empty-state">
           <span class="eyebrow">No Artifacts Yet</span>
           <h3>The board is ready.</h3>
-          <p>Generate a first storm and the canvas will populate with design-language artifacts you can inspect, fork, and combine.</p>
+          <p>Generate a storm and the canvas will populate with design-language artifacts you can inspect, fork, and combine.</p>
         </div>
       </section>
     </section>
 
-    <aside id="storm-inspector" class="storm-inspector is-empty">
-      <div class="panel-heading compact">
+    <aside id="storm-inspector" class="inspector is-empty">
+      <div class="inspector-heading">
         <span class="eyebrow">Inspect</span>
         <h2 id="active-run-title">No artifact selected</h2>
       </div>
 
-      <div class="inspector-preview-shell">
+      <div class="inspector-preview">
         <iframe id="storm-preview" title="Selected storm preview"></iframe>
       </div>
 
-      <div class="stage-meta">
-        <p id="storm-summary" class="stage-summary">Select an artifact card to inspect it in place.</p>
+      <div class="inspector-meta">
+        <p id="storm-summary" class="text-muted">Select an artifact card to inspect it in place.</p>
 
-        <div class="inspector-chip-row">
-          <span id="inspector-status-pill" class="run-pill muted">Canvas</span>
-          <span id="inspector-created" class="meta-chip">Waiting for a run</span>
+        <div class="inspector-chips">
+          <span id="inspector-status-pill" class="pill pill-muted">Canvas</span>
+          <span id="inspector-created" class="chip">Waiting for a run</span>
         </div>
 
-        <article class="stage-note">
+        <article class="note-card">
           <strong>Seed</strong>
-          <div id="inspector-prompt">The selected artifact's original seed will appear here.</div>
+          <div id="inspector-prompt" class="text-muted">The selected artifact's original seed will appear here.</div>
         </article>
 
-        <article class="stage-note">
+        <article class="note-card">
           <strong>Agent Summary</strong>
-          <div id="storm-notes">The agent summary will appear here after generation.</div>
+          <div id="storm-notes" class="text-muted">The agent summary will appear here after generation.</div>
         </article>
       </div>
 
       <div class="inspector-actions">
-        <button id="inspector-fork" class="button button-secondary" type="button" disabled>Fork</button>
-        <button id="inspector-combine" class="button button-secondary" type="button" disabled>Combine</button>
-        <button id="inspector-fullscreen" class="button button-primary" type="button" disabled>Fullscreen</button>
+        <button id="inspector-fork" class="btn btn-ghost" type="button" disabled>Fork</button>
+        <button id="inspector-combine" class="btn btn-ghost" type="button" disabled>Combine</button>
+        <button id="inspector-fullscreen" class="btn btn-accent" type="button" disabled>Fullscreen</button>
       </div>
     </aside>
   </main>
 
-  <section id="storm-focus" class="storm-focus" hidden aria-hidden="true">
-    <div class="storm-focus-backdrop" data-action="close-focus"></div>
-    <div class="storm-focus-shell" role="dialog" aria-modal="true" aria-labelledby="storm-focus-title">
-      <div class="storm-focus-bar">
-        <button id="storm-focus-back" class="button button-secondary" type="button">Back To Canvas</button>
-        <div class="storm-focus-copy">
+  <section id="storm-focus" class="focus-overlay" hidden aria-hidden="true">
+    <div class="focus-backdrop" data-action="close-focus"></div>
+    <div class="focus-shell" role="dialog" aria-modal="true" aria-labelledby="storm-focus-title">
+      <div class="focus-bar">
+        <button id="storm-focus-back" class="btn btn-ghost" type="button">Back To Canvas</button>
+        <div class="focus-title">
           <span class="eyebrow">Fullscreen</span>
           <h2 id="storm-focus-title">Artifact</h2>
         </div>
       </div>
-      <div class="storm-focus-frame-shell">
+      <div class="focus-frame">
         <iframe id="storm-focus-preview" title="Fullscreen storm preview"></iframe>
       </div>
     </div>

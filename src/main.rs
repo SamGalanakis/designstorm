@@ -1085,7 +1085,7 @@ async fn poll_codex_auth(
 async fn disconnect_provider(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<StatusCode, AppError> {
+) -> Result<Html<String>, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
     info!(user_id = %viewer.id, "disconnecting stored provider credentials");
     sqlx::query("DELETE FROM user_provider_credentials WHERE user_id = $1")
@@ -1093,7 +1093,7 @@ async fn disconnect_provider(
         .execute(&state.db)
         .await?;
     clear_codex_pending(&state.db, viewer.id).await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Html(render_provider_panel_html(&state, &viewer).await?))
 }
 
 async fn list_storms(

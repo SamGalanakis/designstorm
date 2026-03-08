@@ -38,10 +38,7 @@ type CodexPollResponse = {
   message?: string | null;
 };
 
-type Point = {
-  x: number;
-  y: number;
-};
+type Point = { x: number; y: number };
 
 type DraftContext = {
   mode: "fork" | "combine";
@@ -50,20 +47,8 @@ type DraftContext = {
 };
 
 type PointerState =
-  | {
-      mode: "pan";
-      pointerId: number;
-      startClient: Point;
-      startPan: Point;
-    }
-  | {
-      mode: "drag";
-      pointerId: number;
-      runId: string;
-      startClient: Point;
-      startPos: Point;
-      moved: boolean;
-    }
+  | { mode: "pan"; pointerId: number; startClient: Point; startPan: Point }
+  | { mode: "drag"; pointerId: number; runId: string; startClient: Point; startPos: Point; moved: boolean }
   | null;
 
 type StormState = {
@@ -120,19 +105,27 @@ const state: StormState = {
   pointerState: null,
 };
 
+// ─── Helpers ───
+
+function $(id: string): HTMLElement | null {
+  return document.getElementById(id);
+}
+
 function getConfig(): AppConfig {
-  const element = document.getElementById("app-config");
-  if (!element?.textContent) {
-    throw new Error("Missing app config.");
-  }
-  return JSON.parse(element.textContent) as AppConfig;
+  const el = $("app-config");
+  if (!el?.textContent) throw new Error("Missing app config.");
+  return JSON.parse(el.textContent) as AppConfig;
+}
+
+function escapeHtml(s: string): string {
+  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
 function redirectToApp(): void {
-  if (window.location.pathname !== "/app") {
-    window.location.href = "/app";
-  }
+  if (window.location.pathname !== "/app") window.location.href = "/app";
 }
+
+// ─── Auth ───
 
 async function ensureClerk(): Promise<ClerkLike | null> {
   const config = getConfig();
@@ -143,8 +136,7 @@ async function ensureClerk(): Promise<ClerkLike | null> {
   const instance = new module.Clerk(config.clerkPublishableKey);
   await instance.load();
   instance.addListener(async ({ session }) => {
-    if (!session) return;
-    if (getConfig().hasServerSession) return;
+    if (!session || getConfig().hasServerSession) return;
     const synced = await syncServerSession();
     if (synced) redirectToApp();
   });
@@ -159,17 +151,13 @@ async function syncServerSession(): Promise<boolean> {
     const instance = await ensureClerk();
     const token = await instance?.session?.getToken();
     if (!token) return false;
-
-    const response = await fetch("/auth/session", {
+    const res = await fetch("/auth/session", {
       method: "POST",
       credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token }),
     });
-
-    if (!response.ok) return false;
+    if (!res.ok) return false;
     await refreshPanel();
     return true;
   } finally {
@@ -178,27 +166,17 @@ async function syncServerSession(): Promise<boolean> {
 }
 
 async function refreshPanel(): Promise<void> {
-  const panel = document.getElementById("auth-panel");
+  const panel = $("auth-panel");
   if (!panel) return;
-
-  const response = await fetch("/partials/auth-panel", {
-    credentials: "include",
-    headers: {
-      Accept: "text/html",
-    },
-  });
-  if (!response.ok) return;
-  panel.outerHTML = await response.text();
+  const res = await fetch("/partials/auth-panel", { credentials: "include", headers: { Accept: "text/html" } });
+  if (res.ok) panel.outerHTML = await res.text();
 }
 
 async function signIn(): Promise<void> {
   const instance = await ensureClerk();
   if (!instance) return;
   const synced = await syncServerSession();
-  if (synced) {
-    redirectToApp();
-    return;
-  }
+  if (synced) { redirectToApp(); return; }
   instance.openSignIn();
 }
 
@@ -210,949 +188,504 @@ async function signUp(): Promise<void> {
 
 async function signOut(): Promise<void> {
   const instance = await ensureClerk();
-  await fetch("/auth/logout", {
-    method: "POST",
-    credentials: "include",
-  });
+  await fetch("/auth/logout", { method: "POST", credentials: "include" });
   if (instance) await instance.signOut();
   window.location.href = "/";
 }
 
-function providerStatusElement(): HTMLElement | null {
-  return document.getElementById("provider-connect-status");
-}
+// ─── Provider ───
 
-function setProviderStatus(message: string, tone: "muted" | "error" | "success" = "muted"): void {
-  const element = providerStatusElement();
-  if (!element) return;
-  element.textContent = message;
-  element.classList.remove("is-error", "is-success");
-  if (tone === "error") element.classList.add("is-error");
-  if (tone === "success") element.classList.add("is-success");
+function setProviderStatus(msg: string, tone: "muted" | "error" | "success" = "muted"): void {
+  const el = $("provider-connect-status");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove("is-error", "is-success");
+  if (tone === "error") el.classList.add("is-error");
+  if (tone === "success") el.classList.add("is-success");
 }
 
 async function refreshProviderPanel(): Promise<void> {
-  const panel = document.getElementById("provider-panel");
+  const panel = $("provider-panel");
   if (!panel) return;
-  const response = await fetch("/settings/provider", {
-    credentials: "include",
-    headers: {
-      Accept: "text/html",
-    },
-  });
-  if (!response.ok) return;
-  panel.outerHTML = await response.text();
+  const res = await fetch("/settings/provider", { credentials: "include", headers: { Accept: "text/html" } });
+  if (res.ok) panel.outerHTML = await res.text();
 }
 
 async function connectCodex(): Promise<void> {
   setProviderStatus("Starting Codex device flow...");
-  const response = await fetch("/settings/provider/codex/start", {
-    method: "POST",
-    credentials: "include",
-  });
-  if (!response.ok) {
-    setProviderStatus("Failed to start Codex OAuth.", "error");
-    return;
-  }
-
-  const payload = (await response.json()) as CodexStartResponse;
+  const res = await fetch("/settings/provider/codex/start", { method: "POST", credentials: "include" });
+  if (!res.ok) { setProviderStatus("Failed to start Codex OAuth.", "error"); return; }
+  const payload = (await res.json()) as CodexStartResponse;
   setProviderStatus(`Enter code ${payload.userCode} in the OpenAI window.`);
   window.open(payload.verifyUrl, "_blank", "noopener,noreferrer");
   startCodexPolling(payload.intervalSeconds);
 }
 
-function startCodexPolling(intervalSeconds: number): void {
-  if (authPollTimer !== null) {
-    window.clearTimeout(authPollTimer);
-  }
-
+function startCodexPolling(interval: number): void {
+  if (authPollTimer !== null) window.clearTimeout(authPollTimer);
   const tick = async (): Promise<void> => {
-    const response = await fetch("/settings/provider/codex/poll", {
-      method: "POST",
-      credentials: "include",
-    });
-    if (!response.ok) {
-      setProviderStatus("Failed to verify Codex authorization.", "error");
-      return;
-    }
-
-    const payload = (await response.json()) as CodexPollResponse;
-    if (payload.status === "connected") {
-      setProviderStatus(payload.message ?? "Codex connected.", "success");
-      await refreshProviderPanel();
-      return;
-    }
-
-    if (payload.status === "pending") {
-      setProviderStatus(payload.message ?? "Waiting for Codex approval...");
-      authPollTimer = window.setTimeout(() => void tick(), intervalSeconds * 1000);
-      return;
-    }
-
-    setProviderStatus("No pending Codex auth session.");
+    const res = await fetch("/settings/provider/codex/poll", { method: "POST", credentials: "include" });
+    if (!res.ok) { setProviderStatus("Failed to verify.", "error"); return; }
+    const p = (await res.json()) as CodexPollResponse;
+    if (p.status === "connected") { setProviderStatus(p.message ?? "Connected.", "success"); await refreshProviderPanel(); return; }
+    if (p.status === "pending") { setProviderStatus(p.message ?? "Waiting..."); authPollTimer = window.setTimeout(() => void tick(), interval * 1000); return; }
+    setProviderStatus("No pending session.");
   };
-
-  authPollTimer = window.setTimeout(() => void tick(), intervalSeconds * 1000);
+  authPollTimer = window.setTimeout(() => void tick(), interval * 1000);
 }
 
 async function disconnectProvider(): Promise<void> {
-  const response = await fetch("/settings/provider/logout", {
-    method: "POST",
-    credentials: "include",
-  });
-  if (!response.ok) {
-    setProviderStatus("Failed to disconnect provider.", "error");
-    return;
-  }
-  await refreshProviderPanel();
-  setProviderStatus("Provider disconnected.");
+  const res = await fetch("/settings/provider/logout", { method: "POST", credentials: "include" });
+  if (!res.ok) { setProviderStatus("Failed to disconnect.", "error"); return; }
+  const panel = $("provider-panel");
+  if (panel) panel.outerHTML = await res.text();
 }
 
-function runsContainer(): HTMLElement | null {
-  return document.getElementById("storm-runs");
-}
+// ─── Storm state ───
 
-function boardElement(): HTMLElement | null {
-  return document.getElementById("storm-board");
-}
-
-function canvasElement(): HTMLElement | null {
-  return document.getElementById("storm-canvas");
-}
-
-function previewFrame(): HTMLIFrameElement | null {
-  return document.getElementById("storm-preview") as HTMLIFrameElement | null;
-}
-
-function focusFrame(): HTMLIFrameElement | null {
-  return document.getElementById("storm-focus-preview") as HTMLIFrameElement | null;
-}
-
-function stormStatusElement(): HTMLElement | null {
-  return document.getElementById("storm-status");
-}
-
-function setStormStatus(message: string): void {
-  const element = stormStatusElement();
-  if (!element) return;
-  element.textContent = message;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function initialsFromName(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
-}
-
-function setAvatarInitials(): void {
-  const element = document.getElementById("avatar-fallback");
-  if (!element) return;
-  const name = element.getAttribute("data-name") ?? "Design Storm";
-  element.textContent = initialsFromName(name);
-}
-
-function getRun(runId: string | null): StormRun | null {
-  if (!runId) return null;
-  return state.runs.find((run) => run.id === runId) ?? null;
+function getRun(id: string | null): StormRun | null {
+  if (!id) return null;
+  return state.runs.find((r) => r.id === id) ?? null;
 }
 
 function assignPosition(run: StormRun, index: number, sourceIds?: string[]): void {
   if (state.positions.has(run.id)) return;
-
   if (sourceIds?.length) {
-    const sourcePositions = sourceIds
-      .map((sourceId) => state.positions.get(sourceId))
-      .filter((point): point is Point => Boolean(point));
-    if (sourcePositions.length > 0) {
-      const centroid = sourcePositions.reduce(
-        (memo, point) => ({ x: memo.x + point.x, y: memo.y + point.y }),
-        { x: 0, y: 0 },
-      );
-      const offsetBase = sourceIds.length > 1 ? 170 : 250;
-      state.positions.set(run.id, {
-        x: centroid.x / sourcePositions.length + offsetBase,
-        y: centroid.y / sourcePositions.length + 110,
-      });
+    const pts = sourceIds.map((id) => state.positions.get(id)).filter((p): p is Point => Boolean(p));
+    if (pts.length > 0) {
+      const c = pts.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y }), { x: 0, y: 0 });
+      const off = sourceIds.length > 1 ? 170 : 250;
+      state.positions.set(run.id, { x: c.x / pts.length + off, y: c.y / pts.length + 110 });
       return;
     }
   }
-
-  const column = index % 4;
+  const col = index % 4;
   const row = Math.floor(index / 4);
-  state.positions.set(run.id, {
-    x: 220 + column * 360 + (row % 2) * 70,
-    y: 240 + row * 290 + (column % 2) * 28,
-  });
+  state.positions.set(run.id, { x: 220 + col * 360 + (row % 2) * 70, y: 240 + row * 290 + (col % 2) * 28 });
 }
 
-function updateBoardTransform(): void {
-  const board = boardElement();
-  if (!board) return;
-  board.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`;
-  const zoom = document.getElementById("storm-zoom-readout");
-  if (zoom) zoom.textContent = `${Math.round(state.scale * 100)}%`;
+function setStatus(msg: string): void {
+  const el = $("storm-status");
+  if (el) el.textContent = msg;
 }
+
+function setGenerating(value: boolean): void {
+  const btn = $("storm-submit") as HTMLButtonElement | null;
+  if (btn) btn.disabled = value;
+}
+
+// ─── URL sync ───
 
 function syncUrl(replace = false): void {
   const url = new URL(window.location.href);
   url.searchParams.delete("inspect");
   url.searchParams.delete("focus");
-
-  if (state.focusedRunId) {
-    url.searchParams.set("focus", state.focusedRunId);
-  } else if (state.activeRunId) {
-    url.searchParams.set("inspect", state.activeRunId);
-  }
-
+  if (state.focusedRunId) url.searchParams.set("focus", state.focusedRunId);
+  else if (state.activeRunId) url.searchParams.set("inspect", state.activeRunId);
   const next = `${url.pathname}${url.search}${url.hash}`;
-  const current = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  if (next === current) return;
-
-  if (replace) {
-    window.history.replaceState({}, "", next);
-  } else {
-    window.history.pushState({}, "", next);
-  }
+  if (next === `${window.location.pathname}${window.location.search}${window.location.hash}`) return;
+  if (replace) window.history.replaceState({}, "", next);
+  else window.history.pushState({}, "", next);
 }
 
 function applyUrlState(): void {
   const url = new URL(window.location.href);
-  const focusedId = url.searchParams.get("focus");
+  const focusId = url.searchParams.get("focus");
   const inspectId = url.searchParams.get("inspect");
-
-  if (focusedId && getRun(focusedId)) {
-    state.focusedRunId = focusedId;
-    state.activeRunId = focusedId;
-    return;
-  }
-
-  if (inspectId && getRun(inspectId)) {
-    state.focusedRunId = null;
-    state.activeRunId = inspectId;
-    return;
-  }
-
+  if (focusId && getRun(focusId)) { state.focusedRunId = focusId; state.activeRunId = focusId; return; }
+  if (inspectId && getRun(inspectId)) { state.focusedRunId = null; state.activeRunId = inspectId; return; }
   state.focusedRunId = null;
-  if (state.activeRunId && !getRun(state.activeRunId)) {
-    state.activeRunId = null;
-  }
+  if (state.activeRunId && !getRun(state.activeRunId)) state.activeRunId = null;
 }
+
+// ─── Draft context ───
 
 function buildForkPrompt(run: StormRun): string {
-  return [
-    `Fork the design language from "${run.title}".`,
-    `Keep the strongest ideas from this artifact: ${run.summary}`,
-    `Original seed: ${run.prompt}`,
-    "Push it into a clearly distinct next branch rather than a mild variation.",
-  ].join("\n\n");
+  return [`Fork the design language from "${run.title}".`, `Keep the strongest ideas: ${run.summary}`, `Original seed: ${run.prompt}`, "Push it into a clearly distinct next branch."].join("\n\n");
 }
 
-function buildCombinePrompt(left: StormRun, right: StormRun): string {
-  return [
-    `Combine these two design directions into a new branch.`,
-    `Direction A: "${left.title}" — ${left.summary}`,
-    `Direction B: "${right.title}" — ${right.summary}`,
-    `Original seed A: ${left.prompt}`,
-    `Original seed B: ${right.prompt}`,
-    "Do not average them out. Take structural logic from one and atmospheric tone from the other, then build a coherent hybrid design-language document.",
-  ].join("\n\n");
+function buildCombinePrompt(a: StormRun, b: StormRun): string {
+  return [`Combine these two design directions.`, `A: "${a.title}" — ${a.summary}`, `B: "${b.title}" — ${b.summary}`, `Seed A: ${a.prompt}`, `Seed B: ${b.prompt}`, "Take structural logic from one and atmospheric tone from the other."].join("\n\n");
 }
 
-function showDraftContext(context: DraftContext): void {
-  state.draftContext = context;
-  state.pendingLineage = context;
-  const textarea = document.getElementById("storm-prompt") as HTMLTextAreaElement | null;
-  if (!textarea) return;
-
-  if (context.mode === "fork") {
-    const source = getRun(context.sourceIds[0]);
-    if (source) {
-      textarea.value = buildForkPrompt(source);
-      setStormStatus(`Forking from ${source.title}. Refine the prompt and generate a new branch.`);
-    }
+function showDraftContext(ctx: DraftContext): void {
+  state.draftContext = ctx;
+  state.pendingLineage = ctx;
+  const ta = $("storm-prompt") as HTMLTextAreaElement | null;
+  if (!ta) return;
+  if (ctx.mode === "fork") {
+    const src = getRun(ctx.sourceIds[0]);
+    if (src) { ta.value = buildForkPrompt(src); setStatus(`Forking from ${src.title}.`); }
   } else {
-    const left = getRun(context.sourceIds[0]);
-    const right = getRun(context.sourceIds[1]);
-    if (left && right) {
-      textarea.value = buildCombinePrompt(left, right);
-      setStormStatus(`Combining ${left.title} with ${right.title}. Refine the prompt and generate the hybrid branch.`);
-    }
+    const a = getRun(ctx.sourceIds[0]);
+    const b = getRun(ctx.sourceIds[1]);
+    if (a && b) { ta.value = buildCombinePrompt(a, b); setStatus(`Combining ${a.title} + ${b.title}.`); }
   }
-
-  textarea.focus();
+  ta.focus();
   renderDraftContext();
 }
 
-function clearDraftContext(options?: { keepStatus?: boolean }): void {
+function clearDraftContext(opts?: { keepStatus?: boolean }): void {
   state.draftContext = null;
   state.pendingLineage = null;
   state.combineSourceId = null;
   renderDraftContext();
   renderRuns();
-  if (!options?.keepStatus) {
-    setStormStatus("Seed a direction or select a card to branch from it.");
-  }
+  if (!opts?.keepStatus) setStatus("Seed a direction or select a card to branch from it.");
 }
 
 function renderDraftContext(): void {
-  const container = document.getElementById("storm-draft-context");
-  const clear = document.getElementById("storm-clear-context") as HTMLButtonElement | null;
-  if (!container || !clear) return;
-
-  const context = state.draftContext;
-  if (!context) {
-    container.hidden = true;
-    container.innerHTML = "";
-    clear.disabled = true;
-    return;
-  }
-
-  clear.disabled = false;
+  const container = $("storm-draft-context");
+  const clearBtn = $("storm-clear-context") as HTMLButtonElement | null;
+  if (!container || !clearBtn) return;
+  const ctx = state.draftContext;
+  if (!ctx) { container.hidden = true; container.innerHTML = ""; clearBtn.disabled = true; return; }
+  clearBtn.disabled = false;
   container.hidden = false;
-
-  if (context.mode === "fork") {
-    const source = getRun(context.sourceIds[0]);
-    container.innerHTML = `
-      <span class="draft-pill">Fork</span>
-      <div class="draft-copy">
-        <strong>${escapeHtml(context.label)}</strong>
-        <p>${escapeHtml(source?.summary ?? "Create a distinct next branch from the selected artifact.")}</p>
-      </div>
-    `;
-    return;
+  if (ctx.mode === "fork") {
+    const src = getRun(ctx.sourceIds[0]);
+    container.innerHTML = `<span class="draft-pill">Fork</span><div class="draft-copy"><strong>${escapeHtml(ctx.label)}</strong><p>${escapeHtml(src?.summary ?? "Branch from selected artifact.")}</p></div>`;
+  } else {
+    const a = getRun(ctx.sourceIds[0]);
+    const b = getRun(ctx.sourceIds[1]);
+    container.innerHTML = `<span class="draft-pill">Combine</span><div class="draft-copy"><strong>${escapeHtml(ctx.label)}</strong><p>${escapeHtml(a?.title ?? "A")} + ${escapeHtml(b?.title ?? "B")}</p></div>`;
   }
-
-  const left = getRun(context.sourceIds[0]);
-  const right = getRun(context.sourceIds[1]);
-  container.innerHTML = `
-    <span class="draft-pill">Combine</span>
-    <div class="draft-copy">
-      <strong>${escapeHtml(context.label)}</strong>
-      <p>${escapeHtml(left?.title ?? "Artifact A")} + ${escapeHtml(right?.title ?? "Artifact B")}</p>
-    </div>
-  `;
 }
 
-function setActiveRun(runId: string | null, options?: { syncHistory?: boolean }): void {
-  state.activeRunId = runId;
-  if (!runId) {
-    state.focusedRunId = null;
-  }
+// ─── Run actions ───
+
+function setActiveRun(id: string | null, opts?: { sync?: boolean }): void {
+  state.activeRunId = id;
+  if (!id) state.focusedRunId = null;
   renderRuns();
   renderInspector();
   renderFocus();
-  if (options?.syncHistory) syncUrl(false);
+  if (opts?.sync) syncUrl(false);
 }
 
-function openFullscreen(runId: string): void {
-  state.activeRunId = runId;
-  state.focusedRunId = runId;
+function openFullscreen(id: string): void {
+  state.activeRunId = id;
+  state.focusedRunId = id;
   renderRuns();
   renderInspector();
   renderFocus();
   syncUrl(false);
 }
 
-function closeFullscreen(options?: { syncHistory?: boolean }): void {
+function closeFullscreen(): void {
   state.focusedRunId = null;
   renderFocus();
-  if (options?.syncHistory ?? true) syncUrl(false);
+  syncUrl(false);
 }
 
 function beginCombine(runId: string): void {
-  if (state.combineSourceId === runId) {
-    state.combineSourceId = null;
-    setStormStatus("Combine cancelled.");
-    renderRuns();
-    return;
-  }
+  if (state.combineSourceId === runId) { state.combineSourceId = null; setStatus("Combine cancelled."); renderRuns(); return; }
   state.combineSourceId = runId;
-  const run = getRun(runId);
-  setStormStatus(`Combine mode: select another artifact to hybridize with ${run?.title ?? "this run"}.`);
+  const r = getRun(runId);
+  setStatus(`Combine: select another artifact to hybridize with ${r?.title ?? "this run"}.`);
   renderRuns();
 }
 
-function maybeComposeCombine(targetRunId: string): boolean {
-  const sourceId = state.combineSourceId;
-  if (!sourceId || sourceId === targetRunId) return false;
-  const source = getRun(sourceId);
-  const target = getRun(targetRunId);
-  if (!source || !target) return false;
-
+function maybeComposeCombine(targetId: string): boolean {
+  const srcId = state.combineSourceId;
+  if (!srcId || srcId === targetId) return false;
+  const src = getRun(srcId);
+  const tgt = getRun(targetId);
+  if (!src || !tgt) return false;
   state.combineSourceId = null;
-  showDraftContext({
-    mode: "combine",
-    sourceIds: [source.id, target.id],
-    label: `Hybridizing ${source.title} and ${target.title}`,
-  });
-  setActiveRun(target.id, { syncHistory: true });
+  showDraftContext({ mode: "combine", sourceIds: [src.id, tgt.id], label: `Hybridizing ${src.title} and ${tgt.title}` });
+  setActiveRun(tgt.id, { sync: true });
   return true;
 }
 
 function handleRunAction(runId: string, action: string): void {
   const run = getRun(runId);
   if (!run) return;
+  if (action === "inspect") { setActiveRun(run.id, { sync: true }); return; }
+  if (action === "fullscreen") { openFullscreen(run.id); return; }
+  if (action === "fork") { showDraftContext({ mode: "fork", sourceIds: [run.id], label: `Forking ${run.title}` }); setActiveRun(run.id, { sync: true }); return; }
+  if (action === "combine") beginCombine(run.id);
+}
 
-  if (action === "inspect") {
-    setActiveRun(run.id, { syncHistory: true });
-    return;
-  }
+// ─── Rendering ───
 
-  if (action === "fullscreen") {
-    openFullscreen(run.id);
-    return;
-  }
-
-  if (action === "fork") {
-    showDraftContext({
-      mode: "fork",
-      sourceIds: [run.id],
-      label: `Forking ${run.title}`,
-    });
-    setActiveRun(run.id, { syncHistory: true });
-    return;
-  }
-
-  if (action === "combine") {
-    beginCombine(run.id);
-  }
+function updateBoardTransform(): void {
+  const board = $("storm-board");
+  if (!board) return;
+  board.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`;
+  const zoom = $("storm-zoom-readout");
+  if (zoom) zoom.textContent = `${Math.round(state.scale * 100)}%`;
 }
 
 function renderConnections(): void {
-  const svg = document.getElementById("storm-lines") as SVGElement | null;
+  const svg = $("storm-lines") as SVGElement | null;
   if (!svg) return;
   svg.setAttribute("viewBox", `0 0 ${BOARD_WIDTH} ${BOARD_HEIGHT}`);
   svg.innerHTML = "";
-
   state.lineage.forEach((parents, runId) => {
     const child = state.positions.get(runId);
     if (!child) return;
-
-    parents.forEach((parentId) => {
-      const parent = state.positions.get(parentId);
+    parents.forEach((pid) => {
+      const parent = state.positions.get(pid);
       if (!parent) return;
-
-      const startX = parent.x + CARD_WIDTH * 0.5;
-      const startY = parent.y + CARD_HEIGHT * 0.56;
-      const endX = child.x + CARD_WIDTH * 0.5;
-      const endY = child.y + 20;
-      const controlY = startY + (endY - startY) * 0.45;
-
+      const sx = parent.x + CARD_WIDTH * 0.5, sy = parent.y + CARD_HEIGHT * 0.56;
+      const ex = child.x + CARD_WIDTH * 0.5, ey = child.y + 20;
+      const cy = sy + (ey - sy) * 0.45;
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute(
-        "d",
-        `M ${startX} ${startY} C ${startX} ${controlY}, ${endX} ${controlY}, ${endX} ${endY}`,
-      );
+      path.setAttribute("d", `M ${sx} ${sy} C ${sx} ${cy}, ${ex} ${cy}, ${ex} ${ey}`);
       path.setAttribute("class", "storm-line");
       svg.appendChild(path);
     });
   });
 }
 
-function updateNodePosition(runId: string): void {
-  const node = runsContainer()?.querySelector<HTMLElement>(`.storm-node[data-run-id="${runId}"]`);
-  const point = state.positions.get(runId);
-  if (!node || !point) return;
-  node.style.transform = `translate(${point.x}px, ${point.y}px)`;
-}
-
 function renderRuns(): void {
-  const container = runsContainer();
-  const emptyState = document.getElementById("storm-empty-state");
-  if (!container || !emptyState) return;
-
-  if (state.runs.length === 0) {
-    container.innerHTML = "";
-    emptyState.hidden = false;
-    renderConnections();
-    return;
-  }
-
-  emptyState.hidden = true;
+  const container = $("storm-runs");
+  const empty = $("storm-empty-state");
+  if (!container || !empty) return;
+  if (state.runs.length === 0) { container.innerHTML = ""; empty.hidden = false; renderConnections(); return; }
+  empty.hidden = true;
   container.innerHTML = "";
-
-  state.runs.forEach((run, index) => {
+  state.runs.forEach((run, i) => {
     const lineage = state.lineage.get(run.id);
-    assignPosition(run, index, lineage);
-    const point = state.positions.get(run.id) ?? { x: 240, y: 240 };
-
+    assignPosition(run, i, lineage);
+    const pt = state.positions.get(run.id) ?? { x: 240, y: 240 };
     const card = document.createElement("article");
     card.className = "storm-node";
     if (run.id === state.activeRunId) card.classList.add("is-active");
     if (run.id === state.combineSourceId) card.classList.add("is-combine-source");
     card.dataset.runId = run.id;
-    card.style.transform = `translate(${point.x}px, ${point.y}px)`;
+    card.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
     card.innerHTML = `
       <div class="storm-node-shell">
         <div class="storm-node-meta">
           <span class="meta-note">${new Date(run.createdAt).toLocaleDateString()}</span>
-          <span class="run-pill ${run.submitted ? "" : "muted"}">${run.submitted ? "submitted" : "draft"}</span>
+          <span class="pill ${run.submitted ? "pill-accent" : "pill-muted"}">${run.submitted ? "submitted" : "draft"}</span>
         </div>
-
         <div class="storm-node-preview">
           <iframe src="${escapeHtml(run.previewUrl)}" loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
         </div>
-
         <div class="storm-node-copy">
           <h3>${escapeHtml(run.title)}</h3>
           <p>${escapeHtml(run.summary)}</p>
         </div>
-
         <div class="storm-node-actions">
           <button class="node-action" type="button" data-run-action="inspect">Inspect</button>
           <button class="node-action" type="button" data-run-action="fullscreen">Open</button>
           <button class="node-action" type="button" data-run-action="fork">Fork</button>
           <button class="node-action" type="button" data-run-action="combine">${run.id === state.combineSourceId ? "Cancel" : "Combine"}</button>
         </div>
-      </div>
-    `;
+      </div>`;
     container.appendChild(card);
   });
-
   renderConnections();
 }
 
 function renderInspector(): void {
-  const panel = document.getElementById("storm-inspector");
-  const title = document.getElementById("active-run-title");
-  const summary = document.getElementById("storm-summary");
-  const prompt = document.getElementById("inspector-prompt");
-  const agentSummary = document.getElementById("storm-notes");
-  const created = document.getElementById("inspector-created");
-  const statusPill = document.getElementById("inspector-status-pill");
-  const iframe = previewFrame();
-  const fork = document.getElementById("inspector-fork") as HTMLButtonElement | null;
-  const combine = document.getElementById("inspector-combine") as HTMLButtonElement | null;
-  const fullscreen = document.getElementById("inspector-fullscreen") as HTMLButtonElement | null;
-
+  const panel = $("storm-inspector");
+  const title = $("active-run-title");
+  const summary = $("storm-summary");
+  const prompt = $("inspector-prompt");
+  const notes = $("storm-notes");
+  const created = $("inspector-created");
+  const pill = $("inspector-status-pill");
+  const iframe = $("storm-preview") as HTMLIFrameElement | null;
+  const fork = $("inspector-fork") as HTMLButtonElement | null;
+  const combine = $("inspector-combine") as HTMLButtonElement | null;
+  const fs = $("inspector-fullscreen") as HTMLButtonElement | null;
   const run = getRun(state.activeRunId);
-  if (!panel || !title || !summary || !prompt || !agentSummary || !created || !statusPill || !iframe || !fork || !combine || !fullscreen) {
-    return;
-  }
-
+  if (!panel || !title || !summary || !prompt || !notes || !created || !pill || !iframe || !fork || !combine || !fs) return;
   if (!run) {
     panel.classList.add("is-empty");
     title.textContent = "No artifact selected";
-    summary.textContent = "Select an artifact card to inspect it in place.";
-    prompt.textContent = "The selected artifact’s original seed will appear here.";
-    agentSummary.textContent = "The agent summary will appear here after generation.";
+    summary.textContent = "Select an artifact card to inspect it.";
+    prompt.textContent = "Original seed will appear here.";
+    notes.textContent = "Agent summary will appear here.";
     created.textContent = "Waiting for a run";
-    statusPill.textContent = "Canvas";
-    statusPill.className = "run-pill muted";
+    pill.textContent = "Canvas"; pill.className = "pill pill-muted";
     iframe.removeAttribute("src");
-    fork.disabled = true;
-    combine.disabled = true;
-    fullscreen.disabled = true;
+    fork.disabled = combine.disabled = fs.disabled = true;
     return;
   }
-
   panel.classList.remove("is-empty");
   title.textContent = run.title;
   summary.textContent = run.summary;
   prompt.textContent = run.prompt;
-  agentSummary.textContent = run.assistantSummary || "No summary returned.";
+  notes.textContent = run.assistantSummary || "No summary returned.";
   created.textContent = new Date(run.createdAt).toLocaleString();
-  statusPill.textContent = run.submitted ? "Submitted" : "Draft";
-  statusPill.className = `run-pill ${run.submitted ? "" : "muted"}`;
+  pill.textContent = run.submitted ? "Submitted" : "Draft";
+  pill.className = `pill ${run.submitted ? "pill-accent" : "pill-muted"}`;
   iframe.src = run.previewUrl;
-  fork.disabled = false;
-  combine.disabled = false;
-  fullscreen.disabled = false;
+  fork.disabled = combine.disabled = fs.disabled = false;
 }
 
 function renderFocus(): void {
-  const overlay = document.getElementById("storm-focus");
-  const frame = focusFrame();
-  const title = document.getElementById("storm-focus-title");
+  const overlay = $("storm-focus");
+  const frame = $("storm-focus-preview") as HTMLIFrameElement | null;
+  const title = $("storm-focus-title");
   const run = getRun(state.focusedRunId);
   if (!overlay || !frame || !title) return;
-
-  if (!run) {
-    overlay.hidden = true;
-    overlay.setAttribute("aria-hidden", "true");
-    frame.removeAttribute("src");
-    return;
-  }
-
+  if (!run) { overlay.hidden = true; overlay.setAttribute("aria-hidden", "true"); frame.removeAttribute("src"); return; }
   overlay.hidden = false;
   overlay.setAttribute("aria-hidden", "false");
   frame.src = run.previewUrl;
   title.textContent = run.title;
 }
 
+// ─── Data fetching ───
+
 async function loadStorms(): Promise<void> {
-  const response = await fetch("/api/storms", {
-    credentials: "include",
-  });
-  if (!response.ok) return;
-  const runs = (await response.json()) as StormRun[];
-  state.runs = runs.sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt));
+  const res = await fetch("/api/storms", { credentials: "include" });
+  if (!res.ok) return;
+  const runs = (await res.json()) as StormRun[];
+  state.runs = runs.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
   applyUrlState();
   renderRuns();
   renderInspector();
   renderFocus();
 }
 
-async function submitStorm(event: Event): Promise<void> {
-  event.preventDefault();
-  const textarea = document.getElementById("storm-prompt") as HTMLTextAreaElement | null;
-  const submit = document.getElementById("storm-submit") as HTMLButtonElement | null;
-  if (!textarea || !submit) return;
-
-  const prompt = textarea.value.trim();
-  if (!prompt) {
-    setStormStatus("Seed prompt required.");
-    return;
-  }
-
-  submit.disabled = true;
-  setStormStatus("Generating storm...");
-
+async function submitStorm(e: Event): Promise<void> {
+  e.preventDefault();
+  const ta = $("storm-prompt") as HTMLTextAreaElement | null;
+  const btn = $("storm-submit") as HTMLButtonElement | null;
+  if (!ta || !btn) return;
+  const prompt = ta.value.trim();
+  if (!prompt) { setStatus("Seed prompt required."); return; }
+  setGenerating(true);
+  setStatus("Generating storm...");
   try {
-    const response = await fetch("/api/storms", {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-      },
+    const res = await fetch("/api/storms", {
+      method: "POST", credentials: "include",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
     });
-
-    if (!response.ok) {
-      const error = await response.text();
-      setStormStatus(error || "Storm generation failed.");
-      return;
-    }
-
-    const payload = (await response.json()) as { run: StormRun };
+    if (!res.ok) { setStatus((await res.text()) || "Generation failed."); return; }
+    const payload = (await res.json()) as { run: StormRun };
     const pending = state.pendingLineage;
-    if (pending) {
-      state.lineage.set(payload.run.id, pending.sourceIds);
-      assignPosition(payload.run, state.runs.length, pending.sourceIds);
-    }
-
+    if (pending) { state.lineage.set(payload.run.id, pending.sourceIds); assignPosition(payload.run, state.runs.length, pending.sourceIds); }
     clearDraftContext({ keepStatus: true });
-    textarea.value = "";
-    setStormStatus("Storm generated.");
+    ta.value = "";
+    setStatus("Storm generated.");
     await loadStorms();
-    setActiveRun(payload.run.id, { syncHistory: true });
+    setActiveRun(payload.run.id, { sync: true });
   } finally {
-    submit.disabled = false;
+    setGenerating(false);
   }
 }
 
-function closeAllPopovers(): void {
-  const accountSheet = document.getElementById("account-sheet");
-  const settingsSheet = document.getElementById("settings-sheet");
-  const backdrop = document.getElementById("account-backdrop");
-  const avatarButton = document.getElementById("avatar-button");
-  const settingsTrigger = document.getElementById("settings-trigger");
-
-  if (accountSheet) accountSheet.hidden = true;
-  if (settingsSheet) settingsSheet.hidden = true;
-  if (backdrop) backdrop.hidden = true;
-  if (avatarButton) avatarButton.setAttribute("aria-expanded", "false");
-  if (settingsTrigger) settingsTrigger.setAttribute("aria-expanded", "false");
-}
-
-function toggleAccountSheet(force?: boolean): void {
-  const sheet = document.getElementById("account-sheet");
-  const backdrop = document.getElementById("account-backdrop");
-  const button = document.getElementById("avatar-button");
-  if (!sheet || !button) return;
-
-  const nextOpen = force ?? sheet.hidden;
-
-  // Close settings if switching back to account
-  const settingsSheet = document.getElementById("settings-sheet");
-  if (settingsSheet) settingsSheet.hidden = true;
-  const settingsTrigger = document.getElementById("settings-trigger");
-  if (settingsTrigger) settingsTrigger.setAttribute("aria-expanded", "false");
-
-  sheet.hidden = !nextOpen;
-  if (backdrop) backdrop.hidden = !nextOpen;
-  button.setAttribute("aria-expanded", nextOpen ? "true" : "false");
-}
-
-function closeAccountSheet(): void {
-  closeAllPopovers();
-}
-
-function openSettingsSheet(): void {
-  const accountSheet = document.getElementById("account-sheet");
-  const settingsSheet = document.getElementById("settings-sheet");
-  const settingsTrigger = document.getElementById("settings-trigger");
-  if (!settingsSheet) return;
-
-  if (accountSheet) accountSheet.hidden = true;
-  settingsSheet.hidden = false;
-  if (settingsTrigger) settingsTrigger.setAttribute("aria-expanded", "true");
-}
-
-function closeSettingsSheet(): void {
-  const settingsSheet = document.getElementById("settings-sheet");
-  const accountSheet = document.getElementById("account-sheet");
-  if (!settingsSheet) return;
-
-  settingsSheet.hidden = true;
-  if (accountSheet) accountSheet.hidden = false;
-}
-
-function resetView(): void {
-  state.pan = { ...INITIAL_PAN };
-  state.scale = 1;
-  updateBoardTransform();
-}
+// ─── Event bindings ───
 
 function bindCanvasInteractions(): void {
-  const canvas = canvasElement();
+  const canvas = $("storm-canvas");
   if (!canvas) return;
 
-  canvas.addEventListener("wheel", (event) => {
-    event.preventDefault();
-    const nextScale = Math.max(0.68, Math.min(1.42, state.scale - event.deltaY * 0.001));
-    state.scale = Number(nextScale.toFixed(2));
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    state.scale = Number(Math.max(0.5, Math.min(1.5, state.scale - e.deltaY * 0.001)).toFixed(2));
+    updateBoardTransform();
+  }, { passive: false });
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if ((e.target as HTMLElement).closest(".storm-node")) return;
+    state.pointerState = { mode: "pan", pointerId: e.pointerId, startClient: { x: e.clientX, y: e.clientY }, startPan: { ...state.pan } };
+    canvas.setPointerCapture(e.pointerId);
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (!state.pointerState || state.pointerState.mode !== "pan" || state.pointerState.pointerId !== e.pointerId) return;
+    state.pan = { x: state.pointerState.startPan.x + (e.clientX - state.pointerState.startClient.x), y: state.pointerState.startPan.y + (e.clientY - state.pointerState.startClient.y) };
     updateBoardTransform();
   });
 
-  canvas.addEventListener("pointerdown", (event) => {
-    const target = event.target as HTMLElement;
-    if (target.closest(".storm-node")) return;
-
-    state.pointerState = {
-      mode: "pan",
-      pointerId: event.pointerId,
-      startClient: { x: event.clientX, y: event.clientY },
-      startPan: { ...state.pan },
-    };
-    canvas.setPointerCapture(event.pointerId);
-  });
-
-  canvas.addEventListener("pointermove", (event) => {
-    if (!state.pointerState || state.pointerState.mode !== "pan" || state.pointerState.pointerId !== event.pointerId) {
-      return;
-    }
-
-    state.pan = {
-      x: state.pointerState.startPan.x + (event.clientX - state.pointerState.startClient.x),
-      y: state.pointerState.startPan.y + (event.clientY - state.pointerState.startClient.y),
-    };
-    updateBoardTransform();
-  });
-
-  canvas.addEventListener("pointerup", (event) => {
-    if (state.pointerState?.pointerId === event.pointerId) {
-      state.pointerState = null;
-      canvas.releasePointerCapture(event.pointerId);
-    }
+  canvas.addEventListener("pointerup", (e) => {
+    if (state.pointerState?.pointerId === e.pointerId) { state.pointerState = null; canvas.releasePointerCapture(e.pointerId); }
   });
 }
 
 function bindNodeInteractions(): void {
-  const container = runsContainer();
+  const container = $("storm-runs");
   if (!container) return;
 
-  container.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement;
+  container.addEventListener("click", (e) => {
+    const target = e.target as HTMLElement;
     const action = target.closest<HTMLElement>("[data-run-action]")?.dataset.runAction;
     const node = target.closest<HTMLElement>(".storm-node");
     const runId = node?.dataset.runId;
     if (!runId) return;
-
-    if (action) {
-      handleRunAction(runId, action);
-      return;
-    }
-
-    if (state.pointerState?.mode === "drag" && state.pointerState.runId === runId && state.pointerState.moved) {
-      return;
-    }
-
+    if (action) { handleRunAction(runId, action); return; }
+    if (state.pointerState?.mode === "drag" && state.pointerState.runId === runId && state.pointerState.moved) return;
     if (maybeComposeCombine(runId)) return;
-    setActiveRun(runId, { syncHistory: true });
+    setActiveRun(runId, { sync: true });
   });
 
-  container.addEventListener("dblclick", (event) => {
-    const target = event.target as HTMLElement;
-    const node = target.closest<HTMLElement>(".storm-node");
-    const runId = node?.dataset.runId;
-    if (!runId) return;
-    openFullscreen(runId);
+  container.addEventListener("dblclick", (e) => {
+    const node = (e.target as HTMLElement).closest<HTMLElement>(".storm-node");
+    if (node?.dataset.runId) openFullscreen(node.dataset.runId);
   });
 
-  container.addEventListener("pointerdown", (event) => {
-    const target = event.target as HTMLElement;
+  container.addEventListener("pointerdown", (e) => {
+    const target = e.target as HTMLElement;
     if (target.closest("[data-run-action]")) return;
-
     const node = target.closest<HTMLElement>(".storm-node");
     const runId = node?.dataset.runId;
     if (!node || !runId) return;
-
-    const point = state.positions.get(runId);
-    if (!point) return;
-
-    state.pointerState = {
-      mode: "drag",
-      pointerId: event.pointerId,
-      runId,
-      startClient: { x: event.clientX, y: event.clientY },
-      startPos: { ...point },
-      moved: false,
-    };
-
-    node.setPointerCapture(event.pointerId);
+    const pt = state.positions.get(runId);
+    if (!pt) return;
+    state.pointerState = { mode: "drag", pointerId: e.pointerId, runId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
+    node.setPointerCapture(e.pointerId);
   });
 
-  container.addEventListener("pointermove", (event) => {
-    if (!state.pointerState || state.pointerState.mode !== "drag" || state.pointerState.pointerId !== event.pointerId) {
-      return;
-    }
-
-    const dx = (event.clientX - state.pointerState.startClient.x) / state.scale;
-    const dy = (event.clientY - state.pointerState.startClient.y) / state.scale;
-    const nextPoint = {
-      x: state.pointerState.startPos.x + dx,
-      y: state.pointerState.startPos.y + dy,
-    };
-
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
-      state.pointerState.moved = true;
-    }
-
-    state.positions.set(state.pointerState.runId, nextPoint);
-    updateNodePosition(state.pointerState.runId);
+  container.addEventListener("pointermove", (e) => {
+    if (!state.pointerState || state.pointerState.mode !== "drag" || state.pointerState.pointerId !== e.pointerId) return;
+    const dx = (e.clientX - state.pointerState.startClient.x) / state.scale;
+    const dy = (e.clientY - state.pointerState.startClient.y) / state.scale;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) state.pointerState.moved = true;
+    const next = { x: state.pointerState.startPos.x + dx, y: state.pointerState.startPos.y + dy };
+    state.positions.set(state.pointerState.runId, next);
+    const node = container.querySelector<HTMLElement>(`.storm-node[data-run-id="${state.pointerState.runId}"]`);
+    if (node) node.style.transform = `translate(${next.x}px, ${next.y}px)`;
     renderConnections();
   });
 
-  container.addEventListener("pointerup", (event) => {
-    if (!state.pointerState || state.pointerState.mode !== "drag" || state.pointerState.pointerId !== event.pointerId) {
-      return;
-    }
-    const node = (event.target as HTMLElement).closest<HTMLElement>(".storm-node");
-    node?.releasePointerCapture(event.pointerId);
+  container.addEventListener("pointerup", (e) => {
+    if (!state.pointerState || state.pointerState.mode !== "drag" || state.pointerState.pointerId !== e.pointerId) return;
+    (e.target as HTMLElement).closest<HTMLElement>(".storm-node")?.releasePointerCapture(e.pointerId);
     state.pointerState = null;
   });
 }
 
 function bindAppChrome(): void {
-  const form = document.getElementById("storm-form");
-  const clearDraft = document.getElementById("storm-clear-context");
-  const reset = document.getElementById("storm-reset-view");
-  const avatar = document.getElementById("avatar-button");
-  const accountSheet = document.getElementById("account-sheet");
-  const fullscreenBack = document.getElementById("storm-focus-back");
-  const overlay = document.getElementById("storm-focus");
-  const inspectorFork = document.getElementById("inspector-fork");
-  const inspectorCombine = document.getElementById("inspector-combine");
-  const inspectorFullscreen = document.getElementById("inspector-fullscreen");
+  // Form
+  $("storm-form")?.addEventListener("submit", (e) => void submitStorm(e));
+  $("storm-clear-context")?.addEventListener("click", () => clearDraftContext());
+  $("storm-reset-view")?.addEventListener("click", () => { state.pan = { ...INITIAL_PAN }; state.scale = 1; updateBoardTransform(); });
 
-  form?.addEventListener("submit", (event) => {
-    void submitStorm(event);
+  // Fullscreen overlay
+  $("storm-focus")?.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest("[data-action='close-focus']")) closeFullscreen();
+  });
+  $("storm-focus-back")?.addEventListener("click", () => closeFullscreen());
+
+  // Inspector actions
+  $("inspector-fork")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "fork"); });
+  $("inspector-combine")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "combine"); });
+  $("inspector-fullscreen")?.addEventListener("click", () => { if (state.activeRunId) handleRunAction(state.activeRunId, "fullscreen"); });
+
+  // Keyboard — fullscreen escape (popovers handled by Datastar)
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.focusedRunId) closeFullscreen();
   });
 
-  clearDraft?.addEventListener("click", () => clearDraftContext());
-  reset?.addEventListener("click", resetView);
+  // History
+  window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); });
+}
 
-  avatar?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleAccountSheet();
-  });
-
-  const settingsTrigger = document.getElementById("settings-trigger");
-  settingsTrigger?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    openSettingsSheet();
-  });
-
-  const settingsBack = document.getElementById("settings-back");
-  settingsBack?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    closeSettingsSheet();
-  });
-
-  const backdrop = document.getElementById("account-backdrop");
-  backdrop?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    closeAllPopovers();
-  });
-
-  // Prevent clicks inside sheets from propagating to document handler
-  accountSheet?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const target = event.target as HTMLElement;
-    if (target.closest("[data-action='close-account-sheet']")) {
-      closeAccountSheet();
-    }
-  });
-
-  const settingsSheet = document.getElementById("settings-sheet");
-  settingsSheet?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    const target = event.target as HTMLElement;
-    if (target.closest("[data-action='close-settings-sheet']")) {
-      closeAllPopovers();
-    }
-  });
-
-  document.addEventListener("click", () => {
-    closeAllPopovers();
-  });
-
-  overlay?.addEventListener("click", (event) => {
-    const target = event.target as HTMLElement;
-    if (target.closest("[data-action='close-focus']")) {
-      closeFullscreen();
-    }
-  });
-
-  fullscreenBack?.addEventListener("click", () => closeFullscreen());
-
-  inspectorFork?.addEventListener("click", () => {
-    if (state.activeRunId) handleRunAction(state.activeRunId, "fork");
-  });
-
-  inspectorCombine?.addEventListener("click", () => {
-    if (state.activeRunId) handleRunAction(state.activeRunId, "combine");
-  });
-
-  inspectorFullscreen?.addEventListener("click", () => {
-    if (state.activeRunId) handleRunAction(state.activeRunId, "fullscreen");
-  });
-
-  window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      if (state.focusedRunId) {
-        closeFullscreen();
-        return;
-      }
-      // Close settings first, then account
-      const settingsOpen = !document.getElementById("settings-sheet")?.hidden;
-      if (settingsOpen) {
-        closeSettingsSheet();
-        return;
-      }
-      closeAllPopovers();
-    }
-  });
-
-  window.addEventListener("popstate", () => {
-    applyUrlState();
-    renderRuns();
-    renderInspector();
-    renderFocus();
-  });
+function setAvatarInitials(): void {
+  const el = $("avatar-fallback");
+  if (!el) return;
+  const name = el.getAttribute("data-name") ?? "DS";
+  el.textContent = name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? "").join("");
 }
 
 function bindStormApp(): void {
@@ -1166,37 +699,21 @@ function bindStormApp(): void {
   void loadStorms();
 }
 
+// ─── Bootstrap ───
+
 async function bootstrap(): Promise<void> {
   const instance = await ensureClerk();
   if (!instance) return;
-
-  const authResponse = await fetch("/auth/me", {
-    credentials: "include",
-  });
-  const authState = authResponse.ok
-    ? ((await authResponse.json()) as { authenticated: boolean })
-    : { authenticated: false };
-
-  if (!authState.authenticated && instance.session) {
+  const res = await fetch("/auth/me", { credentials: "include" });
+  const auth = res.ok ? ((await res.json()) as { authenticated: boolean }) : { authenticated: false };
+  if (!auth.authenticated && instance.session) {
     const synced = await syncServerSession();
-    if (synced && getConfig().currentPath === "/") {
-      redirectToApp();
-    }
+    if (synced && getConfig().currentPath === "/") redirectToApp();
   }
-
   bindStormApp();
 }
 
-window.designstormAuth = {
-  signIn,
-  signUp,
-  signOut,
-  refreshPanel,
-};
-
-window.designstormSettings = {
-  connectCodex,
-  disconnectProvider,
-};
+window.designstormAuth = { signIn, signUp, signOut, refreshPanel };
+window.designstormSettings = { connectCodex, disconnectProvider };
 
 void bootstrap();
