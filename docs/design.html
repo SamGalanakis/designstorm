@@ -36,7 +36,7 @@
       --shadow-rgb: 3, 6, 12;
       --ambient:
         radial-gradient(circle at 20% 12%, rgba(78, 107, 136, 0.22) 0%, rgba(78, 107, 136, 0) 26%),
-        radial-gradient(circle at 78% 14%, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0) 20%),
+        radial-gradient(circle at 78% 14%, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 20%),
         radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0) 36%);
     }
 
@@ -48,10 +48,6 @@
     body {
       min-height: 100vh;
       font-family: 'Manrope', sans-serif;
-      background:
-        radial-gradient(circle at 14% 12%, rgba(var(--accent-rgb), 0.14), transparent 18rem),
-        radial-gradient(circle at 84% 18%, rgba(255, 255, 255, 0.04), transparent 16rem),
-        linear-gradient(180deg, #0e1628 0%, #0b1120 56%, #080d18 100%);
       color: var(--text);
       line-height: 1.65;
       -webkit-font-smoothing: antialiased;
@@ -59,22 +55,21 @@
       overflow-x: hidden;
     }
 
-    body::before,
+    #grain-canvas {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      width: 100%;
+      height: 100%;
+    }
+
     body::after {
       content: '';
       position: fixed;
       inset: 0;
+      z-index: 0;
       pointer-events: none;
-    }
-
-    body::before {
-      z-index: 0;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='720'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.62' numOctaves='5' stitchTiles='stitch' seed='9'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='720' height='720' filter='url(%23grain)' opacity='0.07'/%3E%3C/svg%3E");
-      background-repeat: repeat;
-    }
-
-    body::after {
-      z-index: 0;
       background: var(--ambient);
     }
 
@@ -1068,6 +1063,7 @@
   </style>
 </head>
 <body>
+  <canvas id="grain-canvas"></canvas>
   <nav class="direction-nav">
     <span class="nav-home">Design Storm</span>
     <span class="nav-title">Indigo Design System</span>
@@ -1442,6 +1438,518 @@
         </div>
       </div>
     </section>
+
+    <div class="quiet-divider"><span></span></div>
+
+    <section class="direction-showcase">
+      <div class="showcase-grid">
+        <div class="showcase-panel" style="grid-column: span 12; padding: 0; overflow: hidden; min-height: 480px; cursor: pointer;" id="surface-specimen">
+          <div class="showcase-label" style="position: absolute; top: 30px; left: 30px; z-index: 2;">08 / Surface Specimen <span style="opacity: 0.5; margin-left: 8px;">Click to fullscreen</span></div>
+          <canvas id="specimen-canvas" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block;"></canvas>
+          <div id="perf-overlay" style="position: absolute; bottom: 16px; right: 16px; z-index: 3; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.06em; line-height: 1.7; color: rgba(255,255,255,0.5); background: rgba(0,0,0,0.4); backdrop-filter: blur(8px); padding: 8px 12px; border-radius: 6px; pointer-events: none;"></div>
+        </div>
+      </div>
+    </section>
   </article>
+  <script>
+    (function () {
+      const canvas = document.getElementById('grain-canvas');
+      const gl = canvas.getContext('webgl2', {
+        alpha: false,
+        antialias: false,
+        depth: false,
+        stencil: false,
+        preserveDrawingBuffer: false,
+        desynchronized: true,
+        powerPreference: 'high-performance'
+      });
+      if (!gl) return;
+
+      const vs = `#version 300 es
+        in vec2 a_pos;
+        void main() { gl_Position = vec4(a_pos, 0, 1); }
+      `;
+
+      const fs = `#version 300 es
+        precision highp float;
+        uniform vec2 u_res;
+        uniform float u_time;
+        uniform vec3 u_bg;
+        uniform float u_strength;
+        out vec4 fragColor;
+
+        // --- simplex 3d noise (ashima/webgl-noise) ---
+        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 permute(vec4 x) { return mod289(((x * 34.0) + 10.0) * x); }
+        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+        float snoise(vec3 v) {
+          const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
+          const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+          vec3 i = floor(v + dot(v, C.yyy));
+          vec3 x0 = v - i + dot(i, C.xxx);
+          vec3 g = step(x0.yzx, x0.xyz);
+          vec3 l = 1.0 - g;
+          vec3 i1 = min(g.xyz, l.zxy);
+          vec3 i2 = max(g.xyz, l.zxy);
+          vec3 x1 = x0 - i1 + C.xxx;
+          vec3 x2 = x0 - i2 + C.yyy;
+          vec3 x3 = x0 - D.yyy;
+          i = mod289(i);
+          vec4 p = permute(permute(permute(
+            i.z + vec4(0.0, i1.z, i2.z, 1.0))
+            + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+            + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+          float n_ = 0.142857142857;
+          vec3 ns = n_ * D.wyz - D.xzx;
+          vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+          vec4 x_ = floor(j * ns.z);
+          vec4 y_ = floor(j - 7.0 * x_);
+          vec4 x = x_ * ns.x + ns.yyyy;
+          vec4 y = y_ * ns.x + ns.yyyy;
+          vec4 h = 1.0 - abs(x) - abs(y);
+          vec4 b0 = vec4(x.xy, y.xy);
+          vec4 b1 = vec4(x.zw, y.zw);
+          vec4 s0 = floor(b0) * 2.0 + 1.0;
+          vec4 s1 = floor(b1) * 2.0 + 1.0;
+          vec4 sh = -step(h, vec4(0.0));
+          vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+          vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+          vec3 p0 = vec3(a0.xy, h.x);
+          vec3 p1 = vec3(a0.zw, h.y);
+          vec3 p2 = vec3(a1.xy, h.z);
+          vec3 p3 = vec3(a1.zw, h.w);
+          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+          p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+          vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+          m = m * m;
+          return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+        }
+
+        float fbm(vec3 p) {
+          float v = 0.0;
+          float a = 0.5;
+          vec3 shift = vec3(100.0);
+          for (int i = 0; i < 5; i++) {
+            v += a * snoise(p);
+            p = p * 2.0 + shift;
+            a *= 0.5;
+          }
+          return v;
+        }
+
+        void main() {
+          vec2 uv = gl_FragCoord.xy / u_res;
+
+          // fine grain — the texture of the cloth
+          vec3 p = vec3(uv * u_res / 2.8, u_time * 0.8);
+          float grain = fbm(p) * 0.5 + 0.5;
+
+          // large slow swell — natural variation across the surface
+          // like how felt or handmade paper is slightly uneven
+          float swell = snoise(vec3(uv * 1.8, u_time * 0.3)) * 0.5 + 0.5;
+          float swell2 = snoise(vec3(uv * 0.6 + 40.0, u_time * 0.15)) * 0.5 + 0.5;
+          float variation = mix(0.85, 1.15, swell * 0.6 + swell2 * 0.4);
+
+          float n = grain * variation;
+          // mix grain into bg color — n centered around 0.5, shift to ±strength
+          vec3 color = u_bg + (n - 0.5) * u_strength;
+          fragColor = vec4(color, 1.0);
+        }
+      `;
+
+      function compile(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+          console.error(gl.getShaderInfoLog(s));
+        return s;
+      }
+
+      const prog = gl.createProgram();
+      gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
+      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
+      gl.linkProgram(prog);
+      gl.useProgram(prog);
+
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, 'a_pos');
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+      const uRes = gl.getUniformLocation(prog, 'u_res');
+      const uTime = gl.getUniformLocation(prog, 'u_time');
+      const uBg = gl.getUniformLocation(prog, 'u_bg');
+      const uStrength = gl.getUniformLocation(prog, 'u_strength');
+      gl.uniform3f(uBg, 11 / 255, 17 / 255, 32 / 255);
+      gl.uniform1f(uStrength, 0.12);
+
+      let dpr, w, h, animating = false;
+
+      function resize() {
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        w = window.innerWidth;
+        h = window.innerHeight;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        if (!animating) draw();
+      }
+
+      function draw() {
+        gl.uniform2f(uRes, canvas.width, canvas.height);
+        gl.uniform1f(uTime, performance.now() * 0.0001);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+
+      // static grain — redraw only on resize
+      window.addEventListener('resize', resize);
+      resize();
+
+      // uncomment for animated grain:
+      // animating = true;
+      // (function loop() { draw(); requestAnimationFrame(loop); })();
+    })();
+
+    // ─── Specimen canvas (fullscreen-able) ───
+    (function () {
+      const panel = document.getElementById('surface-specimen');
+      const canvas = document.getElementById('specimen-canvas');
+      const gl = canvas.getContext('webgl2', {
+        alpha: false,
+        antialias: false,
+        depth: false,
+        stencil: false,
+        preserveDrawingBuffer: false,
+        desynchronized: true,
+        powerPreference: 'high-performance'
+      });
+      if (!gl) return;
+
+      const vs = `#version 300 es
+        in vec2 a_pos;
+        void main() { gl_Position = vec4(a_pos, 0, 1); }
+      `;
+
+      const fs = `#version 300 es
+        precision highp float;
+        uniform vec2 u_res;
+        uniform float u_time;
+        out vec4 fragColor;
+
+        // ─── noise ───
+        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+        vec4 permute(vec4 x) { return mod289(((x * 34.0) + 10.0) * x); }
+        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+        float snoise(vec3 v) {
+          const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
+          const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+          vec3 i = floor(v + dot(v, C.yyy));
+          vec3 x0 = v - i + dot(i, C.xxx);
+          vec3 g = step(x0.yzx, x0.xyz);
+          vec3 l = 1.0 - g;
+          vec3 i1 = min(g.xyz, l.zxy);
+          vec3 i2 = max(g.xyz, l.zxy);
+          vec3 x1 = x0 - i1 + C.xxx;
+          vec3 x2 = x0 - i2 + C.yyy;
+          vec3 x3 = x0 - D.yyy;
+          i = mod289(i);
+          vec4 p = permute(permute(permute(
+            i.z + vec4(0.0, i1.z, i2.z, 1.0))
+            + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+            + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+          float n_ = 0.142857142857;
+          vec3 ns = n_ * D.wyz - D.xzx;
+          vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+          vec4 x_ = floor(j * ns.z);
+          vec4 y_ = floor(j - 7.0 * x_);
+          vec4 x = x_ * ns.x + ns.yyyy;
+          vec4 y = y_ * ns.x + ns.yyyy;
+          vec4 h = 1.0 - abs(x) - abs(y);
+          vec4 b0 = vec4(x.xy, y.xy);
+          vec4 b1 = vec4(x.zw, y.zw);
+          vec4 s0 = floor(b0) * 2.0 + 1.0;
+          vec4 s1 = floor(b1) * 2.0 + 1.0;
+          vec4 sh = -step(h, vec4(0.0));
+          vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
+          vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
+          vec3 p0 = vec3(a0.xy, h.x);
+          vec3 p1 = vec3(a0.zw, h.y);
+          vec3 p2 = vec3(a1.xy, h.z);
+          vec3 p3 = vec3(a1.zw, h.w);
+          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+          p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+          vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+          m = m * m;
+          return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
+        }
+
+        float fbm3(vec3 p) {
+          float v = 0.0, a = 0.5;
+          for (int i = 0; i < 3; i++) {
+            v += a * snoise(p);
+            p = p * 2.0 + vec3(100.0);
+            a *= 0.5;
+          }
+          return v;
+        }
+
+        float fbm5(vec3 p) {
+          float v = 0.0, a = 0.5;
+          for (int i = 0; i < 5; i++) {
+            v += a * snoise(p);
+            p = p * 2.0 + vec3(100.0);
+            a *= 0.5;
+          }
+          return v;
+        }
+
+        // ─── OKLab / OKLCH → sRGB ───
+        vec3 oklabToLinearSrgb(vec3 lab) {
+          float l_ = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
+          float m_ = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
+          float s_ = lab.x - 0.0894841775 * lab.y - 1.2914855480 * lab.z;
+          float l3 = l_ * l_ * l_;
+          float m3 = m_ * m_ * m_;
+          float s3 = s_ * s_ * s_;
+          return vec3(
+            +4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3,
+            -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3,
+            -0.0041960863 * l3 - 0.7034186147 * m3 + 1.7076147010 * s3
+          );
+        }
+
+        vec3 oklchToSrgb(float L, float C, float h) {
+          float a = C * cos(h);
+          float b = C * sin(h);
+          vec3 lin = oklabToLinearSrgb(vec3(L, a, b));
+          // linear → sRGB gamma
+          return pow(clamp(lin, 0.0, 1.0), vec3(1.0 / 2.2));
+        }
+
+        void main() {
+          vec2 uv = gl_FragCoord.xy / u_res;
+          float t = u_time;
+
+          // ─── domain warping (4 snoise calls) ───
+          vec2 q = vec2(
+            snoise(vec3(uv * 3.0, t * 0.06)),
+            snoise(vec3(uv * 3.0 + 17.0, t * 0.06))
+          );
+          vec2 r = vec2(
+            snoise(vec3((uv + q * 0.14) * 3.0 + 1.7, t * 0.04)),
+            snoise(vec3((uv + q * 0.14) * 3.0 + 9.2, t * 0.04))
+          );
+          vec2 warped = uv + r * 0.12;
+
+          // height field — 5 octaves for full detail
+          float h0 = fbm5(vec3(warped * 4.0, t * 0.03));
+
+          // ─── proper height-gradient normals ───
+          float eps = 0.004;
+          float hx = fbm5(vec3((warped + vec2(eps, 0.0)) * 4.0, t * 0.03));
+          float hy = fbm5(vec3((warped + vec2(0.0, eps)) * 4.0, t * 0.03));
+          vec3 normal = normalize(vec3((h0 - hx) / eps * 0.15, (h0 - hy) / eps * 0.15, 1.0));
+          vec3 lightDir = normalize(vec3(0.4, 0.5, 0.8));
+          float light = 0.5 + max(dot(normal, lightDir), 0.0) * 0.5;
+
+          // ─── hue from flow ───
+          float hueDriver = (q.x * 0.4 + r.x * 0.3 + h0 * 0.3) * 0.5 + 0.5;
+          float hueRad = radians(195.0 + hueDriver * 60.0 + t * 3.0);
+
+          // OKLCH
+          float L = 0.16 + light * 0.06 + h0 * 0.02;
+          float C_val = 0.03 + hueDriver * 0.02;
+          vec3 color = oklchToSrgb(L, C_val, hueRad);
+
+          // ─── grain — 5 octaves for fine texture (5 snoise calls) ───
+          float grain = fbm5(vec3(uv * u_res / 2.8, t * 0.5)) * 0.5 + 0.5;
+          color += (grain - 0.5) * 0.08;
+
+          // vignette
+          float vig = smoothstep(0.0, 0.8, distance(uv, vec2(0.5)));
+          color -= vig * 0.02;
+
+          fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+        }
+      `;
+
+      function compile(type, src) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, src);
+        gl.compileShader(s);
+        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+          console.error(gl.getShaderInfoLog(s));
+        return s;
+      }
+
+      const prog = gl.createProgram();
+      gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
+      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
+      gl.linkProgram(prog);
+      gl.useProgram(prog);
+
+      const buf = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, 'a_pos');
+      gl.enableVertexAttribArray(loc);
+      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+      const uRes = gl.getUniformLocation(prog, 'u_res');
+      const uTime = gl.getUniformLocation(prog, 'u_time');
+
+      const overlay = document.getElementById('perf-overlay');
+      const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
+      let rafId = 0;
+      let resizeRaf = 0;
+      let running = false;
+      let inViewport = true;
+      let pageVisible = document.visibilityState === 'visible';
+      let frames = 0, lastFpsTime = 0, lastOverlayTime = 0;
+      let fps = 0, frameMs = 0, gpuMs = null;
+      let pendingQuery = null;
+      let width = 0, height = 0;
+
+      function fit() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const rect = panel.getBoundingClientRect();
+        const nextWidth = Math.max(1, Math.round(rect.width * dpr));
+        const nextHeight = Math.max(1, Math.round(rect.height * dpr));
+        if (nextWidth === width && nextHeight === height) return false;
+        width = nextWidth;
+        height = nextHeight;
+        canvas.width = width;
+        canvas.height = height;
+        gl.viewport(0, 0, width, height);
+        return true;
+      }
+
+      function scheduleFit() {
+        if (resizeRaf) return;
+        resizeRaf = requestAnimationFrame(() => {
+          resizeRaf = 0;
+          const resized = fit();
+          if (resized && !running) render(performance.now());
+        });
+      }
+
+      function collectGpuTime() {
+        if (!ext || !pendingQuery) return;
+        const available = gl.getQueryParameter(pendingQuery, gl.QUERY_RESULT_AVAILABLE);
+        if (!available) return;
+        const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
+        if (!disjoint) {
+          gpuMs = gl.getQueryParameter(pendingQuery, gl.QUERY_RESULT) / 1e6;
+        }
+        gl.deleteQuery(pendingQuery);
+        pendingQuery = null;
+      }
+
+      function updateOverlay(now) {
+        if (!overlay || now - lastOverlayTime < 250) return;
+        lastOverlayTime = now;
+        let text = `${fps} fps · ${frameMs.toFixed(1)}ms cpu`;
+        if (gpuMs !== null) text += ` · ${gpuMs.toFixed(1)}ms gpu`;
+        text += `\n${canvas.width}×${canvas.height}px`;
+        overlay.textContent = text;
+      }
+
+      function render(now) {
+        if (!width || !height) fit();
+        collectGpuTime();
+
+        const t0 = performance.now();
+        let query = null;
+        if (ext && !pendingQuery) {
+          query = gl.createQuery();
+          gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
+        }
+
+        gl.uniform2f(uRes, canvas.width, canvas.height);
+        gl.uniform1f(uTime, now * 0.0001);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        if (query) {
+          gl.endQuery(ext.TIME_ELAPSED_EXT);
+          pendingQuery = query;
+        }
+
+        frameMs = performance.now() - t0;
+        updateOverlay(now);
+      }
+
+      function draw(now) {
+        if (!running) return;
+        frames++;
+        if (!lastFpsTime) lastFpsTime = now;
+        if (now - lastFpsTime >= 1000) {
+          fps = Math.round((frames * 1000) / (now - lastFpsTime));
+          frames = 0;
+          lastFpsTime = now;
+        }
+        render(now);
+        rafId = requestAnimationFrame(draw);
+      }
+
+      function syncLoop() {
+        const shouldRun = pageVisible && inViewport;
+        if (shouldRun === running) return;
+        running = shouldRun;
+
+        if (running) {
+          frames = 0;
+          fps = 0;
+          lastFpsTime = 0;
+          rafId = requestAnimationFrame(draw);
+          return;
+        }
+
+        if (rafId) {
+          cancelAnimationFrame(rafId);
+          rafId = 0;
+        }
+      }
+
+      // click to fullscreen
+      panel.addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+          panel.requestFullscreen();
+        } else {
+          document.exitFullscreen();
+        }
+      });
+
+      window.addEventListener('resize', scheduleFit, { passive: true });
+      document.addEventListener('fullscreenchange', scheduleFit);
+      document.addEventListener('visibilitychange', () => {
+        pageVisible = document.visibilityState === 'visible';
+        syncLoop();
+      });
+
+      if ('ResizeObserver' in window) {
+        new ResizeObserver(scheduleFit).observe(panel);
+      }
+
+      if ('IntersectionObserver' in window) {
+        new IntersectionObserver((entries) => {
+          inViewport = entries[0]?.isIntersecting ?? true;
+          syncLoop();
+        }, { threshold: 0.01 }).observe(panel);
+      }
+
+      fit();
+      render(performance.now());
+      syncLoop();
+    })();
+  </script>
 </body>
 </html>
