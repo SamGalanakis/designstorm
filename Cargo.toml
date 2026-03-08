@@ -10,7 +10,7 @@ async-stream = "0.3.6"
 askama = "0.12.1"
 aws-config = "1.5.17"
 aws-sdk-s3 = "1.77.0"
-axum = { version = "0.8.1", features = ["macros", "json"] }
+axum = { version = "0.8.1", features = ["macros", "json", "multipart"] }
 base64 = "0.22.1"
 chrono = { version = "0.4.40", features = ["serde"] }
 cookie = "0.18.1"
@@ -20,6 +20,7 @@ futures-core = "0.3.31"
 jsonwebtoken = "9.3.1"
 lash-core = { git = "https://github.com/SamGalanakis/lash", rev = "f1bf8bacbe256d9e2bf0f084ea86add0609aeff7", package = "lash-core", default-features = false, features = ["native-tools-only"] }
 mime_guess = "2.0.5"
+rand = "0.8"
 reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"

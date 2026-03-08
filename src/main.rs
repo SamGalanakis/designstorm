@@ -9,11 +9,11 @@ use aws_sdk_s3::{Client as S3Client, config::Region, primitives::ByteStream};
 use axum::{
     Router,
     body::Body,
-    extract::{Form, Json, Path, State},
+    extract::{Form, Json, Multipart, Path, State},
     http::{
         HeaderMap, HeaderValue, StatusCode,
         header::{
-            CACHE_CONTROL, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, SET_COOKIE,
+            CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, SET_COOKIE,
             X_CONTENT_TYPE_OPTIONS,
         },
     },
@@ -709,6 +709,56 @@ impl StormToolProvider {
         }))
     }
 
+    async fn copy_input(&self, args: &serde_json::Value) -> ToolResult {
+        let source = match self.logical_path(args, "source") {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+        let destination = match self.logical_path(args, "destination") {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+
+        if !source.starts_with("inputs/") {
+            return ToolResult::err_fmt("source must start with \"inputs/\"");
+        }
+        if destination.starts_with("inputs/") {
+            return ToolResult::err_fmt("destination must not be inside \"inputs/\"");
+        }
+
+        let workspace_dir = self.workspace.lock().await.workspace_dir.clone();
+        let source_resolved = match resolve_workspace_path(&workspace_dir, &source) {
+            Ok(p) => p,
+            Err(msg) => return ToolResult::err_fmt(msg),
+        };
+        let dest_resolved = match resolve_workspace_path(&workspace_dir, &destination) {
+            Ok(p) => p,
+            Err(msg) => return ToolResult::err_fmt(msg),
+        };
+
+        if !tokio::fs::try_exists(&source_resolved).await.unwrap_or(false) {
+            return ToolResult::err_fmt(format_args!("Source file not found: {source}"));
+        }
+
+        if let Some(parent) = dest_resolved.parent() {
+            if let Err(e) = tokio::fs::create_dir_all(parent).await {
+                return ToolResult::err_fmt(format_args!(
+                    "Failed to create directory {}: {e}",
+                    parent.display()
+                ));
+            }
+        }
+
+        match tokio::fs::copy(&source_resolved, &dest_resolved).await {
+            Ok(bytes_copied) => ToolResult::ok(json!({
+                "source": source,
+                "destination": destination,
+                "bytesCopied": bytes_copied
+            })),
+            Err(e) => ToolResult::err_fmt(format_args!("Failed to copy: {e}")),
+        }
+    }
+
     async fn submit_result(&self, args: &serde_json::Value) -> ToolResult {
         let title = args
             .get("title")
@@ -821,6 +871,21 @@ impl ToolProvider for StormToolProvider {
                 hidden: false,
                 inject_into_prompt: true,
             },
+            ToolDefinition {
+                name: "copy_input".into(),
+                description: vec![lash_core::ToolText::new(
+                    "Copy a file from the inputs/ directory into the workspace so it becomes part of the output artifact. Use this when you want to include a provided asset (image, font, etc.) in your HTML result.",
+                    [lash_core::ExecutionMode::NativeTools],
+                )],
+                params: vec![
+                    ToolParam::typed("source", "str"),
+                    ToolParam::typed("destination", "str"),
+                ],
+                returns: "dict".into(),
+                examples: vec![],
+                hidden: false,
+                inject_into_prompt: true,
+            },
         ];
 
         defs
@@ -842,6 +907,7 @@ impl ToolProvider for StormToolProvider {
             "render_result" => self.render_result().await,
             "view_result" => self.view_result().await,
             "submit_result" => self.submit_result(args).await,
+            "copy_input" => self.copy_input(args).await,
             _ => ToolResult::err_fmt(format_args!("Unknown tool: {name}")),
         };
         info!(
@@ -854,6 +920,113 @@ impl ToolProvider for StormToolProvider {
         );
         result
     }
+}
+
+// ─── Presets ───
+
+struct Preset {
+    id: &'static str,
+    label: &'static str,
+    icon: &'static str,
+    items: &'static [&'static str],
+}
+
+static PRESETS: &[Preset] = &[
+    Preset { id: "oblique_strategy", label: "Oblique Strategy", icon: "🃏", items: &[
+        "Use an old idea", "Honor thy error as a hidden intention",
+        "What would your closest friend do?", "Emphasize differences",
+        "Remove specifics and convert to ambiguities", "Don't be frightened of clichés",
+        "What is the reality of the situation?", "Are there sections? Consider transitions",
+        "Turn it upside down", "Think of the radio", "Allow an easement",
+        "Bridges —build —burn", "Change instrument roles", "Cluster analysis",
+        "Consider different fading systems", "Courage!", "Cut a vital connection",
+        "Decorate, decorate", "Discover the recipes you are using and abandon them",
+        "Disconnect from desire", "Do nothing for as long as possible",
+        "Do something boring", "Do the washing up", "Don't be afraid of things because they're easy to do",
+        "Don't be frightened to display your talents", "Faced with a choice, do both",
+        "Go slowly all the way round the outside", "How would you have done it?",
+        "Humanize something free of error", "Infinitesimal gradations",
+        "Into the impossible", "Is it finished?", "Just carry on",
+        "Look at the order in which you do things", "Lowest common denominator",
+        "Make a sudden, destructive unpredictable action; incorporate",
+        "Mute and continue", "Only one element of each kind",
+        "Remove ambiguities and convert to specifics", "Repetition is a form of change",
+        "Reverse", "Short circuit", "Shut the door and listen from outside",
+        "Simple subtraction", "Spectrum analysis", "Take a break",
+        "Take away the elements in order of apparent non-importance",
+        "The inconsistency principle", "The tape is now the music",
+        "Think —inside— the work", "Tidy up", "Trust in the you of now",
+        "Try faking it!", "Use 'unqualified' people", "Use fewer notes",
+        "Water", "What mistakes did you make last time?",
+        "What wouldn't you do?", "Work at a different speed",
+        "You are an engineer", "You can only make one dot at a time",
+        "Your mistake was a hidden intention",
+    ]},
+    Preset { id: "art_movement", label: "Art Movement", icon: "🏛", items: &[
+        "Brutalism", "Art Deco", "Bauhaus", "Memphis", "De Stijl", "Art Nouveau",
+        "Swiss International", "Constructivism", "Psychedelic", "Futurism",
+        "Minimalism", "Maximalism", "Ukiyo-e", "Op Art", "Pop Art",
+        "Dadaism", "Surrealism", "Expressionism", "Cubism", "Gothic",
+        "Victorian", "Mid-Century Modern", "Streamline Moderne",
+        "Vaporwave", "Y2K", "Neoclassical", "Rococo", "Arts & Crafts",
+        "Suprematism", "Abstract Expressionism", "Post-Punk", "Acid House",
+        "Cyberpunk", "Solarpunk", "Afrofuturism", "Wabi-Sabi",
+    ]},
+    Preset { id: "material", label: "Material", icon: "🧱", items: &[
+        "Brushed copper", "Wet concrete", "Cracked porcelain", "Woven linen",
+        "Oxidized steel", "Raw marble", "Frosted glass", "Charred wood",
+        "Hammered brass", "Liquid mercury", "Dried clay", "Polished obsidian",
+        "Torn paper", "Rusted iron", "Silk velvet", "Rough sandstone",
+        "Molten gold", "Patinated bronze", "Cork", "Volcanic basalt",
+        "Bleached bone", "Smoked oak", "Anodized aluminum", "Raw denim",
+        "Sea glass", "Terracotta", "Resin", "Pressed tin",
+        "Weathered leather", "Ice", "Bamboo", "Carbon fiber",
+    ]},
+    Preset { id: "mood", label: "Mood", icon: "◑", items: &[
+        "Caustic", "Devotional", "Glacial", "Feral", "Saccharine",
+        "Liminal", "Euphoric", "Melancholic", "Abrasive", "Ethereal",
+        "Monastic", "Volcanic", "Tender", "Corrosive", "Luminous",
+        "Desolate", "Riotous", "Hypnotic", "Fragile", "Tectonic",
+        "Nocturnal", "Ceremonial", "Volatile", "Pristine", "Ancient",
+        "Electric", "Submerged", "Feverish", "Meditative", "Carnivalesque",
+        "Austere", "Radiant",
+    ]},
+    Preset { id: "era", label: "Era", icon: "⏳", items: &[
+        "1920s Jazz Age", "1930s Propaganda poster", "1950s Atomic Age",
+        "1960s Counterculture", "1970s Disco", "1972 Swiss typography",
+        "1980s MTV", "1984 Macintosh", "1990s Grunge", "1995 Early web",
+        "1998 Flash era", "2000s Web 2.0", "2004 MySpace", "2007 iPhone launch",
+        "2010s Flat design", "2013 Skeuomorphism's death", "2016 Brutalist web",
+        "2020s Glassmorphism", "2025 AI-native", "Near future 2035",
+        "Retro-future 1960s vision of 2000", "Cassette futurism",
+    ]},
+    Preset { id: "type_pairing", label: "Type Pairing", icon: "Aa", items: &[
+        "Playfair Display + Source Sans Pro — editorial elegance",
+        "Space Grotesk + Inter — technical clarity",
+        "Cormorant Garamond + Manrope — warm contrast",
+        "DM Serif Display + DM Sans — modern authority",
+        "Libre Baskerville + Karla — bookish digital",
+        "Syne + Work Sans — geometric energy",
+        "Fraunces + Commissioner — quirky editorial",
+        "Instrument Serif + Instrument Sans — matched pair",
+        "Anybody + IBM Plex Mono — variable futurism",
+        "Bricolage Grotesque + Geist — startup clean",
+        "Crimson Pro + Lato — longform readability",
+        "Archivo Black + Archivo — bold system",
+        "EB Garamond + Fira Sans — classical meets code",
+        "Unbounded + Noto Sans — expressive + neutral",
+    ]},
+];
+
+fn find_preset(id: &str) -> Option<&'static Preset> {
+    PRESETS.iter().find(|p| p.id == id)
+}
+
+fn random_preset_value(preset: &Preset) -> &'static str {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let idx = rng.gen_range(0..preset.items.len());
+    preset.items[idx]
 }
 
 // ─── Board nodes & edges ───
@@ -920,6 +1093,111 @@ impl BoardNodeSummary {
             .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
             .unwrap_or_default()
     }
+
+    fn palette_colors(&self) -> Vec<&str> {
+        self.content
+            .get("colors")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default()
+    }
+
+    fn pick_k_value(&self) -> i64 {
+        self.content.get("k").and_then(|v| v.as_i64()).unwrap_or(1)
+    }
+
+    fn pick_k_replace(&self) -> bool {
+        self.content.get("replace").and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    fn set_title(&self) -> &str {
+        self.content.get("title").and_then(|v| v.as_str()).unwrap_or("Set")
+    }
+
+    fn set_description(&self) -> &str {
+        self.content.get("description").and_then(|v| v.as_str()).unwrap_or("")
+    }
+
+    fn image_url(&self) -> &str {
+        self.content.get("url").and_then(|v| v.as_str()).unwrap_or("")
+    }
+
+    fn image_alt(&self) -> &str {
+        self.content.get("alt").and_then(|v| v.as_str()).unwrap_or("")
+    }
+
+    fn int_value(&self) -> i64 {
+        self.content.get("value").and_then(|v| v.as_i64()).unwrap_or(0)
+    }
+
+    fn float_value(&self) -> f64 {
+        self.content.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0)
+    }
+
+    fn string_value(&self) -> &str {
+        self.content.get("value").and_then(|v| v.as_str()).unwrap_or("")
+    }
+
+    fn bool_value(&self) -> bool {
+        self.content.get("value").and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    fn int_min(&self) -> i64 {
+        self.content.get("min").and_then(|v| v.as_i64()).unwrap_or(0)
+    }
+
+    fn int_max(&self) -> i64 {
+        self.content.get("max").and_then(|v| v.as_i64()).unwrap_or(100)
+    }
+
+    fn float_min(&self) -> f64 {
+        self.content.get("min").and_then(|v| v.as_f64()).unwrap_or(0.0)
+    }
+
+    fn float_max(&self) -> f64 {
+        self.content.get("max").and_then(|v| v.as_f64()).unwrap_or(1.0)
+    }
+
+    fn float_step(&self) -> f64 {
+        self.content.get("step").and_then(|v| v.as_f64()).unwrap_or(0.01)
+    }
+
+    fn random_enabled(&self) -> bool {
+        self.content.get("random").and_then(|v| v.as_bool()).unwrap_or(false)
+    }
+
+    fn font_family(&self) -> &str {
+        self.content.get("family").and_then(|v| v.as_str()).unwrap_or("")
+    }
+
+    fn font_weight(&self) -> &str {
+        self.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400")
+    }
+
+    fn font_size(&self) -> &str {
+        self.content.get("size").and_then(|v| v.as_str()).unwrap_or("16")
+    }
+
+    fn font_line_height(&self) -> &str {
+        self.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5")
+    }
+
+    fn font_file_name(&self) -> &str {
+        self.content.get("file_name").and_then(|v| v.as_str()).unwrap_or("")
+    }
+
+    fn has_preset(&self) -> bool {
+        self.content.get("preset").and_then(|v| v.as_str()).is_some()
+    }
+
+    fn preset_id(&self) -> &str {
+        self.content.get("preset").and_then(|v| v.as_str()).unwrap_or("")
+    }
+
+    fn preset_label(&self) -> &str {
+        let id = self.preset_id();
+        find_preset(id).map(|p| p.label).unwrap_or("Preset")
+    }
 }
 
 impl From<BoardNodeRow> for BoardNodeSummary {
@@ -950,6 +1228,8 @@ struct BoardEdgeRow {
     source_anchor_t: Option<f64>,
     target_anchor_side: Option<String>,
     target_anchor_t: Option<f64>,
+    source_slot: String,
+    target_slot: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -964,6 +1244,8 @@ struct BoardEdgeSummary {
     source_anchor_t: Option<f64>,
     target_anchor_side: Option<String>,
     target_anchor_t: Option<f64>,
+    source_slot: String,
+    target_slot: String,
 }
 
 impl From<BoardEdgeRow> for BoardEdgeSummary {
@@ -978,6 +1260,8 @@ impl From<BoardEdgeRow> for BoardEdgeSummary {
             source_anchor_t: row.source_anchor_t,
             target_anchor_side: row.target_anchor_side,
             target_anchor_t: row.target_anchor_t,
+            source_slot: row.source_slot,
+            target_slot: row.target_slot,
         }
     }
 }
@@ -990,6 +1274,13 @@ struct CreateNodeRequest {
 }
 
 #[derive(Debug, Deserialize)]
+struct DuplicateNodeRequest {
+    source_id: Uuid,
+    position_x: Option<f64>,
+    position_y: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
 struct CreateNodeFormRequest {
     node_type: String,
     position_x: f64,
@@ -998,6 +1289,7 @@ struct CreateNodeFormRequest {
     source_type: Option<String>,
     source_anchor_side: Option<String>,
     source_anchor_t: Option<f64>,
+    preset: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1018,7 +1310,14 @@ struct CreateEdgeRequest {
     source_anchor_t: Option<f64>,
     target_anchor_side: Option<String>,
     target_anchor_t: Option<f64>,
+    #[serde(default = "default_out_slot")]
+    source_slot: String,
+    #[serde(default = "default_sources_slot")]
+    target_slot: String,
 }
+
+fn default_out_slot() -> String { "out".to_string() }
+fn default_sources_slot() -> String { "sources".to_string() }
 
 #[derive(Template)]
 #[template(path = "index.html")]
@@ -1094,6 +1393,7 @@ struct StormGenerationInput {
     prompt: String,
     draft_mode: Option<String>,
     source_ids: Vec<Uuid>,
+    asset_ids: Vec<(Uuid, String)>,
 }
 
 impl StormGenerationInput {
@@ -1129,6 +1429,7 @@ impl StormGenerationInput {
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty()),
             source_ids,
+            asset_ids: Vec::new(),
         })
     }
 }
@@ -1219,20 +1520,25 @@ async fn main() -> Result<(), AppError> {
         .route("/settings/provider/logout", post(disconnect_provider))
         .route("/storms/generate", post(generate_storm_datastar))
         .route("/storms/{id}", axum::routing::delete(delete_storm_run))
+        .route("/storms/{id}/download", get(download_storm_run_archive))
         .route("/storms/{id}/position", post(update_storm_run_position))
         .route("/telemetry/client", post(client_telemetry))
         .route("/api/storms", get(list_storms).post(create_storm))
         .route("/preview/{run_id}", get(preview_index_redirect))
         .route("/preview/{run_id}/", get(preview_index))
         .route("/preview/{run_id}/{*path}", get(preview_asset))
+        .route("/presets", get(list_presets))
         .route("/nodes/create", post(create_board_node_datastar))
         .route("/nodes", post(create_board_node))
+        .route("/nodes/duplicate", post(duplicate_board_node))
         .route("/nodes/{id}/reroll", post(reroll_board_node))
         .route("/nodes/{id}/lock", post(toggle_board_node_lock))
         .route("/nodes/{id}/position", post(update_board_node_position))
         .route("/nodes/{id}/content", post(update_board_node_content))
         .route("/nodes/{id}/run", post(run_generate_node))
         .route("/nodes/{id}", axum::routing::delete(delete_board_node))
+        .route("/assets", post(upload_asset))
+        .route("/assets/{id}/{file_name}", get(serve_asset))
         .route("/edges", post(create_board_edge))
         .route("/edges/{id}", axum::routing::delete(delete_board_edge))
         .nest_service("/static", ServeDir::new("static"))
@@ -1614,7 +1920,8 @@ async fn run_generate_node(
     // Collect all inputs wired into this generate node
     let edges = sqlx::query_as::<_, BoardEdgeRow>(
         r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t
+                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                  source_slot, target_slot
            FROM board_edges WHERE target_id = $1 AND owner_user_id = $2"#,
     )
     .bind(node_id)
@@ -1626,32 +1933,23 @@ async fn run_generate_node(
     let mut entropy_parts = Vec::new();
     let mut user_parts = Vec::new();
     let mut design_parts = Vec::new();
+    let mut asset_ids: Vec<(Uuid, String)> = Vec::new();
+
+    let board_node_sql = "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2";
 
     for edge in &edges {
         match edge.source_type.as_str() {
             "entropy" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(
-                    "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
-                )
-                .bind(edge.source_id)
-                .bind(viewer.id)
-                .fetch_optional(&state.db)
-                .await
-                {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
                     let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
                     let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
                     entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
                 }
             }
             "user_input" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(
-                    "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
-                )
-                .bind(edge.source_id)
-                .bind(viewer.id)
-                .fetch_optional(&state.db)
-                .await
-                {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
                     let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
                     if !text.is_empty() {
                         user_parts.push(format!("User direction: \"{}\"", text));
@@ -1659,7 +1957,6 @@ async fn run_generate_node(
                 }
             }
             "design" => {
-                // Design nodes reference storm_runs by their run_id (the node id IS the run id)
                 if let Ok(Some(run)) = sqlx::query_as::<_, StormRunRow>(
                     "SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url, submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height FROM storm_runs WHERE id = $1 AND owner_user_id = $2",
                 )
@@ -1673,6 +1970,212 @@ async fn run_generate_node(
                         "Build on: \"{}\" — {}\nOriginal seed: {}",
                         record.title, record.summary, record.prompt
                     ));
+                }
+            }
+            "color_palette" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    let colors: Vec<&str> = src.content.get("colors")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                        .unwrap_or_default();
+                    if !colors.is_empty() {
+                        user_parts.push(format!("Color palette constraint: use these colors: {}", colors.join(", ")));
+                    }
+                }
+            }
+            "image" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    let alt = src.content.get("alt").and_then(|v| v.as_str()).unwrap_or("");
+                    if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
+                        if let Ok(asset_uuid) = Uuid::from_str(aid) {
+                            let desc = if alt.is_empty() { "image".to_string() } else { alt.to_string() };
+                            asset_ids.push((asset_uuid, desc.clone()));
+                            user_parts.push(format!("Reference image available at: inputs/{} — use copy_input to include it in your output if needed", desc));
+                        }
+                    } else {
+                        let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                        if !url.is_empty() {
+                            user_parts.push(format!("Reference image: {} ({})", url, alt));
+                        }
+                    }
+                }
+            }
+            "font" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    let family = src.content.get("family").and_then(|v| v.as_str()).unwrap_or("");
+                    let weight = src.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400");
+                    let size = src.content.get("size").and_then(|v| v.as_str()).unwrap_or("16");
+                    let line_height = src.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5");
+                    let mut parts = Vec::new();
+                    if !family.is_empty() { parts.push(format!("font-family: {}", family)); }
+                    parts.push(format!("font-weight: {}", weight));
+                    parts.push(format!("font-size: {}px", size));
+                    parts.push(format!("line-height: {}", line_height));
+                    user_parts.push(format!("Typography constraint: {}", parts.join(", ")));
+                    if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
+                        if let Ok(asset_uuid) = Uuid::from_str(aid) {
+                            let file_name = src.content.get("file_name").and_then(|v| v.as_str()).unwrap_or("font.woff2");
+                            asset_ids.push((asset_uuid, file_name.to_string()));
+                            user_parts.push(format!("Custom font file available at: inputs/{} — use copy_input to copy it into your workspace, then add a @font-face declaration pointing to it", file_name));
+                        }
+                    }
+                }
+            }
+            "set" => {
+                // Expand set: resolve all members recursively
+                let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                    r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
+                              source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                              source_slot, target_slot
+                       FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'members'"#,
+                )
+                .bind(edge.source_id)
+                .bind(viewer.id)
+                .fetch_all(&state.db)
+                .await
+                .unwrap_or_default();
+                for member_edge in &member_edges {
+                    if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                            .bind(member_edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                        match src.node_type.as_str() {
+                            "entropy" => {
+                                let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
+                                let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
+                            }
+                            "user_input" => {
+                                let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                if !text.is_empty() {
+                                    user_parts.push(format!("User direction: \"{}\"", text));
+                                }
+                            }
+                            "color_palette" => {
+                                let colors: Vec<&str> = src.content.get("colors")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                                    .unwrap_or_default();
+                                if !colors.is_empty() {
+                                    user_parts.push(format!("Color palette constraint: use these colors: {}", colors.join(", ")));
+                                }
+                            }
+                            "image" => {
+                                let alt = src.content.get("alt").and_then(|v| v.as_str()).unwrap_or("");
+                                if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
+                                    if let Ok(asset_uuid) = Uuid::from_str(aid) {
+                                        let desc = if alt.is_empty() { "image".to_string() } else { alt.to_string() };
+                                        asset_ids.push((asset_uuid, desc.clone()));
+                                        user_parts.push(format!("Reference image available at: inputs/{} — use copy_input to include it in your output if needed", desc));
+                                    }
+                                } else {
+                                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !url.is_empty() {
+                                        user_parts.push(format!("Reference image: {} ({})", url, alt));
+                                    }
+                                }
+                            }
+                            "font" => {
+                                let family = src.content.get("family").and_then(|v| v.as_str()).unwrap_or("");
+                                let weight = src.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400");
+                                let size = src.content.get("size").and_then(|v| v.as_str()).unwrap_or("16");
+                                let line_height = src.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5");
+                                let mut parts = Vec::new();
+                                if !family.is_empty() { parts.push(format!("font-family: {}", family)); }
+                                parts.push(format!("font-weight: {}", weight));
+                                parts.push(format!("font-size: {}px", size));
+                                parts.push(format!("line-height: {}", line_height));
+                                user_parts.push(format!("Typography constraint: {}", parts.join(", ")));
+                                if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
+                                    if let Ok(asset_uuid) = Uuid::from_str(aid) {
+                                        let file_name = src.content.get("file_name").and_then(|v| v.as_str()).unwrap_or("font.woff2");
+                                        asset_ids.push((asset_uuid, file_name.to_string()));
+                                        user_parts.push(format!("Custom font file available at: inputs/{} — use copy_input to copy it into your workspace, then add a @font-face declaration pointing to it", file_name));
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            "pick_k" => {
+                // Expand pick_k: resolve members, pick up to K (with or without replacement)
+                if let Ok(Some(pk_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    let k = pk_node.content.get("k").and_then(|v| v.as_i64()).unwrap_or(1) as usize;
+                    let with_replacement = pk_node.content.get("replace").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
+                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                                  source_slot, target_slot
+                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'sources'"#,
+                    )
+                    .bind(edge.source_id)
+                    .bind(viewer.id)
+                    .fetch_all(&state.db)
+                    .await
+                    .unwrap_or_default();
+
+                    // Resolve all source nodes once
+                    let mut resolved_sources = Vec::new();
+                    for member_edge in &member_edges {
+                        if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                            .bind(member_edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                            resolved_sources.push(src);
+                        }
+                    }
+
+                    if with_replacement && !resolved_sources.is_empty() {
+                        // With replacement: cycle through sources repeatedly up to K
+                        let mut count = 0usize;
+                        let mut idx = 0usize;
+                        while count < k {
+                            let src = &resolved_sources[idx % resolved_sources.len()];
+                            match src.node_type.as_str() {
+                                "entropy" => {
+                                    let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
+                                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                    entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
+                                    count += 1;
+                                }
+                                "user_input" => {
+                                    let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !text.is_empty() {
+                                        user_parts.push(format!("User direction: \"{}\"", text));
+                                        count += 1;
+                                    }
+                                }
+                                _ => { count += 1; }
+                            }
+                            idx += 1;
+                            // Safety: if all sources are empty user_inputs, avoid infinite loop
+                            if idx >= k * resolved_sources.len() { break; }
+                        }
+                    } else {
+                        // Without replacement: take up to K unique sources
+                        let mut count = 0usize;
+                        for src in &resolved_sources {
+                            if count >= k { break; }
+                            match src.node_type.as_str() {
+                                "entropy" => {
+                                    let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
+                                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                    entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
+                                    count += 1;
+                                }
+                                "user_input" => {
+                                    let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !text.is_empty() {
+                                        user_parts.push(format!("User direction: \"{}\"", text));
+                                        count += 1;
+                                    }
+                                }
+                                _ => { count += 1; }
+                            }
+                        }
+                    }
                 }
             }
             _ => {}
@@ -1709,6 +2212,7 @@ async fn run_generate_node(
         prompt,
         draft_mode: None,
         source_ids: vec![],
+        asset_ids,
     };
 
     let gen_node_id = node_id;
@@ -1726,9 +2230,9 @@ async fn run_generate_node(
 
                 // Create board_edge from generate node → new design run
                 let _ = sqlx::query(
-                    r#"INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type)
-                       VALUES ($1, $2, 'generate', $3, 'design')
-                       ON CONFLICT (source_id, target_id) DO NOTHING"#,
+                    r#"INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type, source_slot, target_slot)
+                       VALUES ($1, $2, 'generate', $3, 'design', 'out', 'sources')
+                       ON CONFLICT (source_id, source_slot, target_id, target_slot) DO NOTHING"#,
                 )
                 .bind(viewer.id)
                 .bind(gen_node_id)
@@ -1847,6 +2351,179 @@ async fn delete_storm_run(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn download_storm_run_archive(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Response, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let run = get_owned_run(&state, viewer.id, id).await?;
+
+    let archive_bytes = if tokio::fs::try_exists(&run.workspace_dir).await.unwrap_or(false) {
+        let workspace_dir = run.workspace_dir.clone();
+        tokio::task::spawn_blocking(move || zip_workspace_dir(&workspace_dir))
+            .await
+            .map_err(|error| AppError::Internal(error.to_string()))??
+    } else if let Some(bytes) = load_persisted_workspace_archive(&state, viewer.id, id).await? {
+        bytes
+    } else {
+        return Err(AppError::BadRequest("Artifact archive unavailable.".to_string()));
+    };
+
+    let filename = sanitize_download_name(&run.title, id);
+    let mut response = Response::new(Body::from(archive_bytes));
+    response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/zip"));
+    response.headers_mut().insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
+            .map_err(|error| AppError::Internal(error.to_string()))?,
+    );
+    response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("private, max-age=60"));
+    Ok(response)
+}
+
+// ─── Asset upload & serving ───
+
+const ALLOWED_ASSET_CONTENT_TYPES: &[&str] = &[
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/svg+xml",
+    "font/woff2",
+    "font/ttf",
+    "font/otf",
+    "font/woff",
+    "application/font-woff",
+    "application/font-woff2",
+    "application/x-font-ttf",
+    "application/vnd.ms-opentype",
+];
+
+const MAX_ASSET_SIZE: usize = 10 * 1024 * 1024; // 10 MB
+
+async fn upload_asset(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let storage = state
+        .artifact_storage
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Asset storage not configured.".to_string()))?;
+
+    let field = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Invalid multipart request: {e}")))?
+        .ok_or_else(|| AppError::BadRequest("No file field in upload.".to_string()))?;
+
+    let file_name = field
+        .file_name()
+        .unwrap_or("upload")
+        .to_string();
+    let content_type = field
+        .content_type()
+        .unwrap_or("application/octet-stream")
+        .to_string();
+
+    if !ALLOWED_ASSET_CONTENT_TYPES.contains(&content_type.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "Unsupported file type: {content_type}"
+        )));
+    }
+
+    let data = field
+        .bytes()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Failed to read upload: {e}")))?;
+
+    if data.len() > MAX_ASSET_SIZE {
+        return Err(AppError::BadRequest(format!(
+            "File too large ({} bytes). Maximum is {} bytes.",
+            data.len(),
+            MAX_ASSET_SIZE
+        )));
+    }
+
+    let asset_id = Uuid::new_v4();
+    let s3_key = format!("assets/{}/{}/{}", viewer.id, asset_id, file_name);
+
+    storage
+        .client
+        .put_object()
+        .bucket(&storage.bucket)
+        .key(&s3_key)
+        .content_type(&content_type)
+        .body(ByteStream::from(data.to_vec()))
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to upload asset to S3: {e}")))?;
+
+    sqlx::query(
+        "INSERT INTO assets (id, owner_user_id, file_name, content_type, byte_size, s3_key) VALUES ($1, $2, $3, $4, $5, $6)",
+    )
+    .bind(asset_id)
+    .bind(viewer.id)
+    .bind(&file_name)
+    .bind(&content_type)
+    .bind(data.len() as i64)
+    .bind(&s3_key)
+    .execute(&state.db)
+    .await?;
+
+    let url = format!("/assets/{}/{}", asset_id, file_name);
+    Ok(Json(json!({ "id": asset_id.to_string(), "url": url })))
+}
+
+async fn serve_asset(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, _file_name)): Path<(Uuid, String)>,
+) -> Result<Response, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let storage = state
+        .artifact_storage
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Asset storage not configured.".to_string()))?;
+
+    let row = sqlx::query_as::<_, (String, String)>(
+        "SELECT s3_key, content_type FROM assets WHERE id = $1 AND owner_user_id = $2",
+    )
+    .bind(id)
+    .bind(viewer.id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::BadRequest("Asset not found.".to_string()))?;
+
+    let (s3_key, content_type) = row;
+
+    let response = storage
+        .client
+        .get_object()
+        .bucket(&storage.bucket)
+        .key(&s3_key)
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to fetch asset from S3: {e}")))?;
+
+    let bytes = response
+        .body
+        .collect()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to read asset body: {e}")))?
+        .into_bytes()
+        .to_vec();
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, content_type)
+        .header(CACHE_CONTROL, "private, max-age=3600")
+        .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
+        .body(Body::from(bytes))
+        .unwrap())
+}
+
 async fn generate_storm_internal(
     state: &AppState,
     viewer: &Viewer,
@@ -1889,6 +2566,16 @@ async fn generate_storm_internal(
     tokio::fs::create_dir_all(&workspace_dir).await?;
     write_workspace_scaffold(&workspace_dir, &prompt).await?;
     info!(user_id = %viewer.id, run_id = %run_id, "storm workspace scaffolded");
+
+    if !input.asset_ids.is_empty() {
+        let copied = copy_assets_to_workspace_inputs(state, viewer.id, &input.asset_ids, &workspace_dir).await?;
+        info!(
+            user_id = %viewer.id,
+            run_id = %run_id,
+            asset_count = copied.len(),
+            "copied assets to workspace inputs/"
+        );
+    }
 
     let preview_url = format!("/preview/{run_id}/");
     let workspace = Arc::new(Mutex::new(WorkspaceRuntimeState {
@@ -2599,6 +3286,87 @@ async fn write_workspace_scaffold(workspace_dir: &StdPath, prompt: &str) -> Resu
     Ok(())
 }
 
+async fn copy_assets_to_workspace_inputs(
+    state: &AppState,
+    user_id: Uuid,
+    asset_ids: &[(Uuid, String)],
+    workspace_dir: &StdPath,
+) -> Result<Vec<(String, String)>, AppError> {
+    if asset_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let storage = match &state.artifact_storage {
+        Some(s) => s,
+        None => return Ok(Vec::new()),
+    };
+    let inputs_dir = workspace_dir.join("inputs");
+    tokio::fs::create_dir_all(&inputs_dir).await?;
+
+    let mut results = Vec::new();
+    let mut used_names = std::collections::HashSet::new();
+
+    for (asset_id, description) in asset_ids {
+        let row = sqlx::query_as::<_, (String, String)>(
+            "SELECT s3_key, file_name FROM assets WHERE id = $1 AND owner_user_id = $2",
+        )
+        .bind(asset_id)
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await?;
+
+        let Some((s3_key, file_name)) = row else {
+            warn!(asset_id = %asset_id, "asset not found when copying to workspace inputs");
+            continue;
+        };
+
+        let response = match storage
+            .client
+            .get_object()
+            .bucket(&storage.bucket)
+            .key(&s3_key)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                warn!(asset_id = %asset_id, error = %e, "failed to fetch asset from S3");
+                continue;
+            }
+        };
+
+        let bytes = response
+            .body
+            .collect()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to read asset body: {e}")))?
+            .into_bytes()
+            .to_vec();
+
+        // Disambiguate duplicate filenames
+        let mut dest_name = file_name.clone();
+        if used_names.contains(&dest_name) {
+            let short_id = &asset_id.to_string()[..8];
+            let path = StdPath::new(&file_name);
+            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            dest_name = if ext.is_empty() {
+                format!("{stem}_{short_id}")
+            } else {
+                format!("{stem}_{short_id}.{ext}")
+            };
+        }
+        used_names.insert(dest_name.clone());
+
+        let dest_path = inputs_dir.join(&dest_name);
+        tokio::fs::write(&dest_path, &bytes).await?;
+
+        let relative = format!("inputs/{dest_name}");
+        results.push((relative, description.clone()));
+    }
+
+    Ok(results)
+}
+
 async fn get_owned_run(
     state: &AppState,
     user_id: Uuid,
@@ -2749,7 +3517,7 @@ fn prompt_overrides(role: StormAgentRole) -> Vec<PromptSectionOverride> {
 fn compose_agent_prompt(role: StormAgentRole, prompt: String) -> String {
     match role {
         StormAgentRole::Root => format!(
-            "Design a distinctive design-language document for this seed:\n\n{prompt}\n\nRequirements:\n- produce a full static HTML artifact in the workspace\n- use index.html and styles.css as the primary files\n- if web research helps, use search_web/fetch_url selectively\n- iterate yourself instead of delegating to other agents\n- render and inspect the artifact before finishing\n- call submit_result(title=..., summary=...) once the result is coherent"
+            "Design a distinctive design-language document for this seed:\n\n{prompt}\n\nRequirements:\n- produce a full static HTML artifact in the workspace\n- use index.html and styles.css as the primary files\n- if web research helps, use search_web/fetch_url selectively\n- iterate yourself instead of delegating to other agents\n- render and inspect the artifact before finishing\n- an inputs/ directory may contain reference assets (images, fonts) — use copy_input to include any you want in the output\n- call submit_result(title=..., summary=...) once the result is coherent"
         ),
     }
 }
@@ -2916,6 +3684,22 @@ fn artifact_archive_key(user_id: Uuid, run_id: Uuid) -> String {
     format!("storm-runs/{user_id}/{run_id}.zip")
 }
 
+fn sanitize_download_name(title: &str, run_id: Uuid) -> String {
+    let mut base = title
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .collect::<String>();
+    while base.contains("--") {
+        base = base.replace("--", "-");
+    }
+    let base = base.trim_matches('-');
+    if base.is_empty() {
+        format!("designstorm-{run_id}.zip")
+    } else {
+        format!("{base}-{run_id}.zip")
+    }
+}
+
 async fn persist_workspace_archive(
     state: &AppState,
     user_id: Uuid,
@@ -2951,6 +3735,23 @@ async fn load_persisted_workspace_entry(
     run_id: Uuid,
     logical_path: &str,
 ) -> Result<Option<Vec<u8>>, AppError> {
+    let Some(bytes) = load_persisted_workspace_archive(state, user_id, run_id).await? else {
+        return Ok(None);
+    };
+
+    tokio::task::spawn_blocking({
+        let logical_path = logical_path.to_string();
+        move || extract_zip_entry(&bytes, &logical_path)
+    })
+    .await
+    .map_err(|error| AppError::Internal(error.to_string()))?
+}
+
+async fn load_persisted_workspace_archive(
+    state: &AppState,
+    user_id: Uuid,
+    run_id: Uuid,
+) -> Result<Option<Vec<u8>>, AppError> {
     let Some(storage) = &state.artifact_storage else {
         return Ok(None);
     };
@@ -2965,7 +3766,7 @@ async fn load_persisted_workspace_entry(
     {
         Ok(response) => response,
         Err(error) => {
-            warn!(user_id = %user_id, run_id = %run_id, path = %logical_path, error = %error, "failed to fetch persisted artifact archive");
+            warn!(user_id = %user_id, run_id = %run_id, error = %error, "failed to fetch persisted artifact archive");
             return Ok(None);
         }
     };
@@ -2977,13 +3778,7 @@ async fn load_persisted_workspace_entry(
         .map_err(|error| AppError::Internal(format!("Failed to read persisted artifact archive: {error}")))?
         .into_bytes()
         .to_vec();
-
-    tokio::task::spawn_blocking({
-        let logical_path = logical_path.to_string();
-        move || extract_zip_entry(&bytes, &logical_path)
-    })
-    .await
-    .map_err(|error| AppError::Internal(error.to_string()))?
+    Ok(Some(bytes))
 }
 
 fn zip_workspace_dir(workspace_dir: &StdPath) -> Result<Vec<u8>, AppError> {
@@ -3004,6 +3799,9 @@ fn zip_workspace_dir(workspace_dir: &StdPath) -> Result<Vec<u8>, AppError> {
             .strip_prefix(workspace_dir)
             .map_err(|error| AppError::Internal(error.to_string()))?;
         let name = relative.to_string_lossy().replace('\\', "/");
+        if name.starts_with("inputs/") {
+            continue;
+        }
         writer
             .start_file(name, options)
             .map_err(|error| AppError::Internal(error.to_string()))?;
@@ -3085,7 +3883,8 @@ async fn load_board_edges(state: &AppState, user_id: Uuid) -> Vec<BoardEdgeSumma
     match sqlx::query_as::<_, BoardEdgeRow>(
         r#"
         SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-               source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t
+               source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+               source_slot, target_slot
         FROM board_edges
         WHERE owner_user_id = $1
         ORDER BY created_at ASC
@@ -3148,27 +3947,132 @@ async fn fetch_wikipedia_random(http: &Client) -> Result<serde_json::Value, AppE
 // ─── Board node route handlers ───
 
 fn valid_board_node_type(node_type: &str) -> bool {
-    matches!(node_type, "entropy" | "user_input" | "generate")
+    matches!(
+        node_type,
+        "entropy"
+            | "user_input"
+            | "generate"
+            | "color_palette"
+            | "pick_k"
+            | "set"
+            | "image"
+            | "int_value"
+            | "float_value"
+            | "string_value"
+            | "bool_value"
+            | "font"
+    )
+}
+
+struct SlotDef {
+    name: &'static str,
+    direction: &'static str,
+    value_type: &'static str,
+    multiple: bool,
+}
+
+fn node_slots(node_type: &str) -> &'static [SlotDef] {
+    match node_type {
+        "entropy" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
+        "user_input" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
+        "design" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
+        "generate" => &[
+            SlotDef { name: "sources", direction: "in", value_type: "node_ref", multiple: true },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+        ],
+        "color_palette" => &[
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "colors_out", direction: "out", value_type: "color[]", multiple: false },
+        ],
+        "image" => &[
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "image_out", direction: "out", value_type: "image", multiple: false },
+        ],
+        "set" => &[
+            SlotDef { name: "members", direction: "in", value_type: "node_ref", multiple: true },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+        ],
+        "pick_k" => &[
+            SlotDef { name: "sources", direction: "in", value_type: "node_ref", multiple: true },
+            SlotDef { name: "k", direction: "in", value_type: "int", multiple: false },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+        ],
+        "int_value" => &[SlotDef { name: "value", direction: "out", value_type: "int", multiple: false }],
+        "float_value" => &[SlotDef { name: "value", direction: "out", value_type: "float", multiple: false }],
+        "string_value" => &[SlotDef { name: "value", direction: "out", value_type: "string", multiple: false }],
+        "bool_value" => &[SlotDef { name: "value", direction: "out", value_type: "bool", multiple: false }],
+        "font" => &[
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+        ],
+        _ => &[],
+    }
+}
+
+fn valid_slot_connection(
+    source_type: &str, source_slot: &str,
+    target_type: &str, target_slot: &str,
+) -> bool {
+    let src_slots = node_slots(source_type);
+    let tgt_slots = node_slots(target_type);
+    let src = src_slots.iter().find(|s| s.name == source_slot && s.direction == "out");
+    let tgt = tgt_slots.iter().find(|s| s.name == target_slot && s.direction == "in");
+    match (src, tgt) {
+        (Some(s), Some(t)) => {
+            s.value_type == t.value_type
+                || s.value_type == "any"
+                || t.value_type == "any"
+        }
+        _ => false,
+    }
 }
 
 fn valid_board_connection(source_type: &str, target_type: &str) -> bool {
-    matches!(
-        (source_type, target_type),
-        ("entropy", "generate")
-            | ("user_input", "generate")
-            | ("design", "generate")
-            | ("generate", "design")
-    )
+    // Check if there's any valid slot connection between these types
+    let src_slots = node_slots(source_type);
+    let tgt_slots = node_slots(target_type);
+    for s in src_slots {
+        if s.direction != "out" { continue; }
+        for t in tgt_slots {
+            if t.direction != "in" { continue; }
+            if s.value_type == t.value_type || s.value_type == "any" || t.value_type == "any" {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn default_slots_for_connection(source_type: &str, target_type: &str) -> (&'static str, &'static str) {
+    let src_slots = node_slots(source_type);
+    let tgt_slots = node_slots(target_type);
+    for s in src_slots {
+        if s.direction != "out" { continue; }
+        for t in tgt_slots {
+            if t.direction != "in" { continue; }
+            if s.value_type == t.value_type || s.value_type == "any" || t.value_type == "any" {
+                return (s.name, t.name);
+            }
+        }
+    }
+    ("out", "sources")
 }
 
 async fn default_board_node_content(
     state: &AppState,
     node_type: &str,
 ) -> Result<serde_json::Value, AppError> {
-    if node_type == "entropy" {
-        fetch_wikipedia_random(&state.http).await
-    } else {
-        Ok(json!({}))
+    match node_type {
+        "entropy" => fetch_wikipedia_random(&state.http).await,
+        "color_palette" => Ok(json!({"colors": []})),
+        "pick_k" => Ok(json!({"k": 1, "replace": false})),
+        "set" => Ok(json!({"title": "Set", "description": ""})),
+        "image" => Ok(json!({"url": "", "alt": ""})),
+        "int_value" => Ok(json!({"value": 0, "min": 0, "max": 100, "random": false})),
+        "float_value" => Ok(json!({"value": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "random": false})),
+        "string_value" => Ok(json!({"value": ""})),
+        "bool_value" => Ok(json!({"value": false})),
+        "font" => Ok(json!({"family": "", "weight": "400", "size": "16", "lineHeight": "1.5"})),
+        _ => Ok(json!({})),
     }
 }
 
@@ -3179,7 +4083,27 @@ async fn insert_board_node(
     position_x: f64,
     position_y: f64,
 ) -> Result<BoardNodeRow, AppError> {
-    let content = default_board_node_content(state, node_type).await?;
+    insert_board_node_with_preset(state, user_id, node_type, position_x, position_y, None).await
+}
+
+async fn insert_board_node_with_preset(
+    state: &AppState,
+    user_id: Uuid,
+    node_type: &str,
+    position_x: f64,
+    position_y: f64,
+    preset_id: Option<&str>,
+) -> Result<BoardNodeRow, AppError> {
+    let content = if let Some(pid) = preset_id {
+        if let Some(preset) = find_preset(pid) {
+            let value = random_preset_value(preset);
+            json!({"value": value, "preset": pid})
+        } else {
+            default_board_node_content(state, node_type).await?
+        }
+    } else {
+        default_board_node_content(state, node_type).await?
+    };
     Ok(sqlx::query_as::<_, BoardNodeRow>(
         r#"
         INSERT INTO board_nodes (owner_user_id, node_type, position_x, position_y, content)
@@ -3194,6 +4118,50 @@ async fn insert_board_node(
     .bind(&content)
     .fetch_one(&state.db)
     .await?)
+}
+
+async fn duplicate_board_node(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<DuplicateNodeRequest>,
+) -> Result<Json<BoardNodeSummary>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let source = sqlx::query_as::<_, BoardNodeRow>(
+        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
+    )
+    .bind(payload.source_id)
+    .bind(viewer.id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::BadRequest("Source node not found.".to_string()))?;
+
+    let offset = 40.0;
+    let row = sqlx::query_as::<_, BoardNodeRow>(
+        r#"
+        INSERT INTO board_nodes (owner_user_id, node_type, position_x, position_y, content, width, height)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height
+        "#,
+    )
+    .bind(viewer.id)
+    .bind(&source.node_type)
+    .bind(payload.position_x.unwrap_or(source.position_x + offset))
+    .bind(payload.position_y.unwrap_or(source.position_y + offset))
+    .bind(&source.content)
+    .bind(source.width)
+    .bind(source.height)
+    .fetch_one(&state.db)
+    .await?;
+
+    info!(
+        user_id = %viewer.id,
+        node_id = %row.id,
+        source_id = %payload.source_id,
+        node_type = %row.node_type,
+        "duplicated board node"
+    );
+
+    Ok(Json(BoardNodeSummary::from(row)))
 }
 
 async fn create_board_node(
@@ -3252,29 +4220,40 @@ async fn create_board_node_datastar(
         })));
     }
 
-    let row = insert_board_node(
+    let preset_id = payload.preset.as_deref().filter(|s| !s.is_empty());
+    let (effective_node_type, effective_preset) = if preset_id.is_some() {
+        ("string_value", preset_id)
+    } else {
+        (payload.node_type.as_str(), None)
+    };
+
+    let row = insert_board_node_with_preset(
         &state,
         viewer.id,
-        &payload.node_type,
+        effective_node_type,
         payload.position_x,
         payload.position_y,
+        effective_preset,
     )
     .await?;
 
     if let (Some(source_id), Some(source_type)) = (payload.source_id, payload.source_type.as_deref()) {
+        let (src_slot, tgt_slot) = default_slots_for_connection(source_type, &payload.node_type);
         let _ = sqlx::query_as::<_, BoardEdgeRow>(
             r#"
             INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type,
-                                     source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'top', 0.5)
-            ON CONFLICT (source_id, target_id) DO UPDATE SET
+                                     source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                                     source_slot, target_slot)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'top', 0.5, $8, $9)
+            ON CONFLICT (source_id, source_slot, target_id, target_slot) DO UPDATE SET
                 source_type = EXCLUDED.source_type,
                 source_anchor_side = EXCLUDED.source_anchor_side,
                 source_anchor_t = EXCLUDED.source_anchor_t,
                 target_anchor_side = EXCLUDED.target_anchor_side,
                 target_anchor_t = EXCLUDED.target_anchor_t
             RETURNING id, owner_user_id, source_id, source_type, target_id, target_type,
-                      source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t
+                      source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                      source_slot, target_slot
             "#,
         )
         .bind(viewer.id)
@@ -3284,6 +4263,8 @@ async fn create_board_node_datastar(
         .bind(&payload.node_type)
         .bind(&payload.source_anchor_side)
         .bind(payload.source_anchor_t)
+        .bind(src_slot)
+        .bind(tgt_slot)
         .fetch_one(&state.db)
         .await?;
     }
@@ -3299,13 +4280,40 @@ async fn create_board_node_datastar(
     })))
 }
 
+async fn list_presets() -> impl IntoResponse {
+    let list: Vec<serde_json::Value> = PRESETS.iter().map(|p| json!({
+        "id": p.id, "label": p.label, "icon": p.icon,
+    })).collect();
+    Json(list)
+}
+
 async fn reroll_board_node(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
-    let content = fetch_wikipedia_random(&state.http).await?;
+
+    // Check if this is a preset node — if so, reroll from the preset list
+    let existing = sqlx::query_as::<_, BoardNodeRow>(
+        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
+    )
+    .bind(id)
+    .bind(viewer.id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::BadRequest("Node not found.".to_string()))?;
+
+    let content = if let Some(preset_id) = existing.content.get("preset").and_then(|v| v.as_str()) {
+        if let Some(preset) = find_preset(preset_id) {
+            let value = random_preset_value(preset);
+            json!({"value": value, "preset": preset_id})
+        } else {
+            fetch_wikipedia_random(&state.http).await?
+        }
+    } else {
+        fetch_wikipedia_random(&state.http).await?
+    };
 
     sqlx::query(
         r#"UPDATE board_nodes SET content = $1 WHERE id = $2 AND owner_user_id = $3"#,
@@ -3453,35 +4461,32 @@ async fn create_board_edge(
     Json(payload): Json<CreateEdgeRequest>,
 ) -> Result<Json<BoardEdgeSummary>, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
-    let valid_types = ["design", "entropy", "user_input", "generate"];
-    if !valid_types.contains(&payload.source_type.as_str())
-        || !valid_types.contains(&payload.target_type.as_str())
-    {
-        return Err(AppError::BadRequest("Invalid edge type".to_string()));
-    }
 
-    // Only generate nodes can accept inputs; valid sources are entropy, user_input, design
-    let valid_connection = matches!(
-        (payload.source_type.as_str(), payload.target_type.as_str()),
-        ("entropy", "generate") | ("user_input", "generate") | ("design", "generate") | ("generate", "design")
-    );
-    if !valid_connection {
-        return Err(AppError::BadRequest("Invalid connection: only entropy, input, and design nodes can wire into generate nodes.".to_string()));
+    if !valid_slot_connection(
+        &payload.source_type, &payload.source_slot,
+        &payload.target_type, &payload.target_slot,
+    ) {
+        return Err(AppError::BadRequest(format!(
+            "Invalid connection: {}.{} → {}.{}",
+            payload.source_type, payload.source_slot, payload.target_type, payload.target_slot
+        )));
     }
 
     let row = sqlx::query_as::<_, BoardEdgeRow>(
         r#"
         INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type,
-                                 source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (source_id, target_id) DO UPDATE SET
+                                 source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                                 source_slot, target_slot)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        ON CONFLICT (source_id, source_slot, target_id, target_slot) DO UPDATE SET
             source_type = EXCLUDED.source_type,
             source_anchor_side = EXCLUDED.source_anchor_side,
             source_anchor_t = EXCLUDED.source_anchor_t,
             target_anchor_side = EXCLUDED.target_anchor_side,
             target_anchor_t = EXCLUDED.target_anchor_t
         RETURNING id, owner_user_id, source_id, source_type, target_id, target_type,
-                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t
+                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                  source_slot, target_slot
         "#,
     )
     .bind(viewer.id)
@@ -3493,6 +4498,8 @@ async fn create_board_edge(
     .bind(payload.source_anchor_t)
     .bind(&payload.target_anchor_side)
     .bind(payload.target_anchor_t)
+    .bind(&payload.source_slot)
+    .bind(&payload.target_slot)
     .fetch_one(&state.db)
     .await?;
 

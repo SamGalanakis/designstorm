@@ -59,9 +59,11 @@ type DraftContext = {
   label: string;
 };
 
+type BoardNodeType = "entropy" | "user_input" | "generate" | "color_palette" | "pick_k" | "set" | "image" | "int_value" | "float_value" | "string_value" | "bool_value" | "font";
+
 type BoardNode = {
   id: string;
-  nodeType: "entropy" | "user_input" | "generate";
+  nodeType: BoardNodeType;
   positionX: number;
   positionY: number;
   content: Record<string, unknown>;
@@ -80,6 +82,42 @@ type BoardEdge = {
   sourceAnchorT: number | null;
   targetAnchorSide: string | null;
   targetAnchorT: number | null;
+  sourceSlot: string;
+  targetSlot: string;
+};
+
+type SlotDef = { name: string; direction: "in" | "out"; valueType: string; multiple: boolean };
+
+const NODE_SLOTS: Record<string, SlotDef[]> = {
+  entropy: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  user_input: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  design: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  generate: [
+    { name: "sources", direction: "in", valueType: "node_ref", multiple: true },
+    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+  ],
+  color_palette: [
+    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+    { name: "colors_out", direction: "out", valueType: "color[]", multiple: false },
+  ],
+  image: [
+    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+    { name: "image_out", direction: "out", valueType: "image", multiple: false },
+  ],
+  set: [
+    { name: "members", direction: "in", valueType: "node_ref", multiple: true },
+    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+  ],
+  pick_k: [
+    { name: "sources", direction: "in", valueType: "node_ref", multiple: true },
+    { name: "k", direction: "in", valueType: "int", multiple: false },
+    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+  ],
+  int_value: [{ name: "value", direction: "out", valueType: "int", multiple: false }],
+  float_value: [{ name: "value", direction: "out", valueType: "float", multiple: false }],
+  string_value: [{ name: "value", direction: "out", valueType: "string", multiple: false }],
+  bool_value: [{ name: "value", direction: "out", valueType: "bool", multiple: false }],
+  font: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
 };
 
 type AnchorSide = "top" | "bottom" | "left" | "right";
@@ -107,12 +145,15 @@ type RadialItem = {
   variant?: "default" | "primary" | "danger";
   disabled?: boolean;
   action: () => void;
+  children?: RadialItem[];
 };
 
 type RadialMenuState = {
   open: boolean;
   position: Point;
   selectedIndex: number | null;
+  subMenuParent: RadialItem[] | null;
+  subMenuItems: RadialItem[] | null;
 };
 
 type StormState = {
@@ -123,6 +164,7 @@ type StormState = {
   lineage: Map<string, string[]>;
   activeRunId: string | null;
   activeNodeId: string | null;
+  clipboardNodeId: string | null;
   focusedRunId: string | null;
   combineSourceId: string | null;
   draftContext: DraftContext | null;
@@ -152,6 +194,7 @@ type CreateBoardNodeOptions = {
   sourceId?: string;
   sourceType?: string;
   sourceAnchor?: AnchorPoint;
+  preset?: string;
 };
 
 type ChunkRecord = {
@@ -210,6 +253,24 @@ const GENERATE_NODE_WIDTH = 200;
 const GENERATE_NODE_HEIGHT = 140;
 const INPUT_NODE_WIDTH = 220;
 const INPUT_NODE_HEIGHT = 120;
+const PALETTE_NODE_WIDTH = 200;
+const PALETTE_NODE_HEIGHT = 140;
+const PICKK_NODE_WIDTH = 160;
+const PICKK_NODE_HEIGHT = 120;
+const SET_NODE_WIDTH = 200;
+const SET_NODE_HEIGHT = 140;
+const IMAGE_NODE_WIDTH = 200;
+const IMAGE_NODE_HEIGHT = 160;
+const INT_NODE_WIDTH = 150;
+const INT_NODE_HEIGHT = 100;
+const FLOAT_NODE_WIDTH = 150;
+const FLOAT_NODE_HEIGHT = 100;
+const STRING_NODE_WIDTH = 160;
+const STRING_NODE_HEIGHT = 90;
+const BOOL_NODE_WIDTH = 140;
+const BOOL_NODE_HEIGHT = 80;
+const FONT_NODE_WIDTH = 180;
+const FONT_NODE_HEIGHT = 160;
 const EDGE_HANDLE_PROXIMITY = 30;
 const INITIAL_PAN: Point = { x: 160, y: 120 };
 const BACKGROUND_CHUNK_WORLD_SIZE = 1536;
@@ -229,6 +290,8 @@ let isSyncing = false;
 let authPollTimer: number | null = null;
 const telemetryCooldowns = new Map<string, number>();
 
+let presetList: Array<{ id: string; label: string; icon: string }> = [];
+
 const state: StormState = {
   runs: [],
   boardNodes: [],
@@ -237,6 +300,7 @@ const state: StormState = {
   lineage: new Map(),
   activeRunId: null,
   activeNodeId: null,
+  clipboardNodeId: null,
   focusedRunId: null,
   combineSourceId: null,
   draftContext: null,
@@ -244,7 +308,7 @@ const state: StormState = {
   pan: { ...INITIAL_PAN },
   scale: 1,
   pointerState: null,
-  radialMenu: { open: false, position: { x: 0, y: 0 }, selectedIndex: null },
+  radialMenu: { open: false, position: { x: 0, y: 0 }, selectedIndex: null, subMenuParent: null, subMenuItems: null },
   lastCursor: { x: 0, y: 0 },
   spacePanHeld: false,
   boardTool: "select",
@@ -342,11 +406,26 @@ function getVisibleWorldBounds(): WorldBounds {
 function getDefaultNodeDimensions(id: string): { w: number; h: number } {
   const boardNode = state.boardNodes.find((n) => n.id === id);
   if (boardNode) {
-    if (boardNode.nodeType === "generate") return { w: GENERATE_NODE_WIDTH, h: GENERATE_NODE_HEIGHT };
-    if (boardNode.nodeType === "user_input") return { w: INPUT_NODE_WIDTH, h: INPUT_NODE_HEIGHT };
-    return { w: ENTROPY_NODE_WIDTH, h: ENTROPY_NODE_HEIGHT };
+    return nodeDimensions(boardNode.nodeType);
   }
   return { w: CARD_WIDTH, h: CARD_HEIGHT };
+}
+
+function nodeDimensions(nodeType: string): { w: number; h: number } {
+  switch (nodeType) {
+    case "generate": return { w: GENERATE_NODE_WIDTH, h: GENERATE_NODE_HEIGHT };
+    case "user_input": return { w: INPUT_NODE_WIDTH, h: INPUT_NODE_HEIGHT };
+    case "color_palette": return { w: PALETTE_NODE_WIDTH, h: PALETTE_NODE_HEIGHT };
+    case "pick_k": return { w: PICKK_NODE_WIDTH, h: PICKK_NODE_HEIGHT };
+    case "set": return { w: SET_NODE_WIDTH, h: SET_NODE_HEIGHT };
+    case "image": return { w: IMAGE_NODE_WIDTH, h: IMAGE_NODE_HEIGHT };
+    case "int_value": return { w: INT_NODE_WIDTH, h: INT_NODE_HEIGHT };
+    case "float_value": return { w: FLOAT_NODE_WIDTH, h: FLOAT_NODE_HEIGHT };
+    case "string_value": return { w: STRING_NODE_WIDTH, h: STRING_NODE_HEIGHT };
+    case "bool_value": return { w: BOOL_NODE_WIDTH, h: BOOL_NODE_HEIGHT };
+    case "font": return { w: FONT_NODE_WIDTH, h: FONT_NODE_HEIGHT };
+    default: return { w: ENTROPY_NODE_WIDTH, h: ENTROPY_NODE_HEIGHT };
+  }
 }
 
 function getNodeDimensions(id: string): { w: number; h: number } {
@@ -1641,6 +1720,9 @@ function hydrateBoardFromDom(): void {
   renderRuns();
   renderBoardNodes();
   updateGenerateInputs();
+  updateSetMembers();
+  updatePickKInfo();
+  renderSlotHandles();
   renderInspector();
   renderFocus();
 
@@ -1848,6 +1930,7 @@ function bindNodeInteractions(): void {
     if (state.spacePanHeld || state.boardTool === "pan") return;
     if (wireJustCompleted) { wireJustCompleted = false; return; }
     const target = e.target as HTMLElement;
+    if (target.closest("[data-node-menu]")) return;
     if (target.closest(".edge-handle")) return;
     const action = target.closest<HTMLElement>("[data-run-action]")?.dataset.runAction;
     const node = target.closest<HTMLElement>(".storm-node");
@@ -1861,6 +1944,7 @@ function bindNodeInteractions(): void {
 
   container.addEventListener("dblclick", (e) => {
     if (state.spacePanHeld || state.boardTool === "pan") return;
+    if ((e.target as HTMLElement).closest("[data-node-menu]")) return;
     const node = (e.target as HTMLElement).closest<HTMLElement>(".storm-node");
     if (node?.dataset.runId) openFullscreen(node.dataset.runId);
   });
@@ -1869,6 +1953,7 @@ function bindNodeInteractions(): void {
     if (state.spacePanHeld || state.boardTool === "pan") return;
     const target = e.target as HTMLElement;
     if (target.closest("[data-run-action]")) return;
+    if (target.closest("[data-node-menu]")) return;
 
     const resizeHandle = target.closest<HTMLElement>("[data-node-resize-handle]");
     const resizeRun = target.closest<HTMLElement>(".storm-node");
@@ -2009,6 +2094,8 @@ function bindNodeInteractions(): void {
       const el = container.querySelector<HTMLElement>(`.board-node[data-node-id="${state.pointerState.nodeId}"]`);
       if (el) el.style.transform = `translate(${next.x}px, ${next.y}px)`;
       renderConnections();
+      // Highlight set nodes when dragging over them
+      highlightDropTargetSet(state.pointerState.nodeId, next);
       return;
     }
 
@@ -2092,10 +2179,22 @@ function bindNodeInteractions(): void {
     }
 
     if (state.pointerState.mode === "drag-board-node") {
-      const { nodeId } = state.pointerState;
+      const { nodeId, moved } = state.pointerState;
       (e.target as HTMLElement).closest<HTMLElement>(".board-node")?.releasePointerCapture(e.pointerId);
+      // Clear set drop highlight
+      document.querySelectorAll(".set-shell.is-drop-target").forEach((el) =>
+        el.classList.remove("is-drop-target")
+      );
       const pos = state.positions.get(nodeId);
-      if (pos && state.pointerState.moved) {
+      if (pos && moved) {
+        // Check if dropped onto a set node
+        const targetSet = findOverlappingSet(nodeId, pos);
+        if (targetSet) {
+          dropNodeIntoSet(nodeId, targetSet);
+          state.pointerState = null;
+          updateBoardTransform();
+          return;
+        }
         fetch(`/nodes/${nodeId}/position`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2136,16 +2235,14 @@ function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNo
   const sourceTypeInput = $("board-node-create-source-type") as HTMLInputElement | null;
   const sourceAnchorSideInput = $("board-node-create-source-anchor-side") as HTMLInputElement | null;
   const sourceAnchorTInput = $("board-node-create-source-anchor_t") as HTMLInputElement | null;
+  const presetInput = $("board-node-create-preset") as HTMLInputElement | null;
   const submit = $("board-node-create-submit") as HTMLButtonElement | null;
-  if (!form || !typeInput || !xInput || !yInput || !sourceIdInput || !sourceTypeInput || !sourceAnchorSideInput || !sourceAnchorTInput || !submit) {
+  if (!form || !typeInput || !xInput || !yInput || !sourceIdInput || !sourceTypeInput || !sourceAnchorSideInput || !sourceAnchorTInput || !presetInput || !submit) {
     console.error("Board node create form is missing.");
     return;
   }
 
-  const dims =
-    nodeType === "generate" ? { w: GENERATE_NODE_WIDTH, h: GENERATE_NODE_HEIGHT }
-      : nodeType === "user_input" ? { w: INPUT_NODE_WIDTH, h: INPUT_NODE_HEIGHT }
-        : { w: ENTROPY_NODE_WIDTH, h: ENTROPY_NODE_HEIGHT };
+  const dims = nodeDimensions(nodeType);
   const centeredWorldPos = {
     x: worldPos.x - dims.w * 0.5,
     y: worldPos.y - dims.h * 0.5,
@@ -2158,11 +2255,13 @@ function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNo
   sourceTypeInput.value = opts?.sourceType ?? "";
   sourceAnchorSideInput.value = opts?.sourceAnchor?.side ?? "";
   sourceAnchorTInput.value = opts?.sourceAnchor ? String(opts.sourceAnchor.t) : "";
+  presetInput.value = opts?.preset ?? "";
 
   sourceIdInput.disabled = !hasSource;
   sourceTypeInput.disabled = !hasSource;
   sourceAnchorSideInput.disabled = !hasSource || !opts?.sourceAnchor?.side;
   sourceAnchorTInput.disabled = !hasSource || !opts?.sourceAnchor;
+  presetInput.disabled = !opts?.preset;
 
   if (typeof form.requestSubmit === "function") {
     form.requestSubmit(submit);
@@ -2172,10 +2271,27 @@ function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNo
   form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 }
 
+function defaultSlotsForConnection(sourceType: string, targetType: string): { sourceSlot: string; targetSlot: string } {
+  const srcSlots = NODE_SLOTS[sourceType] ?? [];
+  const tgtSlots = NODE_SLOTS[targetType] ?? [];
+  for (const s of srcSlots) {
+    if (s.direction !== "out") continue;
+    for (const t of tgtSlots) {
+      if (t.direction !== "in") continue;
+      if (s.valueType === t.valueType || s.valueType === "any" || t.valueType === "any") {
+        return { sourceSlot: s.name, targetSlot: t.name };
+      }
+    }
+  }
+  return { sourceSlot: "out", targetSlot: "sources" };
+}
+
 async function createBoardEdge(
   sourceId: string, sourceType: string, targetId: string, targetType: string,
-  sourceAnchor?: AnchorPoint, targetAnchor?: AnchorPoint
+  sourceAnchor?: AnchorPoint, targetAnchor?: AnchorPoint,
+  sourceSlot?: string, targetSlot?: string,
 ): Promise<void> {
+  const slots = (sourceSlot && targetSlot) ? { sourceSlot, targetSlot } : defaultSlotsForConnection(sourceType, targetType);
   try {
     const resp = await fetch("/edges", {
       method: "POST",
@@ -2188,6 +2304,8 @@ async function createBoardEdge(
         source_anchor_t: sourceAnchor?.t ?? null,
         target_anchor_side: targetAnchor?.side ?? null,
         target_anchor_t: targetAnchor?.t ?? null,
+        source_slot: slots.sourceSlot,
+        target_slot: slots.targetSlot,
       }),
     });
     if (!resp.ok) { console.error("Failed to create edge:", resp.statusText); return; }
@@ -2195,6 +2313,8 @@ async function createBoardEdge(
     state.edges.push(edge);
     renderConnections();
     updateGenerateInputs();
+    updateSetMembers();
+    updatePickKInfo();
   } catch (err) {
     console.error("Failed to create edge:", err);
   }
@@ -2219,15 +2339,72 @@ function showImagePopover(src: string): void {
 
 // ─── Edge connection rules ───
 
-const VALID_CONNECTIONS: Record<string, string[]> = {
-  entropy: ["generate"],
-  user_input: ["generate"],
-  design: ["generate"],
-  generate: [],  // generate outputs are auto-created by the run handler
-};
-
 function canConnect(sourceType: string, targetType: string): boolean {
-  return VALID_CONNECTIONS[sourceType]?.includes(targetType) ?? false;
+  const srcSlots = NODE_SLOTS[sourceType] ?? [];
+  const tgtSlots = NODE_SLOTS[targetType] ?? [];
+  for (const s of srcSlots) {
+    if (s.direction !== "out") continue;
+    for (const t of tgtSlots) {
+      if (t.direction !== "in") continue;
+      if (s.valueType === t.valueType || s.valueType === "any" || t.valueType === "any") return true;
+    }
+  }
+  return false;
+}
+
+// ─── Drag-into-set helpers ───
+
+function findOverlappingSet(draggedNodeId: string, pos: Point): BoardNode | null {
+  const draggedNode = state.boardNodes.find((n) => n.id === draggedNodeId);
+  if (!draggedNode) return null;
+  // Don't allow dropping a set into itself or a non-droppable type
+  if (draggedNode.nodeType === "generate") return null;
+  const dragDims = getNodeDimensions(draggedNodeId);
+  const dragCx = pos.x + dragDims.w / 2;
+  const dragCy = pos.y + dragDims.h / 2;
+
+  for (const node of state.boardNodes) {
+    if (node.nodeType !== "set" || node.id === draggedNodeId) continue;
+    const setPos = state.positions.get(node.id);
+    if (!setPos) continue;
+    const setDims = getNodeDimensions(node.id);
+    if (
+      dragCx >= setPos.x && dragCx <= setPos.x + setDims.w &&
+      dragCy >= setPos.y && dragCy <= setPos.y + setDims.h
+    ) {
+      return node;
+    }
+  }
+  return null;
+}
+
+function highlightDropTargetSet(draggedNodeId: string, pos: Point): void {
+  // Clear previous highlights
+  document.querySelectorAll(".set-shell.is-drop-target").forEach((el) =>
+    el.classList.remove("is-drop-target")
+  );
+  const target = findOverlappingSet(draggedNodeId, pos);
+  if (target) {
+    const el = document.querySelector(`.board-node[data-node-id="${target.id}"] .set-shell`);
+    el?.classList.add("is-drop-target");
+  }
+}
+
+async function dropNodeIntoSet(nodeId: string, setNode: BoardNode): Promise<void> {
+  const node = state.boardNodes.find((n) => n.id === nodeId);
+  if (!node) return;
+
+  // Delete all edges connected to the dragged node
+  const edgesToRemove = state.edges.filter((e) => e.sourceId === nodeId || e.targetId === nodeId);
+  for (const edge of edgesToRemove) {
+    try {
+      await fetch(`/edges/${edge.id}`, { method: "DELETE", credentials: "include" });
+    } catch {}
+  }
+  state.edges = state.edges.filter((e) => e.sourceId !== nodeId && e.targetId !== nodeId);
+
+  // Create membership edge: dragged node → set's "members" slot
+  await createBoardEdge(nodeId, node.nodeType, setNode.id, "set", undefined, undefined, "out", "members");
 }
 
 // ─── Delete board node ───
@@ -2253,6 +2430,38 @@ async function deleteBoardNode(nodeId: string): Promise<void> {
   el?.remove();
   renderConnections();
   updateGenerateInputs();
+  updateSetMembers();
+  updatePickKInfo();
+}
+
+async function duplicateBoardNode(sourceNodeId: string): Promise<void> {
+  const sourceNode = state.boardNodes.find((n) => n.id === sourceNodeId);
+  if (!sourceNode) return;
+  const sourcePos = state.positions.get(sourceNodeId);
+  try {
+    const resp = await fetch("/nodes/duplicate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        source_id: sourceNodeId,
+        position_x: sourcePos ? sourcePos.x + 40 : undefined,
+        position_y: sourcePos ? sourcePos.y + 40 : undefined,
+      }),
+    });
+    if (!resp.ok) {
+      console.error("Failed to duplicate node:", resp.statusText);
+      return;
+    }
+    const newNode: BoardNode = await resp.json();
+    state.boardNodes.push(newNode);
+    state.positions.set(newNode.id, { x: newNode.positionX, y: newNode.positionY });
+    state.activeNodeId = newNode.id;
+    renderBoardNodes();
+    renderConnections();
+  } catch (err) {
+    console.error("Failed to duplicate node:", err);
+  }
 }
 
 async function deleteRun(runId: string): Promise<void> {
@@ -2321,6 +2530,25 @@ function removeEdgeHandles(): void {
   }
 }
 
+function getSourceLabel(edge: BoardEdge): string {
+  const srcNode = state.boardNodes.find((n) => n.id === edge.sourceId);
+  const srcRun = state.runs.find((r) => r.id === edge.sourceId);
+  if (srcNode) {
+    switch (srcNode.nodeType) {
+      case "entropy": return (srcNode.content.title as string) ?? "Entropy";
+      case "user_input": return "Input";
+      case "color_palette": return "Palette";
+      case "image": return "Image";
+      case "set": return (srcNode.content.title as string) ?? "Set";
+      case "pick_k": return `Pick ${srcNode.content.k ?? 1}`;
+      case "font": return (srcNode.content.family as string) || "Font";
+      default: return srcNode.nodeType;
+    }
+  }
+  if (srcRun) return srcRun.title;
+  return edge.sourceType;
+}
+
 function updateGenerateInputs(): void {
   for (const node of state.boardNodes) {
     if (node.nodeType !== "generate") continue;
@@ -2333,14 +2561,447 @@ function updateGenerateInputs(): void {
       continue;
     }
 
-    inputsEl.innerHTML = connectedEdges.map((edge) => {
-      const srcNode = state.boardNodes.find((n) => n.id === edge.sourceId);
-      const srcRun = state.runs.find((r) => r.id === edge.sourceId);
-      let label = edge.sourceType;
-      if (srcNode?.nodeType === "entropy") label = (srcNode.content.title as string) ?? "Entropy";
-      else if (srcRun) label = srcRun.title;
-      return `<span class="generate-input-chip">${escapeHtml(label)}</span>`;
-    }).join("");
+    inputsEl.innerHTML = connectedEdges.map((edge) =>
+      `<span class="generate-input-chip">${escapeHtml(getSourceLabel(edge))}</span>`
+    ).join("");
+  }
+}
+
+function updateSetMembers(): void {
+  for (const node of state.boardNodes) {
+    if (node.nodeType !== "set") continue;
+    const membersEl = document.getElementById(`set-members-${node.id}`);
+    if (!membersEl) continue;
+
+    const memberEdges = state.edges.filter((e) => e.targetId === node.id && e.targetSlot === "members");
+    if (memberEdges.length === 0) {
+      membersEl.innerHTML = "";
+      continue;
+    }
+
+    membersEl.innerHTML = memberEdges.map((edge) =>
+      `<span class="set-member-chip">${escapeHtml(getSourceLabel(edge))}</span>`
+    ).join("");
+  }
+}
+
+function updatePickKInfo(): void {
+  for (const node of state.boardNodes) {
+    if (node.nodeType !== "pick_k") continue;
+    const infoEl = document.getElementById(`pickk-info-${node.id}`);
+    if (!infoEl) continue;
+    const k = (node.content.k as number) ?? 1;
+    const withReplace = node.content.replace === true;
+    const sourceCount = state.edges.filter((e) => e.targetId === node.id && e.targetSlot === "sources").length;
+    const suffix = withReplace ? " w/ replace" : "";
+    infoEl.textContent = `Pick ${k} from ${sourceCount} source${sourceCount !== 1 ? "s" : ""}${suffix}`;
+  }
+}
+
+// ─── Node content persistence helper ───
+
+function persistNodeContent(nodeId: string, content: Record<string, unknown>): void {
+  fetch(`/nodes/${nodeId}/content`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(content),
+  }).catch(() => {});
+}
+
+// ─── Color palette helpers ───
+
+function renderSwatches(nodeId: string, colors: string[]): void {
+  const el = document.getElementById(`swatches-${nodeId}`);
+  if (!el) return;
+  el.innerHTML = colors.map((c) =>
+    `<div class="palette-swatch" data-color="${escapeHtml(c)}" style="background: ${escapeHtml(c)};"><button class="palette-swatch-remove" data-action="remove-swatch" title="Remove">&times;</button></div>`
+  ).join("");
+}
+
+// ─── Color picker ───
+
+let colorPickerEl: HTMLElement | null = null;
+// OKLCH color picker state: L (lightness 0-1), C (chroma 0-0.4), H (hue 0-360)
+let colorPickerState: { nodeId: string; swatchIndex: number; hue: number; chroma: number; lightness: number } | null = null;
+
+// OKLCH → linear sRGB via OKLab
+function oklchToLinearRgb(L: number, C: number, H: number): [number, number, number] {
+  const hRad = (H * Math.PI) / 180;
+  const a = C * Math.cos(hRad);
+  const b = C * Math.sin(hRad);
+  // OKLab → LMS (approximate inverse)
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+  // LMS → linear sRGB
+  return [
+    +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  ];
+}
+
+function linearToSrgb(c: number): number {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+function srgbToLinear(c: number): number {
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+function oklchToHex(L: number, C: number, H: number): string {
+  const [lr, lg, lb] = oklchToLinearRgb(L, C, H);
+  const r = Math.round(Math.max(0, Math.min(1, linearToSrgb(lr))) * 255);
+  const g = Math.round(Math.max(0, Math.min(1, linearToSrgb(lg))) * 255);
+  const b = Math.round(Math.max(0, Math.min(1, linearToSrgb(lb))) * 255);
+  return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+}
+
+function oklchInGamut(L: number, C: number, H: number): boolean {
+  const [lr, lg, lb] = oklchToLinearRgb(L, C, H);
+  const r = linearToSrgb(lr), g = linearToSrgb(lg), b = linearToSrgb(lb);
+  return r >= -0.001 && r <= 1.001 && g >= -0.001 && g <= 1.001 && b >= -0.001 && b <= 1.001;
+}
+
+function hexToOklch(hex: string): { lightness: number; chroma: number; hue: number } {
+  hex = hex.replace("#", "");
+  const r = srgbToLinear(parseInt(hex.slice(0, 2), 16) / 255);
+  const g = srgbToLinear(parseInt(hex.slice(2, 4), 16) / 255);
+  const b = srgbToLinear(parseInt(hex.slice(4, 6), 16) / 255);
+  // linear sRGB → LMS
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  // LMS → OKLab
+  const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
+  const a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
+  const bk = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
+  const C = Math.sqrt(a * a + bk * bk);
+  let H = (Math.atan2(bk, a) * 180) / Math.PI;
+  if (H < 0) H += 360;
+  return { lightness: L, chroma: C, hue: H };
+}
+
+const OKLCH_MAX_CHROMA = 0.4;
+
+function showColorPicker(nodeId: string, swatchIndex?: number): void {
+  hideColorPicker();
+  const node = state.boardNodes.find((n) => n.id === nodeId);
+  if (!node) return;
+
+  const colors = (node.content.colors as string[]) ?? [];
+  const isEdit = swatchIndex !== undefined && swatchIndex >= 0 && swatchIndex < colors.length;
+  const existing = isEdit ? hexToOklch(colors[swatchIndex!]) : { lightness: 0.7, chroma: 0.15, hue: 0 };
+
+  colorPickerState = { nodeId, swatchIndex: isEdit ? swatchIndex! : colors.length, ...existing };
+
+  const el = document.createElement("div");
+  el.className = "color-picker-popover";
+  el.innerHTML = `
+    <canvas class="color-picker-hue-bar" width="200" height="20"></canvas>
+    <canvas class="color-picker-lc-plane" width="200" height="150"></canvas>
+    <input type="text" class="color-picker-hex" value="${oklchToHex(existing.lightness, existing.chroma, existing.hue)}" maxlength="7" />
+    <div class="color-picker-actions">
+      <button class="color-picker-btn color-picker-cancel" type="button">Cancel</button>
+      <button class="color-picker-btn color-picker-confirm" type="button">OK</button>
+    </div>
+  `;
+
+  // Position near the node
+  const nodeEl = document.querySelector<HTMLElement>(`.board-node[data-node-id="${nodeId}"]`);
+  if (nodeEl) {
+    const rect = nodeEl.getBoundingClientRect();
+    el.style.left = `${rect.right + 8}px`;
+    el.style.top = `${rect.top}px`;
+  } else {
+    el.style.left = "50%";
+    el.style.top = "50%";
+  }
+
+  document.body.appendChild(el);
+  colorPickerEl = el;
+
+  const hueCanvas = el.querySelector<HTMLCanvasElement>(".color-picker-hue-bar")!;
+  const lcCanvas = el.querySelector<HTMLCanvasElement>(".color-picker-lc-plane")!;
+  const hexInput = el.querySelector<HTMLInputElement>(".color-picker-hex")!;
+
+  drawOklchHueBar(hueCanvas);
+  drawOklchLCPlane(lcCanvas, colorPickerState.hue);
+
+  hueCanvas.addEventListener("pointerdown", (ev) => {
+    const pick = (x: number) => {
+      if (!colorPickerState) return;
+      colorPickerState.hue = (Math.max(0, Math.min(200, x)) / 200) * 360;
+      drawOklchLCPlane(lcCanvas, colorPickerState.hue);
+      hexInput.value = oklchToHex(colorPickerState.lightness, colorPickerState.chroma, colorPickerState.hue);
+    };
+    pick(ev.offsetX);
+    hueCanvas.setPointerCapture(ev.pointerId);
+    const onMove = (me: PointerEvent) => pick(me.offsetX);
+    const onUp = () => { hueCanvas.removeEventListener("pointermove", onMove); };
+    hueCanvas.addEventListener("pointermove", onMove);
+    hueCanvas.addEventListener("pointerup", onUp, { once: true });
+  });
+
+  lcCanvas.addEventListener("pointerdown", (ev) => {
+    const pick = (x: number, y: number) => {
+      if (!colorPickerState) return;
+      // x-axis = chroma (0 → OKLCH_MAX_CHROMA), y-axis = lightness (1 at top → 0 at bottom)
+      colorPickerState.chroma = (Math.max(0, Math.min(200, x)) / 200) * OKLCH_MAX_CHROMA;
+      colorPickerState.lightness = 1 - Math.max(0, Math.min(150, y)) / 150;
+      hexInput.value = oklchToHex(colorPickerState.lightness, colorPickerState.chroma, colorPickerState.hue);
+    };
+    pick(ev.offsetX, ev.offsetY);
+    lcCanvas.setPointerCapture(ev.pointerId);
+    const onMove = (me: PointerEvent) => pick(me.offsetX, me.offsetY);
+    const onUp = () => { lcCanvas.removeEventListener("pointermove", onMove); };
+    lcCanvas.addEventListener("pointermove", onMove);
+    lcCanvas.addEventListener("pointerup", onUp, { once: true });
+  });
+
+  hexInput.addEventListener("change", () => {
+    if (!colorPickerState) return;
+    const oklch = hexToOklch(hexInput.value);
+    colorPickerState.hue = oklch.hue;
+    colorPickerState.chroma = oklch.chroma;
+    colorPickerState.lightness = oklch.lightness;
+    drawOklchLCPlane(lcCanvas, colorPickerState.hue);
+  });
+
+  el.querySelector(".color-picker-confirm")!.addEventListener("click", () => {
+    if (!colorPickerState) return;
+    const hex = oklchToHex(colorPickerState.lightness, colorPickerState.chroma, colorPickerState.hue);
+    const n = state.boardNodes.find((bn) => bn.id === colorPickerState!.nodeId);
+    if (n) {
+      const colors = [...((n.content.colors as string[]) ?? [])];
+      if (colorPickerState.swatchIndex < colors.length) {
+        colors[colorPickerState.swatchIndex] = hex;
+      } else {
+        colors.push(hex);
+      }
+      n.content.colors = colors;
+      persistNodeContent(colorPickerState.nodeId, { colors });
+      renderSwatches(colorPickerState.nodeId, colors);
+    }
+    hideColorPicker();
+  });
+
+  el.querySelector(".color-picker-cancel")!.addEventListener("click", () => hideColorPicker());
+}
+
+function hideColorPicker(): void {
+  if (colorPickerEl) { colorPickerEl.remove(); colorPickerEl = null; }
+  colorPickerState = null;
+}
+
+function drawOklchHueBar(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext("2d")!;
+  const w = 200, h = 20;
+  const imgData = ctx.createImageData(w, h);
+  for (let x = 0; x < w; x++) {
+    const hue = (x / w) * 360;
+    const [lr, lg, lb] = oklchToLinearRgb(0.7, 0.15, hue);
+    const r = Math.round(Math.max(0, Math.min(1, linearToSrgb(lr))) * 255);
+    const g = Math.round(Math.max(0, Math.min(1, linearToSrgb(lg))) * 255);
+    const b = Math.round(Math.max(0, Math.min(1, linearToSrgb(lb))) * 255);
+    for (let y = 0; y < h; y++) {
+      const idx = (y * w + x) * 4;
+      imgData.data[idx] = r;
+      imgData.data[idx + 1] = g;
+      imgData.data[idx + 2] = b;
+      imgData.data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+function drawOklchLCPlane(canvas: HTMLCanvasElement, hue: number): void {
+  const ctx = canvas.getContext("2d")!;
+  const w = 200, h = 150;
+  const imgData = ctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const C = (x / w) * OKLCH_MAX_CHROMA;
+      const L = 1 - y / h;
+      const idx = (y * w + x) * 4;
+      if (oklchInGamut(L, C, hue)) {
+        const [lr, lg, lb] = oklchToLinearRgb(L, C, hue);
+        imgData.data[idx] = Math.round(Math.max(0, Math.min(1, linearToSrgb(lr))) * 255);
+        imgData.data[idx + 1] = Math.round(Math.max(0, Math.min(1, linearToSrgb(lg))) * 255);
+        imgData.data[idx + 2] = Math.round(Math.max(0, Math.min(1, linearToSrgb(lb))) * 255);
+      } else {
+        // Out-of-gamut: dark checkerboard hint
+        const checker = ((Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0) ? 28 : 22;
+        imgData.data[idx] = checker;
+        imgData.data[idx + 1] = checker;
+        imgData.data[idx + 2] = checker;
+      }
+      imgData.data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+// ─── Image node helpers ───
+
+function triggerImageUpload(nodeId: string): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.style.display = "none";
+  document.body.appendChild(input);
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (!file) { input.remove(); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      // Resize to max 800px via canvas
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 800;
+        let w = img.width, h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) { h = Math.round(h * maxDim / w); w = maxDim; }
+          else { w = Math.round(w * maxDim / h); h = maxDim; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(async (blob) => {
+          if (!blob) return;
+          const formData = new FormData();
+          formData.append("file", blob, file.name);
+          try {
+            const resp = await fetch("/assets", { method: "POST", credentials: "include", body: formData });
+            if (!resp.ok) throw new Error(await resp.text());
+            const { id, url } = await resp.json();
+            const node = state.boardNodes.find((n) => n.id === nodeId);
+            if (node) {
+              node.content.asset_id = id;
+              node.content.url = url;
+              node.content.alt = file.name;
+              persistNodeContent(nodeId, { asset_id: id, url, alt: file.name });
+              const shellEl = document.querySelector(`.board-node[data-node-id="${nodeId}"] .image-node-shell`);
+              if (shellEl) {
+                const drop = shellEl.querySelector(".image-node-drop");
+                const existing = shellEl.querySelector(".image-node-preview");
+                const imgEl = document.createElement("img");
+                imgEl.src = url;
+                imgEl.alt = file.name;
+                imgEl.className = "image-node-preview";
+                if (existing) { existing.replaceWith(imgEl); }
+                else if (drop) { drop.replaceWith(imgEl); }
+              }
+            }
+          } catch (err) {
+            console.error("Asset upload failed:", err);
+          }
+        }, "image/jpeg", 0.85);
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+    input.remove();
+  });
+  input.click();
+}
+
+function triggerFontUpload(nodeId: string): void {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".woff2,.otf,.ttf,.woff";
+  input.style.display = "none";
+  document.body.appendChild(input);
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];
+    if (!file) { input.remove(); return; }
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    try {
+      const resp = await fetch("/assets", { method: "POST", credentials: "include", body: formData });
+      if (!resp.ok) throw new Error(await resp.text());
+      const { id, url } = await resp.json();
+      const node = state.boardNodes.find((n) => n.id === nodeId);
+      if (node) {
+        const family = node.content.family || file.name.replace(/\.[^.]+$/, "");
+        node.content.asset_id = id;
+        node.content.asset_url = url;
+        node.content.file_name = file.name;
+        if (!node.content.family) node.content.family = family;
+        persistNodeContent(nodeId, { ...node.content });
+        // Update font upload button text
+        const btn = document.querySelector(`.board-node[data-node-id="${nodeId}"] [data-action="upload-font"]`);
+        if (btn) btn.textContent = file.name;
+      }
+    } catch (err) {
+      console.error("Font upload failed:", err);
+    }
+    input.remove();
+  });
+  input.click();
+}
+
+// ─── Slot handle rendering ───
+
+function renderSlotHandles(): void {
+  // Remove old slot handles
+  document.querySelectorAll(".slot-handle, .slot-handle-label").forEach((el) => el.remove());
+
+  for (const node of state.boardNodes) {
+    const slots = NODE_SLOTS[node.nodeType];
+    if (!slots || slots.length <= 1) continue; // single-slot nodes use free-form handles
+
+    const nodeEl = document.querySelector<HTMLElement>(`.board-node[data-node-id="${node.id}"]`);
+    if (!nodeEl) continue;
+    const shell = nodeEl.firstElementChild as HTMLElement;
+    if (!shell) continue;
+
+    const dims = getNodeDimensions(node.id);
+    const inSlots = slots.filter((s) => s.direction === "in");
+    const outSlots = slots.filter((s) => s.direction === "out");
+
+    inSlots.forEach((slot, i) => {
+      const t = (i + 1) / (inSlots.length + 1);
+      const handle = document.createElement("div");
+      handle.className = "slot-handle";
+      handle.dataset.slotName = slot.name;
+      handle.dataset.direction = "in";
+      handle.dataset.slotType = slot.valueType;
+      handle.style.top = `${t * dims.h - 5}px`;
+      shell.appendChild(handle);
+
+      const label = document.createElement("span");
+      label.className = "slot-handle-label";
+      label.textContent = slot.name;
+      label.style.top = `${t * dims.h - 6}px`;
+      label.style.right = "100%";
+      label.style.marginRight = "4px";
+      shell.appendChild(label);
+    });
+
+    outSlots.forEach((slot, i) => {
+      const t = (i + 1) / (outSlots.length + 1);
+      const handle = document.createElement("div");
+      handle.className = "slot-handle";
+      handle.dataset.slotName = slot.name;
+      handle.dataset.direction = "out";
+      handle.dataset.slotType = slot.valueType;
+      handle.style.top = `${t * dims.h - 5}px`;
+      shell.appendChild(handle);
+
+      const label = document.createElement("span");
+      label.className = "slot-handle-label";
+      label.textContent = slot.name;
+      label.style.top = `${t * dims.h - 6}px`;
+      label.style.left = "100%";
+      label.style.marginLeft = "4px";
+      shell.appendChild(label);
+    });
   }
 }
 
@@ -2388,6 +3049,83 @@ function bindBoardNodeInteractions(): void {
     if (target.closest(".edge-handle")) return;
     if (target.closest(".input-body")) return; // let contenteditable handle clicks
     if (target.closest(".generate-run-btn")) return; // handled by Datastar @post
+    if (target.closest(".set-title")) return;
+    if (target.closest(".set-description")) return;
+    if (target.closest(".value-input")) return;
+    if (target.closest(".value-random")) return;
+    if (target.closest(".bool-toggle-label")) return;
+    if (target.closest(".pickk-replace-label")) return;
+    if (target.closest(".font-family-input")) return;
+    if (target.closest(".font-weight-select")) return;
+    if (target.closest(".font-size-input")) return;
+
+    // Color palette: add color button
+    if (target.closest("[data-action='add-color']")) {
+      showColorPicker(nodeId);
+      return;
+    }
+    // Color palette: swatch click → edit
+    if (target.closest(".palette-swatch") && !target.closest(".palette-swatch-remove")) {
+      const swatch = target.closest<HTMLElement>(".palette-swatch");
+      const swatchContainer = swatch?.parentElement;
+      if (swatch && swatchContainer) {
+        const idx = Array.from(swatchContainer.children).indexOf(swatch);
+        showColorPicker(nodeId, idx);
+      }
+      return;
+    }
+    // Color palette: remove swatch
+    if (target.closest("[data-action='remove-swatch']")) {
+      const swatch = target.closest<HTMLElement>(".palette-swatch");
+      const swatchContainer = swatch?.parentElement;
+      if (swatch && swatchContainer) {
+        const idx = Array.from(swatchContainer.children).indexOf(swatch);
+        const node = state.boardNodes.find((n) => n.id === nodeId);
+        if (node) {
+          const colors = [...((node.content.colors as string[]) ?? [])];
+          colors.splice(idx, 1);
+          node.content.colors = colors;
+          persistNodeContent(nodeId, { colors });
+          renderSwatches(nodeId, colors);
+        }
+      }
+      return;
+    }
+    // Pick K: stepper buttons
+    if (target.closest("[data-action='increment-k']") || target.closest("[data-action='decrement-k']")) {
+      const node = state.boardNodes.find((n) => n.id === nodeId);
+      if (node) {
+        let k = (node.content.k as number) ?? 1;
+        k = target.closest("[data-action='increment-k']") ? k + 1 : Math.max(1, k - 1);
+        node.content.k = k;
+        const valEl = document.getElementById(`pickk-val-${nodeId}`);
+        if (valEl) valEl.textContent = String(k);
+        persistNodeContent(nodeId, { k, replace: node.content.replace ?? false });
+        updatePickKInfo();
+      }
+      return;
+    }
+    // Pick K: replacement toggle
+    if (target.closest("[data-action='toggle-replace']")) {
+      const node = state.boardNodes.find((n) => n.id === nodeId);
+      if (node) {
+        const checked = (target as HTMLInputElement).checked;
+        node.content.replace = checked;
+        persistNodeContent(nodeId, { k: node.content.k ?? 1, replace: checked });
+        updatePickKInfo();
+      }
+      return;
+    }
+    // Image: click drop zone
+    if (target.closest("[data-action='upload-image']")) {
+      triggerImageUpload(nodeId);
+      return;
+    }
+    // Font: upload font file
+    if (target.closest("[data-action='upload-font']")) {
+      triggerFontUpload(nodeId);
+      return;
+    }
 
     // Select the node
     state.activeNodeId = nodeId;
@@ -2413,6 +3151,77 @@ function bindBoardNodeInteractions(): void {
       credentials: "include",
       body: JSON.stringify({ text }),
     }).catch(() => {});
+  });
+
+  // Save font family on blur
+  container.addEventListener("focusout", (e) => {
+    const target = e.target as HTMLInputElement;
+    if (!target.classList.contains("font-family-input")) return;
+    const boardNode = target.closest<HTMLElement>(".board-node");
+    const nodeId = boardNode?.dataset.nodeId;
+    if (!nodeId) return;
+    const node = state.boardNodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    node.content.family = target.value;
+    persistNodeContent(nodeId, node.content);
+    const preview = document.getElementById(`font-preview-${nodeId}`);
+    if (preview) preview.style.fontFamily = `'${target.value}', sans-serif`;
+  });
+
+  // Save set title/description on blur
+  container.addEventListener("focusout", (e) => {
+    const target = e.target as HTMLElement;
+    if (!target.classList.contains("set-title") && !target.classList.contains("set-description")) return;
+    const boardNode = target.closest<HTMLElement>(".board-node");
+    const nodeId = boardNode?.dataset.nodeId;
+    if (!nodeId) return;
+    const node = state.boardNodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    if (target.classList.contains("set-title")) {
+      node.content.title = target.textContent?.trim() ?? "";
+    } else {
+      node.content.description = target.textContent?.trim() ?? "";
+    }
+    persistNodeContent(nodeId, { title: node.content.title, description: node.content.description });
+  });
+
+  // Value node inputs: change handler
+  container.addEventListener("change", (e) => {
+    const target = e.target as HTMLInputElement;
+    const boardNode = target.closest<HTMLElement>(".board-node");
+    const nodeId = boardNode?.dataset.nodeId;
+    if (!nodeId) return;
+    const node = state.boardNodes.find((n) => n.id === nodeId);
+    if (!node) return;
+
+    if (target.dataset.action === "set-value") {
+      if (node.nodeType === "int_value") {
+        node.content.value = parseInt(target.value) || 0;
+      } else if (node.nodeType === "float_value") {
+        node.content.value = parseFloat(target.value) || 0;
+      } else if (node.nodeType === "string_value") {
+        node.content.value = target.value;
+      } else if (node.nodeType === "bool_value") {
+        node.content.value = target.checked;
+        const textEl = boardNode.querySelector(".bool-toggle-text");
+        if (textEl) textEl.textContent = target.checked ? "true" : "false";
+      }
+      persistNodeContent(nodeId, node.content);
+    } else if (target.dataset.action === "toggle-random") {
+      node.content.random = target.checked;
+      persistNodeContent(nodeId, node.content);
+    } else if (target.dataset.field && node.nodeType === "font") {
+      node.content[target.dataset.field] = target.value;
+      persistNodeContent(nodeId, node.content);
+      // Update preview
+      const preview = document.getElementById(`font-preview-${nodeId}`);
+      if (preview) {
+        preview.style.fontFamily = `'${node.content.family ?? ""}', sans-serif`;
+        preview.style.fontWeight = String(node.content.weight ?? "400");
+        preview.style.fontSize = `${node.content.size ?? 16}px`;
+        preview.style.lineHeight = String(node.content.lineHeight ?? "1.5");
+      }
+    }
   });
 
   // Paste images into input nodes
@@ -2472,6 +3281,19 @@ function bindBoardNodeInteractions(): void {
     if (target.closest("[data-node-action]")) return;
     if (target.closest(".edge-handle")) return;
     if (target.closest(".input-body")) return; // don't drag while editing text
+    if (target.closest(".set-title")) return;
+    if (target.closest(".set-description")) return;
+    if (target.closest(".value-input")) return;
+    if (target.closest(".bool-toggle-label")) return;
+    if (target.closest(".palette-swatch")) return;
+    if (target.closest(".palette-add-btn")) return;
+    if (target.closest(".pickk-btn")) return;
+    if (target.closest(".pickk-replace-label")) return;
+    if (target.closest("[data-action='upload-image']")) return;
+    if (target.closest("[data-action='upload-font']")) return;
+    if (target.closest(".font-family-input")) return;
+    if (target.closest(".font-weight-select")) return;
+    if (target.closest(".font-size-input")) return;
 
     const boardNode = target.closest<HTMLElement>(".board-node");
     if (!boardNode) return;
@@ -2544,6 +3366,15 @@ function bindAppChrome(): void {
       e.preventDefault();
       deleteBoardNode(state.activeNodeId);
     }
+    // Ctrl+C / Cmd+C to copy selected board node
+    if ((e.key === "c" || e.key === "C") && (e.ctrlKey || e.metaKey) && !isEditableTarget(e.target) && state.activeNodeId) {
+      state.clipboardNodeId = state.activeNodeId;
+    }
+    // Ctrl+V / Cmd+V to paste copied board node
+    if ((e.key === "v" || e.key === "V") && (e.ctrlKey || e.metaKey) && !isEditableTarget(e.target) && state.clipboardNodeId) {
+      e.preventDefault();
+      duplicateBoardNode(state.clipboardNodeId);
+    }
   });
 
   // History
@@ -2570,9 +3401,19 @@ function bindToolDock(): void {
   addEntropy?.addEventListener("click", () => createBoardNode("entropy", getViewportCenterWorld()));
   addInput?.addEventListener("click", () => createBoardNode("user_input", getViewportCenterWorld()));
 
+  $("tool-add-image")?.addEventListener("click", () => createBoardNode("image", getViewportCenterWorld()));
+  $("tool-add-palette")?.addEventListener("click", () => createBoardNode("color_palette", getViewportCenterWorld()));
+  $("tool-add-font")?.addEventListener("click", () => createBoardNode("font", getViewportCenterWorld()));
+  $("tool-add-set")?.addEventListener("click", () => createBoardNode("set", getViewportCenterWorld()));
+  $("tool-add-pickk")?.addEventListener("click", () => createBoardNode("pick_k", getViewportCenterWorld()));
+  $("tool-add-int")?.addEventListener("click", () => createBoardNode("int_value", getViewportCenterWorld()));
+  $("tool-add-float")?.addEventListener("click", () => createBoardNode("float_value", getViewportCenterWorld()));
+  $("tool-add-string")?.addEventListener("click", () => createBoardNode("string_value", getViewportCenterWorld()));
+  $("tool-add-bool")?.addEventListener("click", () => createBoardNode("bool_value", getViewportCenterWorld()));
+
   window.addEventListener("keydown", (e) => {
     if (isEditableTarget(e.target)) return;
-    if (e.key === "v" || e.key === "V") {
+    if ((e.key === "v" || e.key === "V") && !e.ctrlKey && !e.metaKey) {
       state.boardTool = "select";
       renderToolDock();
     }
@@ -2619,13 +3460,47 @@ function getPaletteItems(): Array<{ id: string; type: string; label: string; det
     items.push({ id: run.id, type: "design", label: run.title, detail: run.summary });
   }
   for (const node of state.boardNodes) {
-    if (node.nodeType === "entropy") {
-      items.push({ id: node.id, type: "entropy", label: (node.content.title as string) ?? "Entropy", detail: (node.content.url as string) ?? "" });
-    } else if (node.nodeType === "user_input") {
-      items.push({ id: node.id, type: "user_input", label: "Input", detail: ((node.content.text as string) ?? "").slice(0, 80) });
-    } else if (node.nodeType === "generate") {
-      const inputCount = state.edges.filter(e => e.targetId === node.id).length;
-      items.push({ id: node.id, type: "generate", label: "Generate", detail: `${inputCount} input${inputCount !== 1 ? "s" : ""} wired` });
+    switch (node.nodeType) {
+      case "entropy":
+        items.push({ id: node.id, type: "entropy", label: (node.content.title as string) ?? "Entropy", detail: (node.content.url as string) ?? "" });
+        break;
+      case "user_input":
+        items.push({ id: node.id, type: "user_input", label: "Input", detail: ((node.content.text as string) ?? "").slice(0, 80) });
+        break;
+      case "generate": {
+        const inputCount = state.edges.filter(e => e.targetId === node.id).length;
+        items.push({ id: node.id, type: "generate", label: "Generate", detail: `${inputCount} input${inputCount !== 1 ? "s" : ""} wired` });
+        break;
+      }
+      case "color_palette": {
+        const colors = (node.content.colors as string[]) ?? [];
+        items.push({ id: node.id, type: "color_palette", label: "Palette", detail: `${colors.length} color${colors.length !== 1 ? "s" : ""}` });
+        break;
+      }
+      case "image":
+        items.push({ id: node.id, type: "image", label: "Image", detail: (node.content.alt as string) ?? "" });
+        break;
+      case "set":
+        items.push({ id: node.id, type: "set", label: (node.content.title as string) ?? "Set", detail: (node.content.description as string) ?? "" });
+        break;
+      case "pick_k":
+        items.push({ id: node.id, type: "pick_k", label: `Pick ${node.content.k ?? 1}`, detail: "" });
+        break;
+      case "int_value":
+        items.push({ id: node.id, type: "int_value", label: "Int", detail: String(node.content.value ?? 0) });
+        break;
+      case "float_value":
+        items.push({ id: node.id, type: "float_value", label: "Float", detail: String(node.content.value ?? 0) });
+        break;
+      case "string_value":
+        items.push({ id: node.id, type: "string_value", label: "String", detail: ((node.content.value as string) ?? "").slice(0, 40) });
+        break;
+      case "bool_value":
+        items.push({ id: node.id, type: "bool_value", label: "Bool", detail: String(node.content.value ?? false) });
+        break;
+      case "font":
+        items.push({ id: node.id, type: "font", label: "Font", detail: (node.content.family as string) || "No family set" });
+        break;
     }
   }
   return items;
@@ -2795,20 +3670,47 @@ function getRadialItems(): RadialItem[] {
       });
       pendingWireSource = null;
     };
-    // Only show valid connection targets for this source type
-    const validTargets = VALID_CONNECTIONS[wire.type] ?? [];
-    return [
-      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary" as const, disabled: !validTargets.includes("generate"), action: () => { makeAndConnect("generate"); } },
-      { id: "entropy", angle: 120, label: "Entropy", icon: "🎲", disabled: !validTargets.includes("entropy"), action: () => { makeAndConnect("entropy"); } },
-      { id: "input", angle: 240, label: "Input", icon: "✎", disabled: !validTargets.includes("user_input"), action: () => { makeAndConnect("user_input"); } },
+    const items: RadialItem[] = [];
+    const candidates: Array<{ id: string; label: string; icon: string; nodeType: string; variant?: "default" | "primary" | "danger" }> = [
+      { id: "generate", label: "Generate", icon: "✦", nodeType: "generate", variant: "primary" },
+      { id: "entropy", label: "Entropy", icon: "🎲", nodeType: "entropy" },
+      { id: "input", label: "Input", icon: "✎", nodeType: "user_input" },
+      { id: "set", label: "Set", icon: "⊞", nodeType: "set" },
+      { id: "pickk", label: "Pick K", icon: "⊟", nodeType: "pick_k" },
     ];
+    const spacing = 360 / candidates.length;
+    candidates.forEach((c, i) => {
+      items.push({
+        id: c.id, angle: i * spacing, label: c.label, icon: c.icon,
+        variant: c.variant as "default" | "primary" | "danger",
+        disabled: !canConnect(wire.type, c.nodeType),
+        action: () => { makeAndConnect(c.nodeType); },
+      });
+    });
+    return items;
   }
   if (!state.activeRunId && !state.activeNodeId) {
     const worldPos = clientToWorld(state.radialMenu.position.x, state.radialMenu.position.y);
+    const entropyChildren: RadialItem[] = [
+      { id: "wikipedia", angle: 0, label: "Wikipedia", icon: "🌐", action: () => { createBoardNode("entropy", worldPos); } },
+      ...presetList.map((p, i) => ({
+        id: p.id,
+        angle: ((i + 1) * 360) / (presetList.length + 1),
+        label: p.label,
+        icon: p.icon,
+        action: () => { createBoardNode("string_value", worldPos, { preset: p.id }); },
+      })),
+    ];
+    // Recompute angles evenly
+    const totalChildren = entropyChildren.length;
+    entropyChildren.forEach((c, i) => { c.angle = (i * 360) / totalChildren; });
+
     return [
-      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary", action: () => { createBoardNode("generate", worldPos); } },
-      { id: "entropy", angle: 120, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos); } },
-      { id: "input", angle: 240, label: "Input", icon: "✎", action: () => { createBoardNode("user_input", worldPos); } },
+      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary" as const, action: () => { createBoardNode("generate", worldPos); } },
+      { id: "entropy", angle: 72, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos); }, children: entropyChildren },
+      { id: "input", angle: 144, label: "Input", icon: "✎", action: () => { createBoardNode("user_input", worldPos); } },
+      { id: "image", angle: 216, label: "Image", icon: "🖼", action: () => { createBoardNode("image", worldPos); } },
+      { id: "palette", angle: 288, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos); } },
     ];
   }
   if (state.activeRunId) {
@@ -2926,6 +3828,8 @@ function openRadialMenu(x: number, y: number): void {
 function closeRadialMenu(): void {
   state.radialMenu.open = false;
   state.radialMenu.selectedIndex = null;
+  state.radialMenu.subMenuParent = null;
+  state.radialMenu.subMenuItems = null;
   pendingWireSource = null;
   const menu = $("radial-menu");
   if (menu) { menu.hidden = true; menu.setAttribute("aria-hidden", "true"); }
@@ -2936,34 +3840,65 @@ function executeRadialSelected(items: RadialItem[]): boolean {
   const idx = state.radialMenu.selectedIndex;
   if (idx !== null) {
     const item = items[idx];
-    if (item && !item.disabled) { item.action(); return true; }
+    if (item && !item.disabled) {
+      if (item.children && item.children.length > 0) {
+        openRadialSubMenu(items, item.children);
+        return false; // Don't close — we opened sub-menu
+      }
+      item.action();
+      return true;
+    }
   }
   return false;
 }
 
+function openRadialSubMenu(parentItems: RadialItem[], children: RadialItem[]): void {
+  state.radialMenu.subMenuParent = parentItems;
+  state.radialMenu.subMenuItems = children;
+  state.radialMenu.selectedIndex = null;
+  renderRadialMenu(children);
+  bindRadialMenuListeners(children);
+}
+
 function bindRadialMenuListeners(items: RadialItem[]): void {
   if (radialCleanup) { radialCleanup(); radialCleanup = null; }
+
+  let currentItems = items;
 
   const handleMouseMove = (e: MouseEvent) => {
     const offsetX = e.clientX - state.radialMenu.position.x;
     const offsetY = e.clientY - state.radialMenu.position.y;
     const distance = Math.hypot(offsetX, offsetY);
     if (distance > RADIAL_MAX_DIST) { closeRadialMenu(); return; }
-    const result = findClosestItem(offsetX, offsetY, items, RADIAL_DEAD_ZONE);
+    const result = findClosestItem(offsetX, offsetY, currentItems, RADIAL_DEAD_ZONE);
+    if (!result && state.radialMenu.subMenuItems) {
+      // In dead zone while in sub-menu: go back to parent
+      const parent = state.radialMenu.subMenuParent;
+      if (parent) {
+        state.radialMenu.subMenuItems = null;
+        state.radialMenu.subMenuParent = null;
+        state.radialMenu.selectedIndex = null;
+        currentItems = parent;
+        renderRadialMenu(currentItems);
+        return;
+      }
+    }
     state.radialMenu.selectedIndex = result?.index ?? null;
-    renderRadialMenu(items);
+    renderRadialMenu(currentItems);
   };
+
+  const getItems = () => currentItems;
 
   const handleClick = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    executeRadialSelected(items);
-    closeRadialMenu();
+    executeRadialSelected(getItems());
+    if (!state.radialMenu.subMenuItems) closeRadialMenu();
   };
 
   const handleMouseUp = (e: MouseEvent) => {
     if (e.button === 2) {
-      if (executeRadialSelected(items)) closeRadialMenu();
+      if (executeRadialSelected(getItems())) closeRadialMenu();
     }
   };
 
@@ -2974,26 +3909,43 @@ function bindRadialMenuListeners(items: RadialItem[]): void {
   const handleContextMenu = (e: MouseEvent) => { e.preventDefault(); };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") { e.preventDefault(); closeRadialMenu(); return; }
-    if (e.key === "`" || e.code === "Backquote") { e.preventDefault(); executeRadialSelected(items); closeRadialMenu(); return; }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (state.radialMenu.subMenuItems) {
+        // Go back to parent
+        const parent = state.radialMenu.subMenuParent;
+        if (parent) {
+          state.radialMenu.subMenuItems = null;
+          state.radialMenu.subMenuParent = null;
+          state.radialMenu.selectedIndex = null;
+          currentItems = parent;
+          renderRadialMenu(currentItems);
+          return;
+        }
+      }
+      closeRadialMenu();
+      return;
+    }
+    if (e.key === "`" || e.code === "Backquote") { e.preventDefault(); if (executeRadialSelected(getItems())) closeRadialMenu(); return; }
     if (e.key === "Tab") {
       e.preventDefault();
-      const enabled = items.map((item, i) => ({ i, disabled: item.disabled })).filter((x) => !x.disabled).map((x) => x.i);
+      const ci = getItems();
+      const enabled = ci.map((item, i) => ({ i, disabled: item.disabled })).filter((x) => !x.disabled).map((x) => x.i);
       if (enabled.length === 0) return;
       const cur = state.radialMenu.selectedIndex;
       const pos = cur !== null ? enabled.indexOf(cur) : -1;
       const next = e.shiftKey ? (pos <= 0 ? enabled.length - 1 : pos - 1) : (pos < 0 || pos >= enabled.length - 1 ? 0 : pos + 1);
       state.radialMenu.selectedIndex = enabled[next];
-      renderRadialMenu(items);
+      renderRadialMenu(ci);
       return;
     }
-    if (e.key === "Enter") { e.preventDefault(); executeRadialSelected(items); closeRadialMenu(); }
+    if (e.key === "Enter") { e.preventDefault(); if (executeRadialSelected(getItems())) closeRadialMenu(); }
   };
 
   const handleKeyUp = (e: KeyboardEvent) => {
     if (e.key === "`" || e.code === "Backquote") {
       e.preventDefault();
-      if (executeRadialSelected(items)) closeRadialMenu();
+      if (executeRadialSelected(getItems())) closeRadialMenu();
     }
   };
 
@@ -3088,6 +4040,11 @@ function bindBoardObserver(): void {
 function bindStormApp(): void {
   if (getConfig().currentPath !== "/app") return;
   setAvatarInitials();
+
+  // Fetch preset definitions for radial sub-menu
+  fetch("/presets").then(r => r.ok ? r.json() : []).then((list: Array<{ id: string; label: string; icon: string }>) => {
+    presetList = list;
+  }).catch(() => { /* presets unavailable — entropy sub-menu will just show Wikipedia */ });
 
   renderDraftContext();
   initBoardBackground();

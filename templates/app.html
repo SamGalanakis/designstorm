@@ -26,6 +26,11 @@
         <button class="palette-chip" data-filter="entropy">Entropy</button>
         <button class="palette-chip" data-filter="user_input">Input</button>
         <button class="palette-chip" data-filter="generate">Generate</button>
+        <button class="palette-chip" data-filter="image">Image</button>
+        <button class="palette-chip" data-filter="color_palette">Palette</button>
+        <button class="palette-chip" data-filter="set">Set</button>
+        <button class="palette-chip" data-filter="pick_k">Pick K</button>
+        <button class="palette-chip" data-filter="font">Font</button>
       </div>
       <kbd class="palette-kbd">ESC</kbd>
     </div>
@@ -145,6 +150,7 @@
     <input id="board-node-create-source-type" name="source_type" type="hidden" value="">
     <input id="board-node-create-source-anchor-side" name="source_anchor_side" type="hidden" value="">
     <input id="board-node-create-source-anchor_t" name="source_anchor_t" type="hidden" value="">
+    <input id="board-node-create-preset" name="preset" type="hidden" value="">
     <button id="board-node-create-submit" type="submit" hidden></button>
   </form>
 
@@ -186,6 +192,21 @@
       <button id="tool-add-generate" class="tool-dock-btn" type="button" title="Add generate node at center">Generate</button>
       <button id="tool-add-entropy" class="tool-dock-btn" type="button" title="Add entropy node at center">Entropy</button>
       <button id="tool-add-input" class="tool-dock-btn" type="button" title="Add input node at center">Input</button>
+      <button id="tool-add-image" class="tool-dock-btn" type="button" title="Add image node at center">Image</button>
+      <button id="tool-add-palette" class="tool-dock-btn" type="button" title="Add color palette node at center">Palette</button>
+      <button id="tool-add-font" class="tool-dock-btn" type="button" title="Add font node at center">Font</button>
+    </div>
+    <div class="tool-dock-divider" aria-hidden="true"></div>
+    <div class="tool-dock-group">
+      <button id="tool-add-set" class="tool-dock-btn" type="button" title="Add set node at center">Set</button>
+      <button id="tool-add-pickk" class="tool-dock-btn" type="button" title="Add pick K node at center">Pick K</button>
+    </div>
+    <div class="tool-dock-divider" aria-hidden="true"></div>
+    <div class="tool-dock-group">
+      <button id="tool-add-int" class="tool-dock-btn" type="button" title="Add int value node">Int</button>
+      <button id="tool-add-float" class="tool-dock-btn" type="button" title="Add float value node">Float</button>
+      <button id="tool-add-string" class="tool-dock-btn" type="button" title="Add string value node">Str</button>
+      <button id="tool-add-bool" class="tool-dock-btn" type="button" title="Add bool value node">Bool</button>
     </div>
   </nav>
 
