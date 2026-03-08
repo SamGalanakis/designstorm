@@ -75,8 +75,7 @@
         <div class="generate-inputs" id="gen-inputs-{{ node.id }}">
           <span class="generate-placeholder">Wire inputs here</span>
         </div>
-        <button class="generate-run-btn" title="Run generation"
-          data-on:click__prevent="@post('/nodes/{{ node.id }}/run')">
+        <button class="generate-run-btn" data-node-action="run" title="Run generation">
           <span class="generate-run-icon">&#x25B6;</span>
         </button>
       </div>
@@ -85,7 +84,7 @@
         <div class="input-header">
           <span class="eyebrow input-eyebrow">Input</span>
         </div>
-        <div class="input-body" contenteditable="true" data-placeholder="Type here...">{{ node.input_text() }}</div>
+        <div class="input-body" contenteditable="true" data-placeholder="Type here...">{{ node.input_text() }}{% for img in node.input_images() %}<img src="{{ img }}" class="input-image-thumb" title="Double-click to enlarge" />{% endfor %}</div>
       </div>
       {% endif %}
     </article>

@@ -1865,14 +1865,16 @@ function bindNodeInteractions(): void {
         if (state.pointerState.targetRunId) {
           const prevEl = container.querySelector(`.storm-node[data-run-id="${state.pointerState.targetRunId}"]`)
             ?? container.querySelector(`.board-node[data-node-id="${state.pointerState.targetRunId}"]`);
-          prevEl?.classList.remove("is-wire-target");
+          prevEl?.classList.remove("is-wire-target", "is-wire-invalid");
         }
         state.pointerState.targetRunId = hit;
         state.pointerState.targetType = hit ? getNodeType(hit) : null;
         if (hit) {
           const hitEl = container.querySelector(`.storm-node[data-run-id="${hit}"]`)
             ?? container.querySelector(`.board-node[data-node-id="${hit}"]`);
-          hitEl?.classList.add("is-wire-target");
+          const hitType = getNodeType(hit);
+          const valid = canConnect(state.pointerState.sourceType, hitType);
+          hitEl?.classList.add(valid ? "is-wire-target" : "is-wire-invalid");
         }
       }
       // Track target anchor for snapping
@@ -1920,7 +1922,7 @@ function bindNodeInteractions(): void {
       if (targetRunId) {
         const tgtEl = container.querySelector(`.storm-node[data-run-id="${targetRunId}"]`)
           ?? container.querySelector(`.board-node[data-node-id="${targetRunId}"]`);
-        tgtEl?.classList.remove("is-wire-target");
+        tgtEl?.classList.remove("is-wire-target", "is-wire-invalid");
       }
       document.body.classList.remove("is-wiring");
       removeEdgeHandles();
@@ -1929,13 +1931,16 @@ function bindNodeInteractions(): void {
       renderWire();
 
       if (targetRunId && targetRunId !== sourceRunId) {
-        // Compute target anchor — use tracked one or default to closest edge
-        const finalTargetAnchor = targetAnchor ?? { side: "top" as AnchorSide, t: 0.5, worldX: 0, worldY: 0 };
-
-        createBoardEdge(
-          sourceRunId, sourceType, targetRunId, targetType ?? getNodeType(targetRunId),
-          sourceAnchor, finalTargetAnchor
-        );
+        const resolvedTargetType = targetType ?? getNodeType(targetRunId);
+        if (!canConnect(sourceType, resolvedTargetType)) {
+          // Invalid connection — ignore silently
+        } else {
+          const finalTargetAnchor = targetAnchor ?? { side: "top" as AnchorSide, t: 0.5, worldX: 0, worldY: 0 };
+          createBoardEdge(
+            sourceRunId, sourceType, targetRunId, resolvedTargetType,
+            sourceAnchor, finalTargetAnchor
+          );
+        }
       } else if (!targetRunId) {
         // Dropped on empty canvas: open radial menu to pick node type, then auto-connect
         const dropWorld = clientToWorld(e.clientX, e.clientY);
@@ -2037,19 +2042,22 @@ async function createBoardNode(nodeType: string, worldPos: Point): Promise<void>
           <div class="generate-inputs" id="gen-inputs-${node.id}">
             <span class="generate-placeholder">Wire inputs here</span>
           </div>
-          <button class="generate-run-btn" title="Run generation"
-            data-on:click__prevent="@post('/nodes/${node.id}/run')">
+          <button class="generate-run-btn" data-node-action="run" title="Run generation">
             <span class="generate-run-icon">&#x25B6;</span>
           </button>
         </div>`;
     } else if (node.nodeType === "user_input") {
       const text = (node.content.text as string) ?? "";
+      const images = (node.content.images as string[]) ?? [];
+      const thumbsHtml = images.map((src: string) =>
+        `<img src="${src}" class="input-image-thumb" title="Double-click to enlarge" />`
+      ).join("");
       article.innerHTML = `
         <div class="input-shell">
           <div class="input-header">
             <span class="eyebrow input-eyebrow">Input</span>
           </div>
-          <div class="input-body" contenteditable="true" data-placeholder="Type here...">${escapeHtml(text)}</div>
+          <div class="input-body" contenteditable="true" data-placeholder="Type here...">${escapeHtml(text)}${thumbsHtml}</div>
         </div>`;
     }
 
@@ -2088,6 +2096,97 @@ async function createBoardEdge(
     updateGenerateInputs();
   } catch (err) {
     console.error("Failed to create edge:", err);
+  }
+}
+
+// ─── Image popover ───
+
+function showImagePopover(src: string): void {
+  const existing = document.getElementById("image-popover");
+  existing?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "image-popover";
+  overlay.className = "image-popover-overlay";
+  overlay.innerHTML = `<img src="${src}" class="image-popover-img" />`;
+  overlay.addEventListener("click", () => overlay.remove());
+  document.addEventListener("keydown", function handler(e) {
+    if (e.key === "Escape") { overlay.remove(); document.removeEventListener("keydown", handler); }
+  });
+  document.body.appendChild(overlay);
+}
+
+// ─── Edge connection rules ───
+
+const VALID_CONNECTIONS: Record<string, string[]> = {
+  entropy: ["generate"],
+  user_input: ["generate"],
+  design: ["generate"],
+  generate: [],  // generate outputs are auto-created by the run handler
+};
+
+function canConnect(sourceType: string, targetType: string): boolean {
+  return VALID_CONNECTIONS[sourceType]?.includes(targetType) ?? false;
+}
+
+// ─── Generate node run ───
+
+async function runGenerateNode(nodeId: string): Promise<void> {
+  const btn = document.querySelector<HTMLElement>(`.board-node[data-node-id="${nodeId}"] .generate-run-btn`);
+  if (btn?.classList.contains("is-running")) return;
+  btn?.classList.add("is-running");
+
+  try {
+    // POST triggers generation; response is SSE stream that completes when done
+    const resp = await fetch(`/nodes/${nodeId}/run`, { method: "POST", credentials: "include" });
+    if (!resp.ok) { console.error("Generate failed:", resp.statusText); return; }
+    // Consume the full SSE response (waits for generation to finish)
+    await resp.text();
+
+    // Refresh the board by fetching fresh HTML from the server
+    const pageResp = await fetch("/app", { credentials: "include" });
+    if (!pageResp.ok) return;
+    const html = await pageResp.text();
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const freshBoard = doc.getElementById("storm-runs");
+    const currentBoard = document.getElementById("storm-runs");
+    if (freshBoard && currentBoard) {
+      currentBoard.outerHTML = freshBoard.outerHTML;
+    }
+    // Also refresh roots navigator
+    const freshRoots = doc.getElementById("roots-list");
+    const currentRoots = document.getElementById("roots-list");
+    if (freshRoots && currentRoots) {
+      currentRoots.innerHTML = freshRoots.innerHTML;
+    }
+  } catch (err) {
+    console.error("Generate node run failed:", err);
+  } finally {
+    btn?.classList.remove("is-running");
+    hydrateBoardFromDom();
+  }
+}
+
+// ─── Delete board node ───
+
+async function deleteBoardNode(nodeId: string): Promise<void> {
+  // Remove from client state immediately
+  state.boardNodes = state.boardNodes.filter((n) => n.id !== nodeId);
+  state.edges = state.edges.filter((e) => e.sourceId !== nodeId && e.targetId !== nodeId);
+  state.positions.delete(nodeId);
+  if (state.activeNodeId === nodeId) state.activeNodeId = null;
+
+  // Remove DOM element
+  const el = document.querySelector(`.board-node[data-node-id="${nodeId}"]`);
+  el?.remove();
+  renderConnections();
+  updateGenerateInputs();
+
+  // Persist to backend
+  try {
+    await fetch(`/nodes/${nodeId}`, { method: "DELETE", credentials: "include" });
+  } catch (err) {
+    console.error("Failed to delete board node:", err);
   }
 }
 
@@ -2189,7 +2288,10 @@ function bindBoardNodeInteractions(): void {
     if (target.closest(".entropy-btn")) return;
     if (target.closest(".edge-handle")) return;
     if (target.closest(".input-body")) return; // let contenteditable handle clicks
-    if (target.closest(".generate-run-btn")) return; // handled by Datastar
+    if (target.closest(".generate-run-btn")) {
+      runGenerateNode(nodeId);
+      return;
+    }
 
     // Select the node
     state.activeNodeId = nodeId;
@@ -2215,6 +2317,57 @@ function bindBoardNodeInteractions(): void {
       credentials: "include",
       body: JSON.stringify({ text }),
     }).catch(() => {});
+  });
+
+  // Paste images into input nodes
+  container.addEventListener("paste", (e) => {
+    const target = e.target as HTMLElement;
+    if (!target.classList.contains("input-body")) return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (!item.type.startsWith("image/")) continue;
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (!file) continue;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const img = document.createElement("img");
+        img.src = dataUrl;
+        img.className = "input-image-thumb";
+        img.title = "Double-click to enlarge";
+        target.appendChild(img);
+
+        // Persist content with images
+        const boardNode = target.closest<HTMLElement>(".board-node");
+        const nodeId = boardNode?.dataset.nodeId;
+        if (nodeId) {
+          const node = state.boardNodes.find((n) => n.id === nodeId);
+          const images = ((node?.content.images as string[]) ?? []).concat(dataUrl);
+          if (node) node.content.images = images;
+          fetch(`/nodes/${nodeId}/content`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ text: target.textContent?.trim() ?? "", images }),
+          }).catch(() => {});
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  });
+
+  // Double-click image thumbnail to show popover
+  container.addEventListener("dblclick", (e) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === "IMG" && target.classList.contains("input-image-thumb")) {
+      e.preventDefault();
+      e.stopPropagation();
+      showImagePopover((target as HTMLImageElement).src);
+    }
   });
 
   container.addEventListener("pointerdown", (e) => {
@@ -2275,6 +2428,11 @@ function bindAppChrome(): void {
       const form = $("storm-form");
       if (form && !form.hidden) { hideComposer(); e.preventDefault(); return; }
       if (state.focusedRunId) closeFullscreen();
+    }
+    // Delete/Backspace to remove selected board node
+    if ((e.key === "Delete" || e.key === "Backspace") && !isEditableTarget(e.target) && state.activeNodeId) {
+      e.preventDefault();
+      deleteBoardNode(state.activeNodeId);
     }
   });
 
@@ -2389,7 +2547,6 @@ function getRadialItems(): RadialItem[] {
     const worldPos = wire.dropWorld;
     const makeAndConnect = async (nodeType: string) => {
       await createBoardNode(nodeType, worldPos);
-      // Find the just-created node (last one added)
       const newNode = state.boardNodes[state.boardNodes.length - 1];
       if (newNode) {
         const targetAnchor: AnchorPoint = { side: "top", t: 0.5, worldX: worldPos.x, worldY: worldPos.y };
@@ -2397,10 +2554,12 @@ function getRadialItems(): RadialItem[] {
       }
       pendingWireSource = null;
     };
+    // Only show valid connection targets for this source type
+    const validTargets = VALID_CONNECTIONS[wire.type] ?? [];
     return [
-      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary", action: () => { makeAndConnect("generate"); } },
-      { id: "entropy", angle: 120, label: "Entropy", icon: "🎲", action: () => { makeAndConnect("entropy"); } },
-      { id: "input", angle: 240, label: "Input", icon: "✎", action: () => { makeAndConnect("user_input"); } },
+      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary" as const, disabled: !validTargets.includes("generate"), action: () => { makeAndConnect("generate"); } },
+      { id: "entropy", angle: 120, label: "Entropy", icon: "🎲", disabled: !validTargets.includes("entropy"), action: () => { makeAndConnect("entropy"); } },
+      { id: "input", angle: 240, label: "Input", icon: "✎", disabled: !validTargets.includes("user_input"), action: () => { makeAndConnect("user_input"); } },
     ];
   }
   if (!state.activeRunId && !state.activeNodeId) {
@@ -2420,8 +2579,9 @@ function getRadialItems(): RadialItem[] {
     ];
   }
   // Board node selected
+  const activeNode = state.activeNodeId;
   return [
-    { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary", action: showComposer },
+    { id: "delete", angle: 0, label: "Delete", icon: "✕", variant: "danger" as const, action: () => { if (activeNode) deleteBoardNode(activeNode); } },
   ];
 }
 

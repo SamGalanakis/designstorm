@@ -872,6 +872,14 @@ impl BoardNodeSummary {
             .and_then(|v| v.as_str())
             .unwrap_or("")
     }
+
+    fn input_images(&self) -> Vec<&str> {
+        self.content
+            .get("images")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default()
+    }
 }
 
 impl From<BoardNodeRow> for BoardNodeSummary {
@@ -3157,6 +3165,15 @@ async fn create_board_edge(
         || !valid_types.contains(&payload.target_type.as_str())
     {
         return Err(AppError::BadRequest("Invalid edge type".to_string()));
+    }
+
+    // Only generate nodes can accept inputs; valid sources are entropy, user_input, design
+    let valid_connection = matches!(
+        (payload.source_type.as_str(), payload.target_type.as_str()),
+        ("entropy", "generate") | ("user_input", "generate") | ("design", "generate") | ("generate", "design")
+    );
+    if !valid_connection {
+        return Err(AppError::BadRequest("Invalid connection: only entropy, input, and design nodes can wire into generate nodes.".to_string()));
     }
 
     let row = sqlx::query_as::<_, BoardEdgeRow>(

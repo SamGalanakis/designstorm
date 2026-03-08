@@ -1160,9 +1160,74 @@ body.is-wiring .canvas { cursor: crosshair; }
   pointer-events: none;
 }
 
+.input-image-thumb {
+  display: inline-block;
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  margin: 4px 4px 0 0;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input-image-thumb:hover {
+  border-color: rgba(160, 140, 200, 0.5);
+  box-shadow: 0 0 8px rgba(160, 140, 200, 0.2);
+}
+
+.image-popover-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+}
+
+.image-popover-img {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
 .board-node-user_input.is-wire-target .input-shell {
   border-color: var(--accent-strong);
   box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
+}
+
+/* Invalid wire target */
+.is-wire-invalid .storm-node-shell,
+.is-wire-invalid .entropy-shell,
+.is-wire-invalid .generate-shell,
+.is-wire-invalid .input-shell {
+  border-color: rgba(200, 80, 80, 0.5) !important;
+  box-shadow: 0 0 16px rgba(200, 80, 80, 0.15), 0 8px 28px rgba(0,0,0,0.3) !important;
+  opacity: 0.6;
+}
+
+/* Generate button running state */
+.generate-run-btn.is-running {
+  pointer-events: none;
+  opacity: 0.7;
+  background: rgba(91, 156, 184, 0.25);
+  border-color: rgba(91, 156, 184, 0.5);
+}
+
+.generate-run-btn.is-running .generate-run-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* ─── Dynamic edge handles ─── */
