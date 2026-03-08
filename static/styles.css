@@ -64,6 +64,15 @@ body::after {
     radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.34), transparent 36%);
 }
 
+body.app-page {
+  background: linear-gradient(180deg, #140913 0%, #10080f 100%);
+}
+
+body.app-page::before,
+body.app-page::after {
+  display: none;
+}
+
 ::selection { background: rgba(91, 156, 184, 0.25); }
 
 a { color: inherit; text-decoration: none; }
@@ -517,7 +526,7 @@ h1, h2, h3 {
   inset: 0;
   overflow: hidden;
   cursor: grab;
-  background: #120810;
+  background: linear-gradient(180deg, #140913 0%, #10080f 100%);
 }
 
 .canvas:active { cursor: grabbing; }
@@ -554,10 +563,7 @@ h1, h2, h3 {
 }
 
 .board-background.is-fallback {
-  background:
-    radial-gradient(circle at 24% 24%, rgba(91, 156, 184, 0.08), rgba(91, 156, 184, 0) 30%),
-    radial-gradient(circle at 50% 100%, rgba(0,0,0,0.22), rgba(0,0,0,0) 38%),
-    linear-gradient(180deg, #130810 0%, #10070f 100%);
+  background: linear-gradient(180deg, #140913 0%, #10080f 100%);
 }
 
 .board-background-canvas {

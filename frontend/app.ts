@@ -508,17 +508,23 @@ function createBackgroundRenderer(canvas: HTMLCanvasElement): BackgroundRenderer
       vec2 warped = field + r * 0.12;
 
       float h0 = fbm5(vec3(warped * 4.0, seed + 7.0));
-      float tonalLift = (q.y * 0.18 + r.y * 0.12 + h0 * 0.22);
+      float eps = 0.006;
+      float hx = fbm5(vec3((warped + vec2(eps, 0.0)) * 4.0, seed + 7.0));
+      float hy = fbm5(vec3((warped + vec2(0.0, eps)) * 4.0, seed + 7.0));
+      vec3 normal = normalize(vec3((h0 - hx) / eps * 0.15, (h0 - hy) / eps * 0.15, 1.0));
+      float slope = clamp(length(normal.xy), 0.0, 1.0);
+      float relief = 1.0 - slope;
 
       float hueDriver = (q.x * 0.4 + r.x * 0.3 + h0 * 0.3) * 0.5 + 0.5;
       float hueRad = radians(195.0 + hueDriver * 60.0 + seed * 18.0);
 
-      float L = 0.15 + tonalLift * 0.05;
-      float C = 0.026 + hueDriver * 0.016;
+      float light = 0.54 + relief * 0.24 + h0 * 0.08;
+      float L = 0.15 + light * 0.05;
+      float C = 0.03 + hueDriver * 0.02;
       vec3 color = oklchToSrgb(L, C, hueRad);
 
       float grain = fbm5(vec3(world / 2.8, seed + 71.0)) * 0.5 + 0.5;
-      color += (grain - 0.5) * 0.055;
+      color += (grain - 0.5) * 0.075;
 
       fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
     }
