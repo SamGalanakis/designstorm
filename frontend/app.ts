@@ -127,7 +127,6 @@ type BackgroundRenderer = {
 type BackgroundState = {
   container: HTMLElement | null;
   displayCanvas: HTMLCanvasElement | null;
-  displayCtx: CanvasRenderingContext2D | null;
   renderer: BackgroundRenderer | null;
   chunks: Map<string, ChunkRecord>;
   queue: string[];
@@ -189,7 +188,6 @@ const state: StormState = {
 const backgroundState: BackgroundState = {
   container: null,
   displayCanvas: null,
-  displayCtx: null,
   renderer: null,
   chunks: new Map(),
   queue: [],
@@ -332,7 +330,6 @@ function setBackgroundFallback(reason: string): void {
   clearBackgroundChunks();
   backgroundState.fallback = true;
   backgroundState.renderer = null;
-  backgroundState.displayCtx = null;
   backgroundState.displayCanvas?.remove();
   backgroundState.displayCanvas = null;
   backgroundState.container?.classList.add("is-fallback");
@@ -352,11 +349,7 @@ function compileBackgroundShader(gl: WebGL2RenderingContext, type: number, sourc
   return shader;
 }
 
-function createBackgroundRenderer(): BackgroundRenderer | null {
-  const canvas = document.createElement("canvas");
-  canvas.width = getRenderedChunkPixelSize();
-  canvas.height = getRenderedChunkPixelSize();
-
+function createBackgroundRenderer(canvas: HTMLCanvasElement): BackgroundRenderer | null {
   const gl = canvas.getContext("webgl2", {
     alpha: false,
     antialias: false,
@@ -559,16 +552,9 @@ function renderBackgroundChunk(record: ChunkRecord): void {
 function ensureBackgroundDisplayCanvas(): void {
   if (!backgroundState.container || backgroundState.displayCanvas) return;
   const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
-  if (!ctx) {
-    setBackgroundFallback("display_canvas_unavailable");
-    return;
-  }
   canvas.className = "board-background-canvas";
-  ctx.imageSmoothingEnabled = true;
   backgroundState.container.appendChild(canvas);
   backgroundState.displayCanvas = canvas;
-  backgroundState.displayCtx = ctx;
 }
 
 function resizeBackgroundDisplayCanvas(): boolean {
@@ -582,54 +568,26 @@ function resizeBackgroundDisplayCanvas(): boolean {
   if (canvas.width === nextWidth && canvas.height === nextHeight) return false;
   canvas.width = nextWidth;
   canvas.height = nextHeight;
+  backgroundState.renderer?.gl.viewport(0, 0, nextWidth, nextHeight);
   return true;
 }
 
 function drawBackgroundPresentation(): void {
   backgroundState.drawRaf = null;
   if (backgroundState.fallback) return;
-  const ctx = backgroundState.displayCtx;
+  const renderer = backgroundState.renderer;
   const canvas = backgroundState.displayCanvas;
-  if (!ctx || !canvas) return;
+  if (!renderer || !canvas) return;
 
   resizeBackgroundDisplayCanvas();
   const bounds = getVisibleWorldBounds();
-  const pixelPerWorldX = canvas.width / Math.max(1, bounds.maxX - bounds.minX);
-  const pixelPerWorldY = canvas.height / Math.max(1, bounds.maxY - bounds.minY);
-  const visibleBounds = bounds;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#15131a";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const sourceInset = BACKGROUND_CHUNK_BLEED_PX;
-  backgroundState.chunks.forEach((record) => {
-    if (record.state !== "ready") return;
-    const origin = getChunkWorldOrigin(record.coord);
-    const chunkBounds = createWorldBounds(
-      origin.x,
-      origin.y,
-      origin.x + BACKGROUND_CHUNK_WORLD_SIZE,
-      origin.y + BACKGROUND_CHUNK_WORLD_SIZE,
-    );
-    if (!intersectsWorldBounds(chunkBounds, visibleBounds)) return;
-
-    const destX = (origin.x - visibleBounds.minX) * pixelPerWorldX;
-    const destY = (origin.y - visibleBounds.minY) * pixelPerWorldY;
-    const destW = BACKGROUND_CHUNK_WORLD_SIZE * pixelPerWorldX;
-    const destH = BACKGROUND_CHUNK_WORLD_SIZE * pixelPerWorldY;
-
-    ctx.drawImage(
-      record.canvas,
-      sourceInset,
-      sourceInset,
-      BACKGROUND_CHUNK_PIXEL_SIZE,
-      BACKGROUND_CHUNK_PIXEL_SIZE,
-      destX,
-      destY,
-      destW,
-      destH,
-    );
-  });
+  const { gl, program, uChunkOrigin, uWorldPerPixel, uSeed } = renderer;
+  gl.useProgram(program);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.uniform2f(uChunkOrigin, bounds.minX, bounds.minY);
+  gl.uniform1f(uWorldPerPixel, (bounds.maxX - bounds.minX) / Math.max(1, canvas.width));
+  gl.uniform1f(uSeed, backgroundState.seed);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
 function requestBackgroundPresentationDraw(): void {
@@ -712,38 +670,6 @@ function evictBackgroundChunks(required: Set<string>, bounds: WorldBounds): void
 
 function syncBoardBackground(): void {
   if (backgroundState.fallback || !backgroundState.container || !backgroundState.renderer) return;
-  const bounds = getVisibleWorldBounds();
-  const minChunkX = Math.floor(bounds.minX / BACKGROUND_CHUNK_WORLD_SIZE) - BACKGROUND_CHUNK_OVERSCAN;
-  const maxChunkX = Math.floor((bounds.maxX - 1) / BACKGROUND_CHUNK_WORLD_SIZE) + BACKGROUND_CHUNK_OVERSCAN;
-  const minChunkY = Math.floor(bounds.minY / BACKGROUND_CHUNK_WORLD_SIZE) - BACKGROUND_CHUNK_OVERSCAN;
-  const maxChunkY = Math.floor((bounds.maxY - 1) / BACKGROUND_CHUNK_WORLD_SIZE) + BACKGROUND_CHUNK_OVERSCAN;
-
-  const required = new Set<string>();
-  const queuedCoords: ChunkCoord[] = [];
-  for (let chunkY = minChunkY; chunkY <= maxChunkY; chunkY++) {
-    for (let chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
-      const coord = { x: chunkX, y: chunkY };
-      const record = ensureBackgroundChunk(coord);
-      if (!record) continue;
-      required.add(record.key);
-      record.lastUsedAt = performance.now();
-      if (record.state === "queued" && !backgroundState.queued.has(record.key)) {
-        queuedCoords.push(coord);
-      }
-    }
-  }
-
-  queuedCoords
-    .sort((a, b) => getChunkDistanceSq(a, bounds) - getChunkDistanceSq(b, bounds))
-    .forEach((coord) => {
-      const key = getChunkKey(coord);
-      if (backgroundState.queued.has(key)) return;
-      backgroundState.queued.add(key);
-      backgroundState.queue.push(key);
-    });
-
-  evictBackgroundChunks(required, bounds);
-  scheduleBackgroundRender();
   requestBackgroundPresentationDraw();
 }
 
@@ -754,7 +680,11 @@ function initBoardBackground(): void {
   backgroundState.fallback = false;
   ensureBackgroundDisplayCanvas();
   resizeBackgroundDisplayCanvas();
-  backgroundState.renderer = createBackgroundRenderer();
+  if (!backgroundState.displayCanvas) {
+    setBackgroundFallback("display_canvas_unavailable");
+    return;
+  }
+  backgroundState.renderer = createBackgroundRenderer(backgroundState.displayCanvas);
   if (!backgroundState.renderer) {
     setBackgroundFallback("webgl_unavailable");
     return;
