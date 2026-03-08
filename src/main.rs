@@ -865,6 +865,13 @@ impl BoardNodeSummary {
             .and_then(|v| v.as_str())
             .unwrap_or("")
     }
+
+    fn input_text(&self) -> &str {
+        self.content
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+    }
 }
 
 impl From<BoardNodeRow> for BoardNodeSummary {
@@ -1164,6 +1171,7 @@ async fn main() -> Result<(), AppError> {
         .route("/nodes/{id}/reroll", post(reroll_board_node))
         .route("/nodes/{id}/lock", post(toggle_board_node_lock))
         .route("/nodes/{id}/position", post(update_board_node_position))
+        .route("/nodes/{id}/content", post(update_board_node_content))
         .route("/nodes/{id}", axum::routing::delete(delete_board_node))
         .route("/edges", post(create_board_edge))
         .route("/edges/{id}", axum::routing::delete(delete_board_edge))
@@ -2882,6 +2890,24 @@ async fn update_board_node_position(
     .bind(payload.position_y)
     .bind(payload.width)
     .bind(payload.height)
+    .bind(id)
+    .bind(viewer.id)
+    .execute(&state.db)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_board_node_content(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<StatusCode, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    sqlx::query(
+        r#"UPDATE board_nodes SET content = $1 WHERE id = $2 AND owner_user_id = $3"#,
+    )
+    .bind(&payload)
     .bind(id)
     .bind(viewer.id)
     .execute(&state.db)

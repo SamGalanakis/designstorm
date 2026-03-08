@@ -195,6 +195,8 @@ const ENTROPY_NODE_WIDTH = 240;
 const ENTROPY_NODE_HEIGHT = 180;
 const GENERATE_NODE_WIDTH = 200;
 const GENERATE_NODE_HEIGHT = 140;
+const INPUT_NODE_WIDTH = 220;
+const INPUT_NODE_HEIGHT = 120;
 const EDGE_HANDLE_PROXIMITY = 30;
 const INITIAL_PAN: Point = { x: 160, y: 120 };
 const BACKGROUND_CHUNK_WORLD_SIZE = 1536;
@@ -327,6 +329,7 @@ function getNodeDimensions(id: string): { w: number; h: number } {
   const boardNode = state.boardNodes.find((n) => n.id === id);
   if (boardNode) {
     if (boardNode.nodeType === "generate") return { w: GENERATE_NODE_WIDTH, h: GENERATE_NODE_HEIGHT };
+    if (boardNode.nodeType === "user_input") return { w: INPUT_NODE_WIDTH, h: INPUT_NODE_HEIGHT };
     return { w: ENTROPY_NODE_WIDTH, h: ENTROPY_NODE_HEIGHT };
   }
   return { w: CARD_WIDTH, h: CARD_HEIGHT };
@@ -1761,6 +1764,8 @@ function bindCanvasInteractions(): void {
   });
 }
 
+let pendingWireSource: { id: string; type: string; anchor: AnchorPoint; dropWorld: Point } | null = null;
+
 function bindNodeInteractions(): void {
   const container = $("storm-runs");
   if (!container) return;
@@ -1932,14 +1937,12 @@ function bindNodeInteractions(): void {
           sourceAnchor, finalTargetAnchor
         );
       } else if (!targetRunId) {
-        // Dropped on empty canvas: fork behavior for design nodes
-        const src = getRun(sourceRunId);
-        if (src) {
-          showDraftContext({ mode: "fork", sourceIds: [src.id], label: `Forking ${src.title}` });
-          setActiveRun(sourceRunId, { sync: true });
-          state.radialMenu.position = { x: e.clientX, y: e.clientY };
-          showComposer();
-        }
+        // Dropped on empty canvas: open radial menu to pick node type, then auto-connect
+        const dropWorld = clientToWorld(e.clientX, e.clientY);
+        pendingWireSource = { id: sourceRunId, type: sourceType, anchor: sourceAnchor, dropWorld };
+        state.activeRunId = null;
+        state.activeNodeId = null;
+        openRadialMenu(e.clientX, e.clientY);
       }
       (e.target as HTMLElement).closest<HTMLElement>(".storm-node, .board-node")?.releasePointerCapture(e.pointerId);
       return;
@@ -2037,6 +2040,15 @@ async function createBoardNode(nodeType: string, worldPos: Point): Promise<void>
           <button class="generate-run-btn" data-node-action="run" title="Run generation">
             <span class="generate-run-icon">&#x25B6;</span>
           </button>
+        </div>`;
+    } else if (node.nodeType === "user_input") {
+      const text = (node.content.text as string) ?? "";
+      article.innerHTML = `
+        <div class="input-shell">
+          <div class="input-header">
+            <span class="eyebrow input-eyebrow">Input</span>
+          </div>
+          <div class="input-body" contenteditable="true" data-placeholder="Type here...">${escapeHtml(text)}</div>
         </div>`;
     }
 
@@ -2175,6 +2187,7 @@ function bindBoardNodeInteractions(): void {
     // Reroll/lock/run buttons are handled by Datastar or JS
     if (target.closest(".entropy-btn")) return;
     if (target.closest(".edge-handle")) return;
+    if (target.closest(".input-body")) return; // let contenteditable handle clicks
     if (target.closest(".generate-run-btn")) {
       // TODO: trigger generation workflow
       return;
@@ -2187,11 +2200,31 @@ function bindBoardNodeInteractions(): void {
     renderRuns();
   });
 
+  // Save input node text on blur
+  container.addEventListener("focusout", (e) => {
+    const target = e.target as HTMLElement;
+    if (!target.classList.contains("input-body")) return;
+    const boardNode = target.closest<HTMLElement>(".board-node");
+    const nodeId = boardNode?.dataset.nodeId;
+    if (!nodeId) return;
+    const text = target.textContent?.trim() ?? "";
+    const node = state.boardNodes.find((n) => n.id === nodeId);
+    if (node) node.content.text = text;
+    // Persist to backend
+    fetch(`/nodes/${nodeId}/content`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ text }),
+    }).catch(() => {});
+  });
+
   container.addEventListener("pointerdown", (e) => {
     if (state.spacePanHeld) return;
     const target = e.target as HTMLElement;
     if (target.closest("[data-node-action]")) return;
     if (target.closest(".edge-handle")) return;
+    if (target.closest(".input-body")) return; // don't drag while editing text
 
     const boardNode = target.closest<HTMLElement>(".board-node");
     if (!boardNode) return;
@@ -2353,12 +2386,31 @@ function renderSlicePath(cx: number, cy: number, startAngle: number, endAngle: n
 // ─── Radial menu items ───
 
 function getRadialItems(): RadialItem[] {
+  if (pendingWireSource) {
+    const wire = pendingWireSource;
+    const worldPos = wire.dropWorld;
+    const makeAndConnect = async (nodeType: string) => {
+      await createBoardNode(nodeType, worldPos);
+      // Find the just-created node (last one added)
+      const newNode = state.boardNodes[state.boardNodes.length - 1];
+      if (newNode) {
+        const targetAnchor: AnchorPoint = { side: "top", t: 0.5, worldX: worldPos.x, worldY: worldPos.y };
+        await createBoardEdge(wire.id, wire.type, newNode.id, newNode.nodeType, wire.anchor, targetAnchor);
+      }
+      pendingWireSource = null;
+    };
+    return [
+      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary", action: () => { makeAndConnect("generate"); } },
+      { id: "entropy", angle: 120, label: "Entropy", icon: "🎲", action: () => { makeAndConnect("entropy"); } },
+      { id: "input", angle: 240, label: "Input", icon: "✎", action: () => { makeAndConnect("user_input"); } },
+    ];
+  }
   if (!state.activeRunId && !state.activeNodeId) {
     const worldPos = clientToWorld(state.radialMenu.position.x, state.radialMenu.position.y);
     return [
       { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary", action: () => { createBoardNode("generate", worldPos); } },
       { id: "entropy", angle: 120, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos); } },
-      { id: "input", angle: 240, label: "Input", icon: "✎", disabled: true, action: () => {} },
+      { id: "input", angle: 240, label: "Input", icon: "✎", action: () => { createBoardNode("user_input", worldPos); } },
     ];
   }
   if (state.activeRunId) {
@@ -2474,6 +2526,7 @@ function openRadialMenu(x: number, y: number): void {
 function closeRadialMenu(): void {
   state.radialMenu.open = false;
   state.radialMenu.selectedIndex = null;
+  pendingWireSource = null;
   const menu = $("radial-menu");
   if (menu) { menu.hidden = true; menu.setAttribute("aria-hidden", "true"); }
   if (radialCleanup) { radialCleanup(); radialCleanup = null; }

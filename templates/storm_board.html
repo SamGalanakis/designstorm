@@ -79,6 +79,13 @@
           <span class="generate-run-icon">&#x25B6;</span>
         </button>
       </div>
+      {% else if node.node_type == "user_input" %}
+      <div class="input-shell">
+        <div class="input-header">
+          <span class="eyebrow input-eyebrow">Input</span>
+        </div>
+        <div class="input-body" contenteditable="true" data-placeholder="Type here...">{{ node.input_text() }}</div>
+      </div>
       {% endif %}
     </article>
   {% endfor %}
