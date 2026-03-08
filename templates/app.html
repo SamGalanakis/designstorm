@@ -2,30 +2,16 @@
 
 {% block content %}
 <div class="storm-app" data-signals:account-open="false" data-signals:settings-open="false" data-on:keydown__window="evt.key === 'Escape' && ($settingsOpen ? ($settingsOpen = false, $accountOpen = true) : $accountOpen = false)">
-  <header class="storm-topbar">
-    <a class="brand" href="/app">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <span class="brand-copy">
-        <span class="eyebrow">Indigo Runtime</span>
-        <strong>Design Storm</strong>
-      </span>
-    </a>
 
-    <div class="storm-topbar-actions">
-      <button id="storm-reset-view" class="btn btn-ghost btn-sm" type="button">Center View</button>
-      <button
-        id="avatar-button"
-        class="avatar-btn"
-        type="button"
-        aria-label="Open account menu"
-        aria-haspopup="dialog"
-        aria-controls="account-sheet"
-        data-on:click__stop="$accountOpen = !$accountOpen; $settingsOpen = false"
-      >
-        <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
-      </button>
-    </div>
-  </header>
+  <button
+    id="avatar-button"
+    class="avatar-btn"
+    type="button"
+    aria-label="Open account menu"
+    data-on:click__stop="$accountOpen = !$accountOpen; $settingsOpen = false"
+  >
+    <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
+  </button>
 
   <div id="account-backdrop" class="backdrop" data-show="$accountOpen || $settingsOpen" data-on:click="$accountOpen = false; $settingsOpen = false"></div>
 
@@ -37,7 +23,6 @@
     </div>
 
     <button id="settings-trigger" class="settings-link" type="button"
-      aria-haspopup="dialog" aria-controls="settings-sheet"
       data-on:click__stop="$settingsOpen = true; $accountOpen = false">
       <span class="settings-link-copy">
         <span class="eyebrow">Settings</span>
@@ -73,87 +58,76 @@
     </div>
   </section>
 
-  <main class="storm-workspace">
-    <section class="canvas-shell">
-      <form id="storm-form" class="composer">
-        <div id="storm-draft-context" class="draft-context" hidden></div>
+  <form id="storm-form" class="composer">
+    <div id="storm-draft-context" class="draft-context" hidden></div>
 
-        <label class="field" for="storm-prompt">
-          <span class="field-label">Prompt</span>
-          <textarea
-            id="storm-prompt"
-            name="prompt"
-            rows="7"
-            placeholder="A design system for an AI design storm lab. Editorial but scientific. Dense, diagrammatic, and slightly uncanny."
-          ></textarea>
-        </label>
+    <textarea
+      id="storm-prompt"
+      name="prompt"
+      rows="4"
+      placeholder="Describe the design direction..."
+    ></textarea>
 
-        <div class="composer-actions">
-          <button id="storm-submit" class="btn btn-accent" type="submit">Generate Storm</button>
-          <button id="storm-clear-context" class="btn btn-ghost btn-sm" type="button" disabled>Clear Draft</button>
-          <span id="storm-status" class="status-text">Seed a direction or select a card to branch from it.</span>
-          <span class="zoom-chip"><span id="storm-zoom-readout">100%</span> zoom</span>
-        </div>
-      </form>
+    <div class="composer-actions">
+      <button id="storm-submit" class="btn btn-accent" type="submit">Generate</button>
+      <button id="storm-clear-context" class="btn btn-ghost btn-sm" type="button" disabled>Clear</button>
+      <span id="storm-status" class="status-text"></span>
+    </div>
+  </form>
 
-      <section id="storm-canvas" class="canvas" aria-label="Design storm canvas">
-        <div class="canvas-grid" aria-hidden="true"></div>
-        <div id="storm-board" class="board">
-          <svg id="storm-lines" class="board-lines" aria-hidden="true"></svg>
-          <div id="storm-runs" class="board-nodes"></div>
-        </div>
+  <section id="storm-canvas" class="canvas" aria-label="Design storm canvas">
+    <div class="canvas-grid" aria-hidden="true"></div>
+    <div id="storm-board" class="board">
+      <svg id="storm-lines" class="board-lines" aria-hidden="true"></svg>
+      <div id="storm-runs" class="board-nodes"></div>
+    </div>
 
-        <div id="storm-empty-state" class="empty-state">
-          <p>Generate a storm to begin.</p>
-        </div>
-      </section>
-    </section>
+    <div id="storm-empty-state" class="empty-state">
+      <p>Generate a storm to begin.</p>
+    </div>
+  </section>
 
-    <aside id="storm-inspector" class="inspector is-empty">
-      <div class="inspector-heading">
-        <h2 id="active-run-title">Select an artifact</h2>
+  <aside id="storm-inspector" class="inspector is-empty">
+    <div class="inspector-heading">
+      <h2 id="active-run-title">Select an artifact</h2>
+    </div>
+
+    <div class="inspector-preview">
+      <iframe id="storm-preview" title="Selected storm preview"></iframe>
+    </div>
+
+    <div class="inspector-meta">
+      <p id="storm-summary" class="text-muted"></p>
+
+      <div id="inspector-chips" class="inspector-chips" hidden>
+        <span id="inspector-status-pill" class="pill pill-muted"></span>
+        <span id="inspector-created" class="chip"></span>
       </div>
 
-      <div class="inspector-preview">
-        <iframe id="storm-preview" title="Selected storm preview"></iframe>
+      <div id="inspector-seed" class="note-card" hidden>
+        <strong>Seed</strong>
+        <div id="inspector-prompt" class="text-muted"></div>
       </div>
 
-      <div class="inspector-meta">
-        <p id="storm-summary" class="text-muted"></p>
-
-        <div id="inspector-chips" class="inspector-chips" hidden>
-          <span id="inspector-status-pill" class="pill pill-muted"></span>
-          <span id="inspector-created" class="chip"></span>
-        </div>
-
-        <div id="inspector-seed" class="note-card" hidden>
-          <strong>Seed</strong>
-          <div id="inspector-prompt" class="text-muted"></div>
-        </div>
-
-        <div id="inspector-notes" class="note-card" hidden>
-          <strong>Summary</strong>
-          <div id="storm-notes" class="text-muted"></div>
-        </div>
+      <div id="inspector-notes" class="note-card" hidden>
+        <strong>Summary</strong>
+        <div id="storm-notes" class="text-muted"></div>
       </div>
+    </div>
 
-      <div class="inspector-actions">
-        <button id="inspector-fork" class="btn btn-ghost" type="button" disabled>Fork</button>
-        <button id="inspector-combine" class="btn btn-ghost" type="button" disabled>Combine</button>
-        <button id="inspector-fullscreen" class="btn btn-accent" type="button" disabled>Fullscreen</button>
-      </div>
-    </aside>
-  </main>
+    <div class="inspector-actions">
+      <button id="inspector-fork" class="btn btn-ghost" type="button" disabled>Fork</button>
+      <button id="inspector-combine" class="btn btn-ghost" type="button" disabled>Combine</button>
+      <button id="inspector-fullscreen" class="btn btn-accent" type="button" disabled>Fullscreen</button>
+    </div>
+  </aside>
 
   <section id="storm-focus" class="focus-overlay" hidden aria-hidden="true">
     <div class="focus-backdrop" data-action="close-focus"></div>
     <div class="focus-shell" role="dialog" aria-modal="true" aria-labelledby="storm-focus-title">
       <div class="focus-bar">
-        <button id="storm-focus-back" class="btn btn-ghost" type="button">Back To Canvas</button>
-        <div class="focus-title">
-          <span class="eyebrow">Fullscreen</span>
-          <h2 id="storm-focus-title">Artifact</h2>
-        </div>
+        <button id="storm-focus-back" class="btn btn-ghost" type="button">Back</button>
+        <h2 id="storm-focus-title">Artifact</h2>
       </div>
       <div class="focus-frame">
         <iframe id="storm-focus-preview" title="Fullscreen storm preview"></iframe>

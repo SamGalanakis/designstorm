@@ -413,8 +413,6 @@ function updateBoardTransform(): void {
   const board = $("storm-board");
   if (!board) return;
   board.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`;
-  const zoom = $("storm-zoom-readout");
-  if (zoom) zoom.textContent = `${Math.round(state.scale * 100)}%`;
 }
 
 function renderConnections(): void {
@@ -664,7 +662,6 @@ function bindAppChrome(): void {
   // Form
   $("storm-form")?.addEventListener("submit", (e) => void submitStorm(e));
   $("storm-clear-context")?.addEventListener("click", () => clearDraftContext());
-  $("storm-reset-view")?.addEventListener("click", () => { state.pan = { ...INITIAL_PAN }; state.scale = 1; updateBoardTransform(); });
 
   // Fullscreen overlay
   $("storm-focus")?.addEventListener("click", (e) => {
