@@ -91,6 +91,7 @@ type StormState = {
   radialMenu: RadialMenuState;
   lastCursor: Point;
   awaitingGeneratedRun: boolean;
+  spacePanHeld: boolean;
 };
 
 type WorldBounds = {
@@ -162,6 +163,9 @@ const BACKGROUND_CHUNK_OVERSCAN = 1;
 const BACKGROUND_CHUNK_BLEED_PX = 2;
 const MAX_BACKGROUND_CHUNKS = 36;
 const CONNECTION_PADDING = 240;
+const MIN_BOARD_SCALE = 0.35;
+const MAX_BOARD_SCALE = 2.5;
+const WHEEL_ZOOM_SENSITIVITY = 0.0015;
 
 let clerk: ClerkLike | null = null;
 let isSyncing = false;
@@ -183,6 +187,7 @@ const state: StormState = {
   radialMenu: { open: false, position: { x: 0, y: 0 }, selectedIndex: null },
   lastCursor: { x: 0, y: 0 },
   awaitingGeneratedRun: false,
+  spacePanHeld: false,
 };
 
 const backgroundState: BackgroundState = {
@@ -212,6 +217,37 @@ function getConfig(): AppConfig {
 
 function escapeHtml(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function normalizeWheelDelta(value: number, deltaMode: number): number {
+  if (deltaMode === WheelEvent.DOM_DELTA_LINE) return value * 16;
+  if (deltaMode === WheelEvent.DOM_DELTA_PAGE) return value * window.innerHeight;
+  return value;
+}
+
+function zoomBoardAtPoint(canvas: HTMLElement, clientX: number, clientY: number, deltaY: number): void {
+  const rect = canvas.getBoundingClientRect();
+  const localX = clientX - rect.left;
+  const localY = clientY - rect.top;
+  const prevScale = state.scale;
+  const worldX = (localX - state.pan.x) / prevScale;
+  const worldY = (localY - state.pan.y) / prevScale;
+  const factor = Math.pow(2, -deltaY * WHEEL_ZOOM_SENSITIVITY);
+  const nextScale = Math.min(MAX_BOARD_SCALE, Math.max(MIN_BOARD_SCALE, prevScale * factor));
+  if (Math.abs(nextScale - prevScale) < 0.0001) return;
+  state.scale = nextScale;
+  state.pan = {
+    x: localX - worldX * nextScale,
+    y: localY - worldY * nextScale,
+  };
+  updateBoardTransform();
 }
 
 function createWorldBounds(minX: number, minY: number, maxX: number, maxY: number): WorldBounds {
@@ -472,22 +508,17 @@ function createBackgroundRenderer(canvas: HTMLCanvasElement): BackgroundRenderer
       vec2 warped = field + r * 0.12;
 
       float h0 = fbm5(vec3(warped * 4.0, seed + 7.0));
-      float eps = 0.006;
-      float hx = fbm5(vec3((warped + vec2(eps, 0.0)) * 4.0, seed + 7.0));
-      float hy = fbm5(vec3((warped + vec2(0.0, eps)) * 4.0, seed + 7.0));
-      vec3 normal = normalize(vec3((h0 - hx) / eps * 0.15, (h0 - hy) / eps * 0.15, 1.0));
-      vec3 lightDir = normalize(vec3(0.4, 0.5, 0.8));
-      float light = 0.5 + max(dot(normal, lightDir), 0.0) * 0.5;
+      float tonalLift = (q.y * 0.18 + r.y * 0.12 + h0 * 0.22);
 
       float hueDriver = (q.x * 0.4 + r.x * 0.3 + h0 * 0.3) * 0.5 + 0.5;
       float hueRad = radians(195.0 + hueDriver * 60.0 + seed * 18.0);
 
-      float L = 0.16 + light * 0.06 + h0 * 0.02;
-      float C = 0.03 + hueDriver * 0.02;
+      float L = 0.15 + tonalLift * 0.05;
+      float C = 0.026 + hueDriver * 0.016;
       vec3 color = oklchToSrgb(L, C, hueRad);
 
       float grain = fbm5(vec3(world / 2.8, seed + 71.0)) * 0.5 + 0.5;
-      color += (grain - 0.5) * 0.08;
+      color += (grain - 0.5) * 0.055;
 
       fragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
     }
@@ -553,6 +584,7 @@ function ensureBackgroundDisplayCanvas(): void {
   if (!backgroundState.container || backgroundState.displayCanvas) return;
   const canvas = document.createElement("canvas");
   canvas.className = "board-background-canvas";
+  canvas.style.opacity = "0";
   backgroundState.container.appendChild(canvas);
   backgroundState.displayCanvas = canvas;
 }
@@ -588,6 +620,7 @@ function drawBackgroundPresentation(): void {
   gl.uniform1f(uWorldPerPixel, (bounds.maxX - bounds.minX) / Math.max(1, canvas.width));
   gl.uniform1f(uSeed, backgroundState.seed);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  canvas.style.opacity = "1";
 }
 
 function requestBackgroundPresentationDraw(): void {
@@ -689,7 +722,7 @@ function initBoardBackground(): void {
     setBackgroundFallback("webgl_unavailable");
     return;
   }
-  syncBoardBackground();
+  drawBackgroundPresentation();
   window.addEventListener("resize", () => {
     resizeBackgroundDisplayCanvas();
     syncBoardBackground();
@@ -1230,13 +1263,30 @@ function bindCanvasInteractions(): void {
 
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
-    state.scale = Number(Math.max(0.5, Math.min(1.5, state.scale - e.deltaY * 0.001)).toFixed(2));
+    const deltaX = normalizeWheelDelta(e.deltaX, e.deltaMode);
+    const deltaY = normalizeWheelDelta(e.deltaY, e.deltaMode);
+    if (e.metaKey || e.ctrlKey) {
+      zoomBoardAtPoint(canvas, e.clientX, e.clientY, deltaY);
+      return;
+    }
+
+    let panX = deltaX;
+    let panY = deltaY;
+    if (e.shiftKey && Math.abs(deltaX) < 1) {
+      panX = deltaY;
+      panY = 0;
+    }
+
+    state.pan = {
+      x: state.pan.x - panX,
+      y: state.pan.y - panY,
+    };
     updateBoardTransform();
   }, { passive: false });
 
   canvas.addEventListener("pointerdown", (e) => {
     if (e.button === 2) return;
-    if ((e.target as HTMLElement).closest(".storm-node")) return;
+    if ((e.target as HTMLElement).closest(".storm-node") && !state.spacePanHeld && e.button !== 1) return;
     state.pointerState = { mode: "pan", pointerId: e.pointerId, startClient: { x: e.clientX, y: e.clientY }, startPan: { ...state.pan } };
     canvas.setPointerCapture(e.pointerId);
   });
@@ -1250,6 +1300,25 @@ function bindCanvasInteractions(): void {
   canvas.addEventListener("pointerup", (e) => {
     if (state.pointerState?.pointerId === e.pointerId) { state.pointerState = null; canvas.releasePointerCapture(e.pointerId); }
   });
+
+  canvas.addEventListener("pointercancel", (e) => {
+    if (state.pointerState?.pointerId === e.pointerId) state.pointerState = null;
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "Space" || isEditableTarget(e.target)) return;
+    state.spacePanHeld = true;
+    e.preventDefault();
+  });
+
+  window.addEventListener("keyup", (e) => {
+    if (e.code !== "Space") return;
+    state.spacePanHeld = false;
+  });
+
+  window.addEventListener("blur", () => {
+    state.spacePanHeld = false;
+  });
 }
 
 function bindNodeInteractions(): void {
@@ -1257,6 +1326,7 @@ function bindNodeInteractions(): void {
   if (!container) return;
 
   container.addEventListener("click", (e) => {
+    if (state.spacePanHeld) return;
     const target = e.target as HTMLElement;
     const action = target.closest<HTMLElement>("[data-run-action]")?.dataset.runAction;
     const node = target.closest<HTMLElement>(".storm-node");
@@ -1269,11 +1339,13 @@ function bindNodeInteractions(): void {
   });
 
   container.addEventListener("dblclick", (e) => {
+    if (state.spacePanHeld) return;
     const node = (e.target as HTMLElement).closest<HTMLElement>(".storm-node");
     if (node?.dataset.runId) openFullscreen(node.dataset.runId);
   });
 
   container.addEventListener("pointerdown", (e) => {
+    if (state.spacePanHeld) return;
     const target = e.target as HTMLElement;
     if (target.closest("[data-run-action]")) return;
     const node = target.closest<HTMLElement>(".storm-node");

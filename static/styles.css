@@ -517,6 +517,7 @@ h1, h2, h3 {
   inset: 0;
   overflow: hidden;
   cursor: grab;
+  background: #120810;
 }
 
 .canvas:active { cursor: grabbing; }
@@ -554,9 +555,9 @@ h1, h2, h3 {
 
 .board-background.is-fallback {
   background:
-    radial-gradient(circle at 20% 18%, rgba(91, 156, 184, 0.16), rgba(91, 156, 184, 0) 28%),
-    radial-gradient(circle at 82% 14%, rgba(255,255,255,0.07), rgba(255,255,255,0) 20%),
-    radial-gradient(circle at 50% 100%, rgba(0,0,0,0.28), rgba(0,0,0,0) 36%);
+    radial-gradient(circle at 24% 24%, rgba(91, 156, 184, 0.08), rgba(91, 156, 184, 0) 30%),
+    radial-gradient(circle at 50% 100%, rgba(0,0,0,0.22), rgba(0,0,0,0) 38%),
+    linear-gradient(180deg, #130810 0%, #10070f 100%);
 }
 
 .board-background-canvas {
