@@ -720,7 +720,7 @@ flowchart LR
               <tr><td><span class="method post">POST</span></td><td>/storms/generate</td><td>Generate artifact (SSE stream via Datastar)</td></tr>
               <tr><td><span class="method">GET</span></td><td>/api/storms</td><td>List user's storm runs</td></tr>
               <tr><td><span class="method">GET</span></td><td>/preview/{id}/</td><td>Serve generated artifact HTML</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/nodes</td><td>Create board node</td></tr>
+              <tr><td><span class="method post">POST</span></td><td>/nodes/create</td><td>Create board node through Datastar form post</td></tr>
               <tr><td><span class="method post">POST</span></td><td>/nodes/{id}/run</td><td>Execute generate node (SSE stream)</td></tr>
               <tr><td><span class="method post">POST</span></td><td>/nodes/{id}/position</td><td>Update node position + size</td></tr>
               <tr><td><span class="method post">POST</span></td><td>/nodes/{id}/content</td><td>Update node content (text, images)</td></tr>
@@ -728,6 +728,7 @@ flowchart LR
               <tr><td><span class="method del">DEL</span></td><td>/nodes/{id}</td><td>Delete node + associated edges</td></tr>
               <tr><td><span class="method post">POST</span></td><td>/edges</td><td>Create edge between nodes</td></tr>
               <tr><td><span class="method del">DEL</span></td><td>/edges/{id}</td><td>Delete edge</td></tr>
+              <tr><td><span class="method">GET</span></td><td>/storms/{id}/download</td><td>Download generated workspace as ZIP</td></tr>
               <tr><td><span class="method post">POST</span></td><td>/settings/provider/codex/start</td><td>Initiate device OAuth flow</td></tr>
             </tbody>
           </table>
@@ -795,8 +796,9 @@ sequenceDiagram
             </div>
             <div class="arch-card">
               <strong>Canvas Layer</strong>
-              <p>WebGL2 procedural noise background (chunked rendering with LRU eviction).
-                DOM-based node rendering with CSS transforms for positioning. SVG for edge lines.</p>
+              <p>WebGL2 procedural background rendered as one seamless presentation surface, backed by
+                cached offscreen chunks. DOM-based node rendering uses CSS transforms for positioning,
+                and SVG renders the connection lines.</p>
             </div>
           </div>
         </div>
@@ -809,13 +811,15 @@ sequenceDiagram
             <pre class="mermaid">
 stateDiagram-v2
     [*] --> Idle
-    Idle --> Pan: Space + drag / Middle mouse
+    Idle --> Pan: Space + drag / Hand tool
     Idle --> DragNode: Pointer down on node
+    Idle --> ResizeNode: Drag resize handle
     Idle --> Wire: Pointer down on edge handle
     Idle --> RadialMenu: Right-click / Backtick
 
     Pan --> Idle: Pointer up
     DragNode --> Idle: Pointer up (persist position)
+    ResizeNode --> Idle: Pointer up (persist size)
     Wire --> CreateEdge: Drop on valid target
     Wire --> RadialMenu: Drop on empty canvas
     Wire --> Idle: Drop on invalid target
@@ -830,8 +834,9 @@ stateDiagram-v2
           <p>
             Pointer state is modeled as a discriminated union with modes: <code>pan</code>,
             <code>drag</code>, <code>drag-board-node</code>, <code>wire</code>, and <code>resize</code>.
-            Edge connections are validated &mdash; only <code>entropy</code>, <code>user_input</code>,
-            and <code>design</code> nodes can wire into <code>generate</code> nodes.
+            The board now uses Figma-style navigation: wheel pans, <code>Ctrl</code>/<code>Cmd</code> + wheel zooms,
+            and the bottom tool dock controls select vs hand mode. Radial-created nodes spawn at the invocation point,
+            while toolbar-created nodes spawn centered in the current viewport.
           </p>
         </div>
       </div>
@@ -942,7 +947,8 @@ flowchart LR
           <p>
             Each source type contributes to the prompt differently: entropy provides reference URLs,
             user input provides direction text, and design nodes provide context from previous generations.
-            The composite prompt feeds into the same <code>generate_storm_internal()</code> pipeline.
+            Generate-node execution is server-owned and returns Datastar SSE patches that refresh the
+            board HTML, roots navigator, and local generation signals.
           </p>
         </div>
       </div>
@@ -956,8 +962,9 @@ flowchart LR
       <div class="section-label">05 / Data Model</div>
       <h2 class="section-title">PostgreSQL Schema</h2>
       <p class="section-desc">
-        Five core tables managed through sqlx migrations. Workspace files live on the filesystem,
-        while all metadata and credentials are stored in PostgreSQL.
+        Five core tables managed through sqlx migrations. Workspace files are produced on the local
+        filesystem first, then archived to S3-compatible object storage, while metadata and credentials
+        live in PostgreSQL.
       </p>
 
       <div class="panel">
@@ -1155,8 +1162,8 @@ flowchart LR
             </div>
             <div class="arch-card">
               <strong>Storage</strong>
-              <p>Workspace artifacts written to local filesystem (<code>/tmp/designstorm</code>).
-                Database migrations run automatically on startup via sqlx.</p>
+              <p>Workspace artifacts are written locally, zipped, and uploaded to S3-compatible object
+                storage for durable preview recovery. Database migrations run automatically on startup via sqlx.</p>
             </div>
             <div class="arch-card">
               <strong>Networking</strong>
