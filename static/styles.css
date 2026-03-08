@@ -295,16 +295,17 @@ h1, h2, h3 {
   background: linear-gradient(135deg, var(--accent-glow), var(--warm-glow));
 }
 
-.roots-trigger {
+/* ─── Command Palette ─── */
+
+.palette-trigger {
   position: fixed;
   top: 16px;
   left: 16px;
   z-index: 50;
-  height: 44px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 12px 0 14px;
+  padding: 0 12px;
   border-radius: var(--radius-pill);
   background: rgba(15, 21, 32, 0.88);
   border: 1px solid var(--border);
@@ -312,51 +313,30 @@ h1, h2, h3 {
   transition: border-color 180ms, transform 150ms, background 180ms;
 }
 
-.roots-trigger:hover,
-.roots-trigger[aria-expanded="true"] {
+.palette-trigger:hover {
   background: rgba(22, 30, 45, 0.94);
   border-color: rgba(91, 156, 184, 0.35);
-}
-
-.roots-trigger:hover {
   transform: translateY(-1px);
 }
 
-.roots-trigger-label,
-.roots-trigger-count {
+.palette-trigger-label {
   font-family: "IBM Plex Mono", monospace;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.roots-trigger-label {
   color: var(--text-dim);
 }
 
-.roots-trigger-count {
-  min-width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 6px;
-  border-radius: var(--radius-pill);
-  background: rgba(91, 156, 184, 0.14);
-  color: var(--accent-strong);
-}
-
-.roots-panel {
+.palette-panel {
   position: fixed;
-  top: 76px;
+  top: 68px;
   left: 16px;
   z-index: 60;
-  width: min(360px, calc(100vw - 32px));
+  width: min(380px, calc(100vw - 32px));
   display: grid;
-  gap: 14px;
-  padding: 18px;
-  background: rgba(10, 12, 20, 0.9);
+  gap: 10px;
+  padding: 14px;
+  background: rgba(10, 12, 20, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: var(--radius-lg);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.03);
@@ -367,102 +347,136 @@ h1, h2, h3 {
   overflow: hidden;
 }
 
-.roots-panel-header {
-  display: grid;
-  gap: 4px;
-}
+.palette-panel[hidden] { display: none; }
 
-.roots-panel-header h2 {
-  font-size: 1.8rem;
-}
-
-.roots-list {
-  display: grid;
-  gap: 10px;
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.root-item,
-.root-item-empty {
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: rgba(22, 30, 45, 0.78);
-}
-
-.root-item {
+.palette-search {
   width: 100%;
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  text-align: left;
-  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: "Manrope", system-ui, sans-serif;
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 200ms;
 }
 
-.root-item:hover {
-  background: rgba(28, 38, 56, 0.92);
-  border-color: rgba(91, 156, 184, 0.28);
-  transform: translateY(-1px);
+.palette-search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
-.root-item.is-active {
-  border-color: rgba(91, 156, 184, 0.42);
-  box-shadow: 0 0 0 1px rgba(91, 156, 184, 0.14), 0 18px 36px rgba(0, 0, 0, 0.22);
+.palette-search::placeholder {
+  color: var(--text-faint);
 }
 
-.root-item:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.root-item-header,
-.root-item-meta {
+.palette-filters {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
-.root-item-title {
-  min-width: 0;
-  font-size: 1.18rem;
-  line-height: 0.98;
-}
-
-.root-item-summary {
-  color: var(--text-dim);
-  font-size: 0.84rem;
-  line-height: 1.55;
-}
-
-.root-badge {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 8px;
+.palette-chip {
+  height: 26px;
+  padding: 0 10px;
   border-radius: var(--radius-pill);
-  background: rgba(91, 156, 184, 0.12);
-  color: var(--accent-strong);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
   font-family: "IBM Plex Mono", monospace;
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms, color 150ms;
+}
+
+.palette-chip:hover {
+  background: var(--surface-overlay);
+  border-color: var(--border-strong);
+}
+
+.palette-chip.is-active {
+  background: rgba(91, 156, 184, 0.14);
+  border-color: rgba(91, 156, 184, 0.3);
+  color: var(--accent-strong);
+}
+
+.palette-list {
+  display: grid;
+  gap: 4px;
+  overflow-y: auto;
+  max-height: min(50vh, 480px);
+  padding-right: 2px;
+}
+
+.palette-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: transparent;
+  border: 1px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+
+.palette-item:hover {
+  background: rgba(22, 30, 45, 0.8);
+  border-color: var(--border);
+}
+
+.palette-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.palette-type-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
-.root-item-meta {
-  color: var(--text-faint);
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.palette-dot-design { background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
+.palette-dot-entropy { background: var(--warm); box-shadow: 0 0 6px var(--warm-glow); }
+.palette-dot-user_input { background: rgba(160, 140, 200, 0.8); box-shadow: 0 0 6px rgba(160, 140, 200, 0.2); }
+.palette-dot-generate { background: var(--accent-strong); box-shadow: 0 0 6px var(--accent-glow); }
+
+.palette-item-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
-.root-item-empty {
-  padding: 18px 16px;
+.palette-item-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette-item-detail {
+  font-size: 0.75rem;
   color: var(--text-dim);
-  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.palette-empty {
+  padding: 18px 12px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  text-align: center;
 }
 
 /* ─── Backdrop + Sheets ─── */

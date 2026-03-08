@@ -423,22 +423,6 @@ function getOccupiedNodeBounds(): WorldBounds[] {
   return bounds;
 }
 
-function getRootIdForRun(runId: string | null): string | null {
-  if (!runId) return null;
-  const runIds = new Set(state.runs.map((run) => run.id));
-  let current: string | null = runId;
-  const seen = new Set<string>();
-
-  while (current && !seen.has(current)) {
-    seen.add(current);
-    const parents = (state.lineage.get(current) ?? []).filter((parentId) => runIds.has(parentId));
-    if (parents.length === 0) return current;
-    current = parents[0] ?? null;
-  }
-
-  return runId;
-}
-
 function getPanConstraintRegions(): WorldBounds[] {
   const occupied = getOccupiedNodeBounds();
   if (occupied.length > 0) {
@@ -1273,7 +1257,7 @@ function setActiveRun(id: string | null, opts?: { sync?: boolean }): void {
   if (!id) state.focusedRunId = null;
   renderRuns();
   renderFocus();
-  syncRootsNavigatorState();
+
   if (opts?.sync) syncUrl(false);
 }
 
@@ -1282,14 +1266,14 @@ function openFullscreen(id: string): void {
   state.focusedRunId = id;
   renderRuns();
   renderFocus();
-  syncRootsNavigatorState();
+
   syncUrl(false);
 }
 
 function closeFullscreen(): void {
   state.focusedRunId = null;
   renderFocus();
-  syncRootsNavigatorState();
+
   syncUrl(false);
 }
 
@@ -1330,29 +1314,6 @@ function updateBoardTransform(): void {
   state.pan = clampPanToWorldBounds(state.pan, state.scale);
   board.style.transform = `translate(${state.pan.x}px, ${state.pan.y}px) scale(${state.scale})`;
   syncBoardBackground();
-}
-
-function isRootsNavigatorOpen(): boolean {
-  const panel = $("roots-panel");
-  return Boolean(panel && getComputedStyle(panel).display !== "none");
-}
-
-function closeRootsNavigator(): void {
-  const trigger = $("roots-trigger") as HTMLButtonElement | null;
-  if (!trigger || !isRootsNavigatorOpen()) return;
-  trigger.click();
-}
-
-function syncRootsNavigatorState(): void {
-  const list = $("roots-list");
-  const count = $("roots-count");
-  if (!list || !count) return;
-  const buttons = Array.from(list.querySelectorAll<HTMLElement>("[data-root-id]"));
-  count.textContent = String(buttons.length);
-  const activeRootId = getRootIdForRun(state.focusedRunId ?? state.activeRunId);
-  buttons.forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.rootId === activeRootId);
-  });
 }
 
 function getControlOffset(side: AnchorSide, tension: number): Point {
@@ -1619,7 +1580,7 @@ function hydrateBoardFromDom(): void {
   updateGenerateInputs();
   renderInspector();
   renderFocus();
-  syncRootsNavigatorState();
+
 
   const latestRunId = getBoundValue("storm-latest-run-id").trim();
   if (latestRunId && getRun(latestRunId)) {
@@ -2158,7 +2119,7 @@ async function deleteRun(runId: string): Promise<void> {
   renderConnections();
   renderInspector();
   renderFocus();
-  syncRootsNavigatorState();
+
   syncUrl(false);
 }
 
@@ -2391,7 +2352,7 @@ function bindAppChrome(): void {
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       if (state.radialMenu.open) { closeRadialMenu(); e.preventDefault(); return; }
-      if (isRootsNavigatorOpen()) { closeRootsNavigator(); e.preventDefault(); return; }
+      if (!$("palette-panel")?.hidden) { closePalette(); e.preventDefault(); return; }
       const form = $("storm-form");
       if (form && !form.hidden) { hideComposer(); e.preventDefault(); return; }
       if (state.focusedRunId) closeFullscreen();
@@ -2404,25 +2365,126 @@ function bindAppChrome(): void {
   });
 
   // History
-  window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); syncRootsNavigatorState(); });
+  window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); });
 }
 
-function bindRootsNavigatorActions(): void {
-  const list = $("roots-list");
+// ─── Command Palette ───
+
+let paletteFilter = "all";
+
+function openPalette(): void {
+  const panel = $("palette-panel");
+  const input = $("palette-search") as HTMLInputElement | null;
+  if (!panel) return;
+  panel.hidden = false;
+  input?.focus();
+  renderPaletteList();
+}
+
+function closePalette(): void {
+  const panel = $("palette-panel");
+  if (!panel) return;
+  panel.hidden = true;
+  const input = $("palette-search") as HTMLInputElement | null;
+  if (input) input.value = "";
+  paletteFilter = "all";
+  panel.querySelectorAll(".palette-chip").forEach(c => c.classList.toggle("is-active", (c as HTMLElement).dataset.filter === "all"));
+}
+
+function getPaletteItems(): Array<{ id: string; type: string; label: string; detail: string }> {
+  const items: Array<{ id: string; type: string; label: string; detail: string }> = [];
+
+  for (const run of state.runs) {
+    items.push({ id: run.id, type: "design", label: run.title, detail: run.summary });
+  }
+  for (const node of state.boardNodes) {
+    if (node.nodeType === "entropy") {
+      items.push({ id: node.id, type: "entropy", label: (node.content.title as string) ?? "Entropy", detail: (node.content.url as string) ?? "" });
+    } else if (node.nodeType === "user_input") {
+      items.push({ id: node.id, type: "user_input", label: "Input", detail: ((node.content.text as string) ?? "").slice(0, 80) });
+    } else if (node.nodeType === "generate") {
+      const inputCount = state.edges.filter(e => e.targetId === node.id).length;
+      items.push({ id: node.id, type: "generate", label: "Generate", detail: `${inputCount} input${inputCount !== 1 ? "s" : ""} wired` });
+    }
+  }
+  return items;
+}
+
+function renderPaletteList(): void {
+  const list = $("palette-list");
+  const input = $("palette-search") as HTMLInputElement | null;
   if (!list) return;
 
-  list.addEventListener("click", (e) => {
-    const item = (e.target as HTMLElement).closest<HTMLElement>("[data-root-id]");
-    const runId = item?.dataset.rootId;
-    if (!runId) return;
-    setActiveRun(runId, { sync: true });
-    centerRunInView(runId);
+  const query = (input?.value ?? "").toLowerCase().trim();
+  let items = getPaletteItems();
+
+  if (paletteFilter !== "all") items = items.filter(i => i.type === paletteFilter);
+  if (query) items = items.filter(i => i.label.toLowerCase().includes(query) || i.detail.toLowerCase().includes(query));
+
+  if (items.length === 0) {
+    list.innerHTML = '<div class="palette-empty">No nodes found.</div>';
+    return;
+  }
+
+  list.innerHTML = items.map(item => `
+    <button class="palette-item" data-palette-id="${item.id}" type="button">
+      <span class="palette-type-dot palette-dot-${item.type}"></span>
+      <div class="palette-item-text">
+        <span class="palette-item-label">${escapeHtml(item.label)}</span>
+        <span class="palette-item-detail">${escapeHtml(item.detail)}</span>
+      </div>
+    </button>
+  `).join("");
+}
+
+function bindPalette(): void {
+  const trigger = $("palette-trigger");
+  const panel = $("palette-panel");
+  const searchInput = $("palette-search") as HTMLInputElement | null;
+  if (!trigger || !panel) return;
+
+  trigger.addEventListener("click", () => {
+    if (panel.hidden) openPalette(); else closePalette();
   });
 
-  const observer = new MutationObserver(() => {
-    syncRootsNavigatorState();
+  window.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      e.preventDefault();
+      if (panel.hidden) openPalette(); else closePalette();
+    }
   });
-  observer.observe(list, { childList: true, subtree: true });
+
+  searchInput?.addEventListener("input", () => renderPaletteList());
+
+  panel.addEventListener("click", (e) => {
+    const chip = (e.target as HTMLElement).closest<HTMLElement>(".palette-chip");
+    if (chip?.dataset.filter) {
+      paletteFilter = chip.dataset.filter;
+      panel.querySelectorAll(".palette-chip").forEach(c => c.classList.toggle("is-active", (c as HTMLElement).dataset.filter === paletteFilter));
+      renderPaletteList();
+      return;
+    }
+
+    const item = (e.target as HTMLElement).closest<HTMLElement>("[data-palette-id]");
+    const nodeId = item?.dataset.paletteId;
+    if (!nodeId) return;
+
+    const nodeType = getNodeType(nodeId);
+    if (nodeType === "design") {
+      setActiveRun(nodeId, { sync: true });
+    } else {
+      state.activeNodeId = nodeId;
+      state.activeRunId = null;
+    }
+    centerRunInView(nodeId);
+    closePalette();
+  });
+
+  document.addEventListener("pointerdown", (e) => {
+    if (!panel.hidden && !panel.contains(e.target as Node) && !trigger.contains(e.target as Node)) {
+      closePalette();
+    }
+  });
 }
 
 function setAvatarInitials(): void {
@@ -2813,7 +2875,7 @@ function bindBoardObserver(): void {
 function bindStormApp(): void {
   if (getConfig().currentPath !== "/app") return;
   setAvatarInitials();
-  syncRootsNavigatorState();
+
   renderDraftContext();
   initBoardBackground();
   updateBoardTransform();
@@ -2823,7 +2885,7 @@ function bindStormApp(): void {
   bindBoardNodeInteractions();
   bindEdgeHover();
   bindAppChrome();
-  bindRootsNavigatorActions();
+  bindPalette();
   bindRadialMenu();
   hydrateBoardFromDom();
 

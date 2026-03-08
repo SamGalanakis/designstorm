@@ -403,25 +403,6 @@ impl StormRunSummary {
 }
 
 #[derive(Debug, Clone)]
-struct RootNavigatorEntry {
-    run_id: String,
-    label: String,
-    summary: String,
-    created_label: String,
-    branch_size: usize,
-}
-
-impl RootNavigatorEntry {
-    fn branch_label(&self) -> String {
-        if self.branch_size == 1 {
-            "1 artifact".to_string()
-        } else {
-            format!("{} artifacts", self.branch_size)
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
 struct StormRunRecord {
     id: Uuid,
     owner_user_id: Uuid,
@@ -1039,7 +1020,6 @@ struct AppTemplate<'a> {
     app_config_json: &'a str,
     provider_panel: &'a str,
     board_html: &'a str,
-    roots_html: &'a str,
 }
 
 #[derive(Template)]
@@ -1062,11 +1042,6 @@ struct StormBoardTemplate<'a> {
     edges_json: &'a str,
 }
 
-#[derive(Template)]
-#[template(path = "roots_list.html")]
-struct RootsListTemplate<'a> {
-    roots: &'a [RootNavigatorEntry],
-}
 
 #[derive(Debug, Deserialize)]
 struct StormRequest {
@@ -1304,7 +1279,6 @@ async fn app_page(State(state): State<AppState>, headers: HeaderMap) -> Result<R
 
     let provider_panel = render_provider_panel_html(&state, &viewer).await?;
     let board_html = render_storm_board_html(&state, viewer.id).await?;
-    let roots_html = render_roots_html(&state, viewer.id).await?;
     let config_json = json!({
         "clerkPublishableKey": state.config.clerk_publishable_key,
         "appUrl": state.config.app_url,
@@ -1321,7 +1295,6 @@ async fn app_page(State(state): State<AppState>, headers: HeaderMap) -> Result<R
         app_config_json: &config_json,
         provider_panel: &provider_panel,
         board_html: &board_html,
-        roots_html: &roots_html,
     };
 
     Ok(Html(page.render()?).into_response())
@@ -1559,17 +1532,8 @@ async fn generate_storm_datastar(
 
         match generate_storm_internal(&state, &viewer, input).await {
             Ok(response) => {
-                match (
-                    render_storm_board_html(&state, viewer.id).await,
-                    render_roots_html(&state, viewer.id).await,
-                ) {
-                    (Ok(board_html), Ok(roots_html)) => {
-                        yield Ok::<_, Infallible>(
-                            PatchElements::new(roots_html)
-                                .selector("#roots-list")
-                                .mode(ElementPatchMode::Inner)
-                                .write_as_axum_sse_event(),
-                        );
+                match render_storm_board_html(&state, viewer.id).await {
+                    Ok(board_html) => {
                         yield Ok::<_, Infallible>(
                             PatchElements::new(board_html)
                                 .selector("#storm-runs")
@@ -1585,7 +1549,7 @@ async fn generate_storm_datastar(
                             "_latestRunId": response.run.id.to_string(),
                         }).to_string()));
                     }
-                    (Err(error), _) | (_, Err(error)) => {
+                    Err(error) => {
                         yield Ok::<_, Infallible>(patch_signals(json!({
                             "_generating": false,
                             "_latestRunId": "",
@@ -1751,17 +1715,8 @@ async fn run_generate_node(
                 .execute(&state.db)
                 .await;
 
-                match (
-                    render_storm_board_html(&state, viewer.id).await,
-                    render_roots_html(&state, viewer.id).await,
-                ) {
-                    (Ok(board_html), Ok(roots_html)) => {
-                        yield Ok::<_, Infallible>(
-                            PatchElements::new(roots_html)
-                                .selector("#roots-list")
-                                .mode(ElementPatchMode::Inner)
-                                .write_as_axum_sse_event(),
-                        );
+                match render_storm_board_html(&state, viewer.id).await {
+                    Ok(board_html) => {
                         yield Ok::<_, Infallible>(
                             PatchElements::new(board_html)
                                 .selector("#storm-runs")
@@ -1774,7 +1729,7 @@ async fn run_generate_node(
                             "_latestRunId": new_run_id.to_string(),
                         }).to_string()));
                     }
-                    (Err(error), _) | (_, Err(error)) => {
+                    Err(error) => {
                         yield Ok::<_, Infallible>(patch_signals(json!({
                             "_generating": false,
                             "_latestRunId": "",
@@ -2301,96 +2256,6 @@ async fn render_storm_board_html(state: &AppState, user_id: Uuid) -> Result<Stri
         edges_json: &edges_json,
     }
     .render()?)
-}
-
-fn truncate_for_root_label(value: &str, max_chars: usize) -> String {
-    let trimmed = value.trim();
-    let char_count = trimmed.chars().count();
-    if char_count <= max_chars {
-        return trimmed.to_string();
-    }
-    trimmed
-        .chars()
-        .take(max_chars.saturating_sub(1))
-        .collect::<String>()
-        .trim_end()
-        .to_string()
-        + "…"
-}
-
-fn root_display_label(run: &StormRunSummary, index: usize) -> String {
-    let title = run.title.trim();
-    if !title.is_empty() && !title.eq_ignore_ascii_case("storm artifact") {
-        return title.to_string();
-    }
-    if !run.prompt.trim().is_empty() {
-        return truncate_for_root_label(&run.prompt.replace('\n', " "), 42);
-    }
-    format!("Root {}", index + 1)
-}
-
-fn build_root_entries(runs: &[StormRunSummary]) -> Vec<RootNavigatorEntry> {
-    let run_lookup = runs
-        .iter()
-        .map(|run| (run.id, run))
-        .collect::<HashMap<Uuid, &StormRunSummary>>();
-    let mut children_by_parent: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
-
-    for run in runs {
-        for parent_id in &run.parent_ids {
-            if run_lookup.contains_key(parent_id) {
-                children_by_parent
-                    .entry(*parent_id)
-                    .or_default()
-                    .push(run.id);
-            }
-        }
-    }
-
-    runs.iter()
-        .filter(|run| {
-            run.parent_ids
-                .iter()
-                .filter(|parent_id| run_lookup.contains_key(parent_id))
-                .count()
-                == 0
-        })
-        .enumerate()
-        .map(|(index, run)| {
-            let mut seen = HashMap::<Uuid, ()>::new();
-            let mut stack = children_by_parent.get(&run.id).cloned().unwrap_or_default();
-
-            while let Some(child_id) = stack.pop() {
-                if seen.insert(child_id, ()).is_some() {
-                    continue;
-                }
-                if let Some(next) = children_by_parent.get(&child_id) {
-                    stack.extend(next.iter().copied());
-                }
-            }
-
-            RootNavigatorEntry {
-                run_id: run.id.to_string(),
-                label: root_display_label(run, index),
-                summary: truncate_for_root_label(
-                    if run.summary.trim().is_empty() {
-                        run.prompt.trim()
-                    } else {
-                        run.summary.trim()
-                    },
-                    112,
-                ),
-                created_label: run.created_label(),
-                branch_size: seen.len() + 1,
-            }
-        })
-        .collect()
-}
-
-async fn render_roots_html(state: &AppState, user_id: Uuid) -> Result<String, AppError> {
-    let runs = viewer_run_summaries(state, user_id).await;
-    let roots = build_root_entries(&runs);
-    Ok(RootsListTemplate { roots: &roots }.render()?)
 }
 
 async fn viewer_run_summaries(state: &AppState, user_id: Uuid) -> Vec<StormRunSummary> {
@@ -3513,15 +3378,8 @@ async fn delete_board_node(
         .await?;
 
     let board_html = render_storm_board_html(&state, viewer.id).await?;
-    let roots_html = render_roots_html(&state, viewer.id).await?;
 
     Ok(datastar_event_stream(Box::pin(stream! {
-        yield Ok::<_, Infallible>(
-            PatchElements::new(roots_html)
-                .selector("#roots-list")
-                .mode(ElementPatchMode::Inner)
-                .write_as_axum_sse_event(),
-        );
         yield Ok::<_, Infallible>(
             PatchElements::new(board_html)
                 .selector("#storm-runs")

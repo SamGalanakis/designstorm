@@ -5,7 +5,6 @@
   class="storm-app"
   data-signals:_account-open="false"
   data-signals:_settings-open="false"
-  data-signals:_roots-open="false"
   data-signals:prompt="''"
   data-signals:draft-mode="''"
   data-signals:source-ids="''"
@@ -15,34 +14,22 @@
   data-on:keydown__window="evt.key === 'Escape' && ($_settingsOpen ? ($_settingsOpen = false, $_accountOpen = true) : ($_accountOpen = false, $_settingsOpen = false))"
 >
 
-  <div class="roots-shell" data-on:click__outside="$_rootsOpen = false">
-    <button
-      id="roots-trigger"
-      class="roots-trigger"
-      type="button"
-      aria-label="Open roots navigator"
-      data-on:click="$_rootsOpen = !$_rootsOpen"
-      data-attr:aria-expanded="$_rootsOpen"
-      aria-controls="roots-panel"
-    >
-      <span class="roots-trigger-label">Roots</span>
-      <span id="roots-count" class="roots-trigger-count">0</span>
+  <div class="palette-shell">
+    <button id="palette-trigger" class="palette-trigger" type="button" aria-label="Open command palette">
+      <span class="palette-trigger-label">⌘K</span>
     </button>
 
-    <section
-      id="roots-panel"
-      class="roots-panel"
-      style="display: none"
-      data-show="$_rootsOpen"
-      aria-labelledby="roots-panel-title"
-    >
-      <div class="roots-panel-header">
-        <span class="eyebrow">Navigator</span>
-        <h2 id="roots-panel-title">Roots</h2>
-        <p class="text-muted">Jump to the seed branches on the board.</p>
+    <div id="palette-panel" class="palette-panel" hidden>
+      <input id="palette-search" class="palette-search" type="text" placeholder="Search nodes..." autocomplete="off" />
+      <div class="palette-filters">
+        <button class="palette-chip is-active" data-filter="all">All</button>
+        <button class="palette-chip" data-filter="design">Design</button>
+        <button class="palette-chip" data-filter="entropy">Entropy</button>
+        <button class="palette-chip" data-filter="user_input">Input</button>
+        <button class="palette-chip" data-filter="generate">Generate</button>
       </div>
-      <div id="roots-list" class="roots-list">{{ roots_html|safe }}</div>
-    </section>
+      <div id="palette-list" class="palette-list"></div>
+    </div>
   </div>
 
   <div class="account-shell" data-on:click__outside="$_accountOpen = false; $_settingsOpen = false">
