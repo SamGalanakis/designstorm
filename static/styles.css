@@ -297,120 +297,142 @@ h1, h2, h3 {
 
 /* ─── Command Palette ─── */
 
-.palette-trigger {
+.palette-backdrop {
   position: fixed;
-  top: 16px;
-  left: 16px;
-  z-index: 50;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 12px;
-  border-radius: var(--radius-pill);
-  background: rgba(15, 21, 32, 0.88);
-  border: 1px solid var(--border);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
-  transition: border-color 180ms, transform 150ms, background 180ms;
+  inset: 0;
+  z-index: 149;
+  background: rgba(4, 7, 16, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: palette-fade 120ms ease;
 }
 
-.palette-trigger:hover {
-  background: rgba(22, 30, 45, 0.94);
-  border-color: rgba(91, 156, 184, 0.35);
-  transform: translateY(-1px);
+.palette-backdrop[hidden] { display: none; }
+
+@keyframes palette-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.palette-trigger-label {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: var(--text-dim);
+@keyframes palette-drop {
+  from { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 .palette-panel {
   position: fixed;
-  top: 68px;
-  left: 16px;
-  z-index: 60;
-  width: min(380px, calc(100vw - 32px));
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 150;
+  width: min(620px, calc(100vw - 32px));
   display: grid;
-  gap: 10px;
-  padding: 14px;
-  background: rgba(10, 12, 20, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  animation: slide-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
-  max-height: min(70vh, 680px);
+  gap: 0;
+  background: rgba(10, 14, 24, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: none;
+  border-radius: 0 0 16px 16px;
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 1px 0 0 rgba(91, 156, 184, 0.15) inset;
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  animation: palette-drop 160ms cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 }
 
 .palette-panel[hidden] { display: none; }
 
-.palette-search {
-  width: 100%;
-  height: 38px;
-  padding: 0 12px;
-  border-radius: calc(var(--radius) - 4px);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-family: "Manrope", system-ui, sans-serif;
-  font-size: 0.85rem;
-  outline: none;
-  transition: border-color 200ms;
+.palette-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.palette-search:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow);
+.palette-bar-icon {
+  flex-shrink: 0;
+  color: var(--text-faint);
+  display: flex;
+  align-items: center;
+}
+
+.palette-search {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: "Manrope", system-ui, sans-serif;
+  font-size: 0.9rem;
+  font-weight: 450;
+  outline: none;
 }
 
 .palette-search::placeholder {
   color: var(--text-faint);
+  font-weight: 400;
 }
 
 .palette-filters {
   display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .palette-chip {
-  height: 26px;
-  padding: 0 10px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
   font-family: "IBM Plex Mono", monospace;
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--text-faint);
   cursor: pointer;
-  transition: background 150ms, border-color 150ms, color 150ms;
+  transition: background 100ms, border-color 100ms, color 100ms;
 }
 
 .palette-chip:hover {
-  background: var(--surface-overlay);
-  border-color: var(--border-strong);
+  color: var(--text-dim);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .palette-chip.is-active {
-  background: rgba(91, 156, 184, 0.14);
-  border-color: rgba(91, 156, 184, 0.3);
+  background: rgba(91, 156, 184, 0.1);
+  border-color: rgba(91, 156, 184, 0.2);
   color: var(--accent-strong);
+}
+
+.palette-kbd {
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
 }
 
 .palette-list {
   display: grid;
-  gap: 4px;
+  gap: 0;
   overflow-y: auto;
-  max-height: min(50vh, 480px);
-  padding-right: 2px;
+  max-height: min(50vh, 420px);
+  padding: 4px;
 }
 
 .palette-item {
@@ -418,18 +440,18 @@ h1, h2, h3 {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border-radius: var(--radius);
+  padding: 8px 12px;
+  border-radius: 10px;
   background: transparent;
   border: 1px solid transparent;
   text-align: left;
   cursor: pointer;
-  transition: background 120ms, border-color 120ms;
+  transition: background 80ms, border-color 80ms;
 }
 
 .palette-item:hover {
-  background: rgba(22, 30, 45, 0.8);
-  border-color: var(--border);
+  background: rgba(91, 156, 184, 0.06);
+  border-color: rgba(255, 255, 255, 0.05);
 }
 
 .palette-item:focus-visible {
@@ -438,44 +460,51 @@ h1, h2, h3 {
 }
 
 .palette-type-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .palette-dot-design { background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
 .palette-dot-entropy { background: var(--warm); box-shadow: 0 0 6px var(--warm-glow); }
-.palette-dot-user_input { background: rgba(160, 140, 200, 0.8); box-shadow: 0 0 6px rgba(160, 140, 200, 0.2); }
+.palette-dot-user_input { background: rgba(160, 140, 200, 0.8); box-shadow: 0 0 6px rgba(160, 140, 200, 0.15); }
 .palette-dot-generate { background: var(--accent-strong); box-shadow: 0 0 6px var(--accent-glow); }
 
 .palette-item-text {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
+  flex: 1;
 }
 
 .palette-item-label {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   font-weight: 600;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-shrink: 0;
+  max-width: 50%;
 }
 
 .palette-item-detail {
-  font-size: 0.75rem;
-  color: var(--text-dim);
+  font-size: 0.72rem;
+  color: var(--text-faint);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .palette-empty {
-  padding: 18px 12px;
-  color: var(--text-dim);
-  font-size: 0.85rem;
+  padding: 16px 12px;
+  color: var(--text-faint);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
   text-align: center;
 }
 
@@ -783,6 +812,7 @@ h1, h2, h3 {
 .storm-node:active { cursor: grabbing; }
 
 .storm-node-shell {
+  position: relative;
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -1024,6 +1054,7 @@ body.is-wiring .canvas { cursor: crosshair; }
 }
 
 .generate-shell {
+  position: relative;
   display: grid;
   gap: 8px;
   padding: 12px 14px;
@@ -1116,6 +1147,7 @@ body.is-wiring .canvas { cursor: crosshair; }
 }
 
 .input-shell {
+  position: relative;
   display: grid;
   gap: 8px;
   padding: 10px 12px;
@@ -1276,6 +1308,97 @@ body.is-wiring .canvas { cursor: crosshair; }
 .board-node.is-resizing,
 .storm-node.is-resizing {
   cursor: nwse-resize;
+}
+
+.node-resize-handle {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid rgba(216, 228, 238, 0.14);
+  background:
+    linear-gradient(135deg, transparent 0 42%, rgba(143, 199, 229, 0.45) 42% 52%, transparent 52% 100%),
+    rgba(13, 19, 31, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(91, 156, 184, 0.08);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.storm-node:hover .node-resize-handle,
+.storm-node.is-active .node-resize-handle,
+.board-node:hover .node-resize-handle,
+.board-node.is-active .node-resize-handle,
+.storm-node.is-resizing .node-resize-handle,
+.board-node.is-resizing .node-resize-handle {
+  opacity: 1;
+}
+
+.node-resize-handle:hover {
+  border-color: rgba(143, 199, 229, 0.4);
+  transform: scale(1.06);
+}
+
+/* ─── Tool dock ─── */
+
+.tool-dock {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  z-index: 140;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  transform: translateX(-50%);
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(8, 12, 22, 0.9);
+  border: 1px solid rgba(91, 156, 184, 0.18);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.tool-dock-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tool-dock-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(216, 228, 238, 0.08);
+}
+
+.tool-dock-btn {
+  min-width: 72px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(216, 228, 238, 0.08);
+  background: rgba(18, 27, 42, 0.55);
+  color: var(--text-dim);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: border-color 140ms ease, color 140ms ease, background 140ms ease, transform 140ms ease;
+}
+
+.tool-dock-btn:hover {
+  border-color: rgba(91, 156, 184, 0.26);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.tool-dock-btn.is-active {
+  background: rgba(91, 156, 184, 0.18);
+  border-color: rgba(91, 156, 184, 0.45);
+  color: var(--accent);
+  box-shadow: 0 0 20px rgba(91, 156, 184, 0.12);
 }
 
 /* ─── Board edge lines ─── */
@@ -1535,6 +1658,18 @@ body.is-wiring .canvas { cursor: crosshair; }
   .storm-node { width: 270px; }
 
   .focus-shell { inset: 10px; }
+
+  .tool-dock {
+    width: calc(100vw - 20px);
+    justify-content: center;
+    border-radius: 22px;
+    padding: 10px;
+  }
+
+  .tool-dock-group {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
 
   .sheet {
     right: 6px;

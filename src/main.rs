@@ -370,6 +370,10 @@ struct StormRunSummary {
     submitted: bool,
     created_at: DateTime<Utc>,
     parent_ids: Vec<Uuid>,
+    position_x: Option<f64>,
+    position_y: Option<f64>,
+    width: Option<f64>,
+    height: Option<f64>,
 }
 
 impl StormRunSummary {
@@ -415,6 +419,10 @@ struct StormRunRecord {
     created_at: DateTime<Utc>,
     workspace_dir: PathBuf,
     parent_ids: Vec<Uuid>,
+    position_x: Option<f64>,
+    position_y: Option<f64>,
+    width: Option<f64>,
+    height: Option<f64>,
 }
 
 impl StormRunRecord {
@@ -429,6 +437,10 @@ impl StormRunRecord {
             submitted: self.submitted,
             created_at: self.created_at,
             parent_ids: self.parent_ids.clone(),
+            position_x: self.position_x,
+            position_y: self.position_y,
+            width: self.width,
+            height: self.height,
         }
     }
 }
@@ -446,6 +458,10 @@ struct StormRunRow {
     created_at: DateTime<Utc>,
     workspace_dir: String,
     parent_ids: Vec<Uuid>,
+    position_x: Option<f64>,
+    position_y: Option<f64>,
+    width: Option<f64>,
+    height: Option<f64>,
 }
 
 impl From<StormRunRow> for StormRunRecord {
@@ -462,6 +478,10 @@ impl From<StormRunRow> for StormRunRecord {
             created_at: row.created_at,
             workspace_dir: PathBuf::from(row.workspace_dir),
             parent_ids: row.parent_ids,
+            position_x: row.position_x,
+            position_y: row.position_y,
+            width: row.width,
+            height: row.height,
         }
     }
 }
@@ -1199,6 +1219,7 @@ async fn main() -> Result<(), AppError> {
         .route("/settings/provider/logout", post(disconnect_provider))
         .route("/storms/generate", post(generate_storm_datastar))
         .route("/storms/{id}", axum::routing::delete(delete_storm_run))
+        .route("/storms/{id}/position", post(update_storm_run_position))
         .route("/telemetry/client", post(client_telemetry))
         .route("/api/storms", get(list_storms).post(create_storm))
         .route("/preview/{run_id}", get(preview_index_redirect))
@@ -1640,7 +1661,7 @@ async fn run_generate_node(
             "design" => {
                 // Design nodes reference storm_runs by their run_id (the node id IS the run id)
                 if let Ok(Some(run)) = sqlx::query_as::<_, StormRunRow>(
-                    "SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url, submitted, created_at, workspace_dir, parent_ids FROM storm_runs WHERE id = $1 AND owner_user_id = $2",
+                    "SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url, submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height FROM storm_runs WHERE id = $1 AND owner_user_id = $2",
                 )
                 .bind(edge.source_id)
                 .bind(viewer.id)
@@ -1944,6 +1965,10 @@ async fn generate_storm_internal(
         created_at: Utc::now(),
         workspace_dir: snapshot.workspace_dir,
         parent_ids: input.source_ids.clone(),
+        position_x: None,
+        position_y: None,
+        width: None,
+        height: None,
     };
     store_storm_run(&state.db, &record).await?;
     let summary = record.summary_view();
@@ -2262,7 +2287,7 @@ async fn viewer_run_summaries(state: &AppState, user_id: Uuid) -> Vec<StormRunSu
     match sqlx::query_as::<_, StormRunRow>(
         r#"
         SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url,
-               submitted, created_at, workspace_dir, parent_ids
+               submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height
         FROM storm_runs
         WHERE owner_user_id = $1
         ORDER BY created_at ASC
@@ -2582,7 +2607,7 @@ async fn get_owned_run(
     let run = sqlx::query_as::<_, StormRunRow>(
         r#"
         SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url,
-               submitted, created_at, workspace_dir, parent_ids
+               submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height
         FROM storm_runs
         WHERE id = $1 AND owner_user_id = $2
         "#,
@@ -2610,9 +2635,13 @@ async fn store_storm_run(db: &PgPool, record: &StormRunRecord) -> Result<(), App
             submitted,
             created_at,
             workspace_dir,
-            parent_ids
+            parent_ids,
+            position_x,
+            position_y,
+            width,
+            height
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         ON CONFLICT (id) DO UPDATE
         SET prompt = EXCLUDED.prompt,
             title = EXCLUDED.title,
@@ -2622,7 +2651,11 @@ async fn store_storm_run(db: &PgPool, record: &StormRunRecord) -> Result<(), App
             submitted = EXCLUDED.submitted,
             created_at = EXCLUDED.created_at,
             workspace_dir = EXCLUDED.workspace_dir,
-            parent_ids = EXCLUDED.parent_ids
+            parent_ids = EXCLUDED.parent_ids,
+            position_x = EXCLUDED.position_x,
+            position_y = EXCLUDED.position_y,
+            width = EXCLUDED.width,
+            height = EXCLUDED.height
         "#,
     )
     .bind(record.id)
@@ -2636,6 +2669,10 @@ async fn store_storm_run(db: &PgPool, record: &StormRunRecord) -> Result<(), App
     .bind(record.created_at)
     .bind(record.workspace_dir.to_string_lossy().to_string())
     .bind(&record.parent_ids)
+    .bind(record.position_x)
+    .bind(record.position_y)
+    .bind(record.width)
+    .bind(record.height)
     .execute(db)
     .await?;
 
@@ -3325,6 +3362,27 @@ async fn update_board_node_position(
     let viewer = require_viewer(&state, &headers).await?;
     sqlx::query(
         r#"UPDATE board_nodes SET position_x = $1, position_y = $2, width = $3, height = $4 WHERE id = $5 AND owner_user_id = $6"#,
+    )
+    .bind(payload.position_x)
+    .bind(payload.position_y)
+    .bind(payload.width)
+    .bind(payload.height)
+    .bind(id)
+    .bind(viewer.id)
+    .execute(&state.db)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_storm_run_position(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdatePositionRequest>,
+) -> Result<StatusCode, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    sqlx::query(
+        r#"UPDATE storm_runs SET position_x = $1, position_y = $2, width = $3, height = $4 WHERE id = $5 AND owner_user_id = $6"#,
     )
     .bind(payload.position_x)
     .bind(payload.position_y)

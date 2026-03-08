@@ -11,6 +11,10 @@
       data-run-created-at="{{ run.created_iso() }}"
       data-run-submitted="{{ run.submitted }}"
       data-run-parent-ids="{{ run.parent_ids_csv() }}"
+      data-position-x="{% match run.position_x %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
+      data-position-y="{% match run.position_y %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
+      data-width="{% match run.width %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
+      data-height="{% match run.height %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
     >
       <div class="storm-node-shell">
         <div class="storm-node-meta">
@@ -30,6 +34,7 @@
         <div class="storm-node-copy">
           <h3>{{ run.title }}</h3>
         </div>
+        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
     </article>
   {% endfor %}
@@ -43,6 +48,8 @@
       data-position-y="{{ node.position_y }}"
       data-content='{{ node.content_json() }}'
       data-locked="{{ node.locked }}"
+      data-width="{% match node.width %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
+      data-height="{% match node.height %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
     >
       {% if node.node_type == "entropy" %}
       <div class="entropy-shell">
@@ -66,6 +73,7 @@
           ></iframe>
         </div>
         <div class="entropy-label">{{ node.entropy_title() }}</div>
+        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
       {% else if node.node_type == "generate" %}
       <div class="generate-shell">
@@ -79,6 +87,7 @@
           data-on:click__prevent="@post('/nodes/{{ node.id }}/run')">
           <span class="generate-run-icon">&#x25B6;</span>
         </button>
+        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
       {% else if node.node_type == "user_input" %}
       <div class="input-shell">
@@ -86,6 +95,7 @@
           <span class="eyebrow input-eyebrow">Input</span>
         </div>
         <div class="input-body" contenteditable="true" data-placeholder="Type here...">{{ node.input_text() }}{% for img in node.input_images() %}<img src="{{ img }}" class="input-image-thumb" title="Double-click to enlarge" />{% endfor %}</div>
+        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
       {% endif %}
     </article>
