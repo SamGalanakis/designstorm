@@ -81,6 +81,7 @@ type StormState = {
   pointerState: PointerState;
   radialMenu: RadialMenuState;
   lastCursor: Point;
+  awaitingGeneratedRun: boolean;
 };
 
 declare global {
@@ -123,6 +124,7 @@ const state: StormState = {
   pointerState: null,
   radialMenu: { open: false, position: { x: 0, y: 0 }, selectedIndex: null },
   lastCursor: { x: 0, y: 0 },
+  awaitingGeneratedRun: false,
 };
 
 // ─── Helpers ───
@@ -139,6 +141,14 @@ function getConfig(): AppConfig {
 
 function escapeHtml(s: string): string {
   return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+}
+
+function setBoundValue(id: string, value: string): void {
+  const input = $(id) as HTMLInputElement | HTMLTextAreaElement | null;
+  if (!input) return;
+  input.value = value;
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 function redirectToApp(): void {
@@ -287,11 +297,7 @@ function assignPosition(run: StormRun, index: number, sourceIds?: string[]): voi
 function setStatus(msg: string): void {
   const el = $("storm-status");
   if (el) el.textContent = msg;
-}
-
-function setGenerating(value: boolean): void {
-  const btn = $("storm-submit") as HTMLButtonElement | null;
-  if (btn) btn.disabled = value;
+  setBoundValue("storm-status-signal", msg);
 }
 
 // ─── URL sync ───
@@ -331,17 +337,24 @@ function buildCombinePrompt(a: StormRun, b: StormRun): string {
 function showDraftContext(ctx: DraftContext): void {
   state.draftContext = ctx;
   state.pendingLineage = ctx;
-  const ta = $("storm-prompt") as HTMLTextAreaElement | null;
-  if (!ta) return;
+  setBoundValue("storm-draft-mode", ctx.mode);
+  setBoundValue("storm-source-ids", ctx.sourceIds.join(","));
   if (ctx.mode === "fork") {
     const src = getRun(ctx.sourceIds[0]);
-    if (src) { ta.value = buildForkPrompt(src); setStatus(`Forking from ${src.title}.`); }
+    if (src) {
+      setBoundValue("storm-prompt", buildForkPrompt(src));
+      setStatus(`Forking from ${src.title}.`);
+    }
   } else {
     const a = getRun(ctx.sourceIds[0]);
     const b = getRun(ctx.sourceIds[1]);
-    if (a && b) { ta.value = buildCombinePrompt(a, b); setStatus(`Combining ${a.title} + ${b.title}.`); }
+    if (a && b) {
+      setBoundValue("storm-prompt", buildCombinePrompt(a, b));
+      setStatus(`Combining ${a.title} + ${b.title}.`);
+    }
   }
-  ta.focus();
+  const ta = $("storm-prompt") as HTMLTextAreaElement | null;
+  ta?.focus();
   renderDraftContext();
 }
 
@@ -349,6 +362,8 @@ function clearDraftContext(opts?: { keepStatus?: boolean }): void {
   state.draftContext = null;
   state.pendingLineage = null;
   state.combineSourceId = null;
+  setBoundValue("storm-draft-mode", "");
+  setBoundValue("storm-source-ids", "");
   renderDraftContext();
   renderRuns();
   if (!opts?.keepStatus) setStatus("Seed a direction or select a card to branch from it.");
@@ -457,42 +472,87 @@ function renderConnections(): void {
   });
 }
 
+function hydrateBoardFromDom(): void {
+  const container = $("storm-runs");
+  const previousCount = state.runs.length;
+  if (!container) {
+    state.runs = [];
+    state.lineage = new Map();
+    renderConnections();
+    return;
+  }
+
+  const nodes = Array.from(container.querySelectorAll<HTMLElement>(".storm-node[data-run-id]"));
+  const lineage = new Map<string, string[]>();
+  const runs = nodes.map((node) => {
+    const run: StormRun = {
+      id: node.dataset.runId ?? "",
+      prompt: node.dataset.runPrompt ?? "",
+      title: node.dataset.runTitle ?? "Storm Artifact",
+      summary: node.dataset.runSummary ?? "",
+      assistantSummary: node.dataset.runAssistantSummary ?? "",
+      previewUrl: node.dataset.runPreviewUrl ?? "",
+      submitted: node.dataset.runSubmitted === "true",
+      createdAt: node.dataset.runCreatedAt ?? new Date().toISOString(),
+    };
+    lineage.set(
+      run.id,
+      (node.dataset.runParentIds ?? "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    );
+    return run;
+  });
+
+  runs.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  state.runs = runs;
+  state.lineage = lineage;
+
+  if (state.activeRunId && !getRun(state.activeRunId)) state.activeRunId = null;
+  if (state.focusedRunId && !getRun(state.focusedRunId)) state.focusedRunId = null;
+
+  if (state.awaitingGeneratedRun && runs.length > previousCount) {
+    const latest = runs.at(-1) ?? null;
+    state.awaitingGeneratedRun = false;
+    clearDraftContext({ keepStatus: true });
+    hideComposer({ preserveDraft: true });
+    if (latest) {
+      setStatus("Storm generated.");
+      setActiveRun(latest.id, { sync: true });
+    }
+  }
+
+  applyUrlState();
+  renderRuns();
+  renderInspector();
+  renderFocus();
+}
+
 function renderRuns(): void {
   const container = $("storm-runs");
   if (!container) return;
-  if (state.runs.length === 0) { container.innerHTML = ""; renderConnections(); return; }
-  container.innerHTML = "";
+  if (state.runs.length === 0) {
+    renderConnections();
+    return;
+  }
+
+  const nodesById = new Map(
+    Array.from(container.querySelectorAll<HTMLElement>(".storm-node[data-run-id]"))
+      .map((node) => [node.dataset.runId ?? "", node]),
+  );
+
   state.runs.forEach((run, i) => {
     const lineage = state.lineage.get(run.id);
     assignPosition(run, i, lineage);
     const pt = state.positions.get(run.id) ?? { x: 240, y: 240 };
-    const card = document.createElement("article");
-    card.className = "storm-node";
-    if (run.id === state.activeRunId) card.classList.add("is-active");
-    if (run.id === state.combineSourceId) card.classList.add("is-combine-source");
-    card.dataset.runId = run.id;
+    const card = nodesById.get(run.id);
+    if (!card) return;
+    card.classList.toggle("is-active", run.id === state.activeRunId);
+    card.classList.toggle("is-combine-source", run.id === state.combineSourceId);
     card.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
-    card.innerHTML = `
-      <div class="storm-node-shell">
-        <div class="storm-node-meta">
-          <span class="meta-note">${new Date(run.createdAt).toLocaleDateString()}</span>
-          <span class="pill ${run.submitted ? "pill-accent" : "pill-muted"}">${run.submitted ? "submitted" : "draft"}</span>
-        </div>
-        <div class="storm-node-preview">
-          <iframe src="${escapeHtml(run.previewUrl)}" loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
-        </div>
-        <div class="storm-node-copy">
-          <h3>${escapeHtml(run.title)}</h3>
-          <p>${escapeHtml(run.summary)}</p>
-        </div>
-        <div class="storm-node-actions">
-          <button class="node-action" type="button" data-run-action="inspect">Inspect</button>
-          <button class="node-action" type="button" data-run-action="fullscreen">Open</button>
-          <button class="node-action" type="button" data-run-action="fork">Fork</button>
-          <button class="node-action" type="button" data-run-action="combine">${run.id === state.combineSourceId ? "Cancel" : "Combine"}</button>
-        </div>
-      </div>`;
-    container.appendChild(card);
+    const combineButton = card.querySelector<HTMLElement>("[data-run-action='combine']");
+    if (combineButton) combineButton.textContent = run.id === state.combineSourceId ? "Cancel" : "Combine";
   });
   renderConnections();
 }
@@ -551,49 +611,6 @@ function renderFocus(): void {
   overlay.setAttribute("aria-hidden", "false");
   frame.src = run.previewUrl;
   title.textContent = run.title;
-}
-
-// ─── Data fetching ───
-
-async function loadStorms(): Promise<void> {
-  const res = await fetch("/api/storms", { credentials: "include" });
-  if (!res.ok) return;
-  const runs = (await res.json()) as StormRun[];
-  state.runs = runs.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
-  applyUrlState();
-  renderRuns();
-  renderInspector();
-  renderFocus();
-}
-
-async function submitStorm(e: Event): Promise<void> {
-  e.preventDefault();
-  const ta = $("storm-prompt") as HTMLTextAreaElement | null;
-  const btn = $("storm-submit") as HTMLButtonElement | null;
-  if (!ta || !btn) return;
-  const prompt = ta.value.trim();
-  if (!prompt) { setStatus("Seed prompt required."); return; }
-  setGenerating(true);
-  setStatus("Generating storm...");
-  try {
-    const res = await fetch("/api/storms", {
-      method: "POST", credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
-    });
-    if (!res.ok) { setStatus((await res.text()) || "Generation failed."); return; }
-    const payload = (await res.json()) as { run: StormRun };
-    const pending = state.pendingLineage;
-    if (pending) { state.lineage.set(payload.run.id, pending.sourceIds); assignPosition(payload.run, state.runs.length, pending.sourceIds); }
-    clearDraftContext({ keepStatus: true });
-    ta.value = "";
-    hideComposer();
-    setStatus("Storm generated.");
-    await loadStorms();
-    setActiveRun(payload.run.id, { sync: true });
-  } finally {
-    setGenerating(false);
-  }
 }
 
 // ─── Event bindings ───
@@ -679,8 +696,20 @@ function bindNodeInteractions(): void {
 }
 
 function bindAppChrome(): void {
-  // Form
-  $("storm-form")?.addEventListener("submit", (e) => void submitStorm(e));
+  const generateButton = $("storm-submit");
+  generateButton?.addEventListener("click", (e) => {
+    const ta = $("storm-prompt") as HTMLTextAreaElement | null;
+    const prompt = ta?.value.trim() ?? "";
+    if (!prompt) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      state.awaitingGeneratedRun = false;
+      setStatus("Seed prompt required.");
+      return;
+    }
+    state.awaitingGeneratedRun = true;
+    setStatus("Generating storm...");
+  });
   $("storm-clear-context")?.addEventListener("click", () => clearDraftContext());
 
   // Fullscreen overlay
@@ -725,11 +754,11 @@ function showComposer(): void {
   ta?.focus();
 }
 
-function hideComposer(): void {
+function hideComposer(opts?: { preserveDraft?: boolean }): void {
   const form = $("storm-form");
   if (!form) return;
   form.hidden = true;
-  clearDraftContext({ keepStatus: true });
+  if (!opts?.preserveDraft) clearDraftContext({ keepStatus: true });
 }
 
 // ─── Radial menu geometry ───
@@ -996,16 +1025,28 @@ function bindRadialMenu(): void {
   });
 }
 
+function bindBoardObserver(): void {
+  const board = $("storm-board");
+  if (!board) return;
+  const observer = new MutationObserver((mutations) => {
+    if (mutations.some((mutation) => mutation.type === "childList")) {
+      hydrateBoardFromDom();
+    }
+  });
+  observer.observe(board, { childList: true, subtree: true });
+}
+
 function bindStormApp(): void {
   if (getConfig().currentPath !== "/app") return;
   setAvatarInitials();
   renderDraftContext();
   updateBoardTransform();
+  bindBoardObserver();
   bindCanvasInteractions();
   bindNodeInteractions();
   bindAppChrome();
   bindRadialMenu();
-  void loadStorms();
+  hydrateBoardFromDom();
 }
 
 // ─── Bootstrap ───

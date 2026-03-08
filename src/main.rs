@@ -3,6 +3,7 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
 };
 use askama::Template;
+use async_stream::stream;
 use axum::{
     Router,
     body::Body,
@@ -11,12 +12,19 @@ use axum::{
         HeaderMap, HeaderValue, StatusCode,
         header::{CONTENT_TYPE, COOKIE, SET_COOKIE},
     },
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{
+        Html, IntoResponse, Redirect, Response, Sse,
+        sse::{Event, KeepAlive},
+    },
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use cookie::{Cookie, SameSite};
+use datastar::{
+    axum::ReadSignals,
+    prelude::{ElementPatchMode, PatchElements, PatchSignals},
+};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use lash_core::{
     AgentCapabilities, AgentStateEnvelope, HostProfile, InputItem, PromptOverrideMode,
@@ -36,8 +44,10 @@ use sqlx::{
 };
 use std::{
     collections::HashMap,
+    convert::Infallible,
     env,
     net::SocketAddr,
+    pin::Pin,
     path::{Component, Path as StdPath, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -56,7 +66,7 @@ use uuid::Uuid;
 
 const SESSION_COOKIE_NAME: &str = "designstorm_session";
 const DATASTAR_CDN: &str =
-    "https://cdn.jsdelivr.net/gh/starfederation/datastar@main/bundles/datastar.js";
+    "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js";
 
 #[derive(Clone)]
 struct AppState {
@@ -318,6 +328,37 @@ struct StormRunSummary {
     preview_url: String,
     submitted: bool,
     created_at: DateTime<Utc>,
+    parent_ids: Vec<Uuid>,
+}
+
+impl StormRunSummary {
+    fn created_label(&self) -> String {
+        self.created_at.format("%b %d").to_string()
+    }
+
+    fn created_iso(&self) -> String {
+        self.created_at.to_rfc3339()
+    }
+
+    fn status_label(&self) -> &'static str {
+        if self.submitted { "submitted" } else { "draft" }
+    }
+
+    fn status_class(&self) -> &'static str {
+        if self.submitted {
+            "pill pill-accent"
+        } else {
+            "pill pill-muted"
+        }
+    }
+
+    fn parent_ids_csv(&self) -> String {
+        self.parent_ids
+            .iter()
+            .map(Uuid::to_string)
+            .collect::<Vec<_>>()
+            .join(",")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -332,6 +373,7 @@ struct StormRunRecord {
     submitted: bool,
     created_at: DateTime<Utc>,
     workspace_dir: PathBuf,
+    parent_ids: Vec<Uuid>,
 }
 
 impl StormRunRecord {
@@ -345,6 +387,7 @@ impl StormRunRecord {
             preview_url: self.preview_url.clone(),
             submitted: self.submitted,
             created_at: self.created_at,
+            parent_ids: self.parent_ids.clone(),
         }
     }
 }
@@ -717,6 +760,7 @@ struct AppTemplate<'a> {
     viewer: &'a Viewer,
     app_config_json: &'a str,
     provider_panel: &'a str,
+    board_html: &'a str,
 }
 
 #[derive(Template)]
@@ -731,9 +775,69 @@ struct ProviderPanelTemplate<'a> {
     status: &'a ProviderStatusView,
 }
 
+#[derive(Template)]
+#[template(path = "storm_board.html")]
+struct StormBoardTemplate<'a> {
+    runs: &'a [StormRunSummary],
+}
+
 #[derive(Debug, Deserialize)]
 struct StormRequest {
     prompt: String,
+    draft_mode: Option<String>,
+    source_ids: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerateStormSignals {
+    prompt: String,
+    draft_mode: Option<String>,
+    source_ids: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct StormGenerationInput {
+    prompt: String,
+    draft_mode: Option<String>,
+    source_ids: Vec<Uuid>,
+}
+
+impl StormGenerationInput {
+    fn from_prompt_and_sources(
+        prompt: String,
+        draft_mode: Option<String>,
+        source_ids: Option<String>,
+    ) -> Result<Self, String> {
+        let prompt = prompt.trim().to_string();
+        if prompt.is_empty() {
+            return Err("Seed prompt is required.".to_string());
+        }
+
+        let source_ids = source_ids
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|fragment| {
+                let trimmed = fragment.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(
+                        Uuid::parse_str(trimmed)
+                            .map_err(|_| format!("Invalid source id: {trimmed}")),
+                    )
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Self {
+            prompt,
+            draft_mode: draft_mode
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            source_ids,
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -818,6 +922,7 @@ async fn main() -> Result<(), AppError> {
         .route("/settings/provider/codex/start", post(start_codex_auth))
         .route("/settings/provider/codex/poll", post(poll_codex_auth))
         .route("/settings/provider/logout", post(disconnect_provider))
+        .route("/storms/generate", post(generate_storm_datastar))
         .route("/api/storms", get(list_storms).post(create_storm))
         .route("/preview/{run_id}", get(preview_index_redirect))
         .route("/preview/{run_id}/", get(preview_index))
@@ -886,6 +991,7 @@ async fn app_page(State(state): State<AppState>, headers: HeaderMap) -> Result<R
     };
 
     let provider_panel = render_provider_panel_html(&state, &viewer).await?;
+    let board_html = render_storm_board_html(&state, viewer.id).await?;
     let config_json = json!({
         "clerkPublishableKey": state.config.clerk_publishable_key,
         "appUrl": state.config.app_url,
@@ -901,6 +1007,7 @@ async fn app_page(State(state): State<AppState>, headers: HeaderMap) -> Result<R
         viewer: &viewer,
         app_config_json: &config_json,
         provider_panel: &provider_panel,
+        board_html: &board_html,
     };
 
     Ok(Html(page.render()?).into_response())
@@ -1101,15 +1208,75 @@ async fn list_storms(
     headers: HeaderMap,
 ) -> Result<Json<Vec<StormRunSummary>>, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
-    let runs = state.storm_runs.read().await;
-    let mut items = runs
-        .values()
-        .filter(|run| run.owner_user_id == viewer.id)
-        .map(StormRunRecord::summary_view)
-        .collect::<Vec<_>>();
+    let mut items = viewer_run_summaries(&state, viewer.id).await;
     items.sort_by(|left, right| right.created_at.cmp(&left.created_at));
     info!(user_id = %viewer.id, run_count = items.len(), "listing storm runs");
     Ok(Json(items))
+}
+
+async fn generate_storm_datastar(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ReadSignals(signals): ReadSignals<GenerateStormSignals>,
+) -> Result<impl IntoResponse, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let input = match StormGenerationInput::from_prompt_and_sources(
+        signals.prompt,
+        signals.draft_mode,
+        signals.source_ids,
+    ) {
+        Ok(input) => input,
+        Err(message) => {
+            return Ok(datastar_event_stream(Box::pin(stream! {
+                yield Ok::<_, Infallible>(patch_signals(json!({
+                    "generating": false,
+                    "status": message,
+                }).to_string()));
+            })));
+        }
+    };
+
+    Ok(datastar_event_stream(Box::pin(stream! {
+        yield Ok::<_, Infallible>(patch_signals(json!({
+            "generating": true,
+            "status": "Generating storm...",
+        }).to_string()));
+
+        match generate_storm_internal(&state, &viewer, input).await {
+            Ok(response) => {
+                match render_storm_board_html(&state, viewer.id).await {
+                    Ok(board_html) => {
+                        yield Ok::<_, Infallible>(
+                            PatchElements::new(board_html)
+                                .selector("#storm-runs")
+                                .mode(ElementPatchMode::Outer)
+                                .write_as_axum_sse_event(),
+                        );
+                        yield Ok::<_, Infallible>(patch_signals(json!({
+                            "generating": false,
+                            "status": "Storm generated.",
+                            "prompt": "",
+                            "draftMode": "",
+                            "sourceIds": "",
+                            "latestRunId": response.run.id.to_string(),
+                        }).to_string()));
+                    }
+                    Err(error) => {
+                        yield Ok::<_, Infallible>(patch_signals(json!({
+                            "generating": false,
+                            "status": error.to_string(),
+                        }).to_string()));
+                    }
+                }
+            }
+            Err(error) => {
+                yield Ok::<_, Infallible>(patch_signals(json!({
+                    "generating": false,
+                    "status": error.to_string(),
+                }).to_string()));
+            }
+        }
+    })))
 }
 
 async fn create_storm(
@@ -1118,17 +1285,30 @@ async fn create_storm(
     Json(payload): Json<StormRequest>,
 ) -> Result<Json<StormResponse>, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
-    let prompt = payload.prompt.trim().to_string();
-    if prompt.is_empty() {
-        return Err(AppError::BadRequest("Seed prompt is required.".to_string()));
-    }
+    let input = StormGenerationInput::from_prompt_and_sources(
+        payload.prompt,
+        payload.draft_mode,
+        payload.source_ids,
+    )
+    .map_err(AppError::BadRequest)?;
+    Ok(Json(generate_storm_internal(&state, &viewer, input).await?))
+}
+
+async fn generate_storm_internal(
+    state: &AppState,
+    viewer: &Viewer,
+    input: StormGenerationInput,
+) -> Result<StormResponse, AppError> {
+    let prompt = input.prompt.clone();
     info!(
         user_id = %viewer.id,
         prompt_len = prompt.len(),
+        draft_mode = ?input.draft_mode,
+        source_count = input.source_ids.len(),
         "storm generation requested"
     );
 
-    let loaded_provider = load_provider_for_user(&state, viewer.id).await?;
+    let loaded_provider = load_provider_for_user(state, viewer.id).await?;
     let Some(loaded_provider) = loaded_provider else {
         return Err(AppError::BadRequest(
             "Connect Codex in settings before generating a storm.".to_string(),
@@ -1230,6 +1410,7 @@ async fn create_storm(
         submitted: snapshot.submitted,
         created_at: Utc::now(),
         workspace_dir: snapshot.workspace_dir,
+        parent_ids: input.source_ids.clone(),
     };
     let summary = record.summary_view();
     state.storm_runs.write().await.insert(run_id, record);
@@ -1241,10 +1422,10 @@ async fn create_storm(
         "storm run stored"
     );
 
-    Ok(Json(StormResponse {
+    Ok(StormResponse {
         run: summary.clone(),
         assistant_summary: summary.assistant_summary,
-    }))
+    })
 }
 
 async fn preview_index_redirect(Path(run_id): Path<Uuid>) -> Redirect {
@@ -1452,6 +1633,36 @@ impl From<UserRow> for Viewer {
 async fn render_provider_panel_html(state: &AppState, viewer: &Viewer) -> Result<String, AppError> {
     let status = provider_status_view(state, viewer.id).await?;
     Ok(ProviderPanelTemplate { status: &status }.render()?)
+}
+
+async fn render_storm_board_html(state: &AppState, user_id: Uuid) -> Result<String, AppError> {
+    let runs = viewer_run_summaries(state, user_id).await;
+    Ok(StormBoardTemplate { runs: &runs }.render()?)
+}
+
+async fn viewer_run_summaries(state: &AppState, user_id: Uuid) -> Vec<StormRunSummary> {
+    let runs = state.storm_runs.read().await;
+    let mut items = runs
+        .values()
+        .filter(|run| run.owner_user_id == user_id)
+        .map(StormRunRecord::summary_view)
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| left.created_at.cmp(&right.created_at));
+    items
+}
+
+fn patch_signals(signals: String) -> Event {
+    PatchSignals::new(signals).write_as_axum_sse_event()
+}
+
+fn datastar_event_stream(
+    stream: Pin<Box<dyn futures_core::Stream<Item = Result<Event, Infallible>> + Send>>,
+) -> impl IntoResponse {
+    Sse::new(stream).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(15))
+            .text("keep-alive"),
+    )
 }
 
 async fn provider_status_view(

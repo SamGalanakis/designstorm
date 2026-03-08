@@ -6,12 +6,15 @@ edition = "2024"
 [dependencies]
 aes-gcm = { version = "0.10.3", features = ["std"] }
 async-trait = "0.1.88"
+async-stream = "0.3.6"
 askama = "0.12.1"
 axum = { version = "0.8.1", features = ["macros", "json"] }
 base64 = "0.22.1"
 chrono = { version = "0.4.40", features = ["serde"] }
 cookie = "0.18.1"
+datastar = { version = "0.3.1", features = ["axum", "tracing"] }
 dotenvy = "0.15.7"
+futures-core = "0.3.31"
 jsonwebtoken = "9.3.1"
 lash-core = { git = "https://github.com/SamGalanakis/lash", rev = "f1bf8bacbe256d9e2bf0f084ea86add0609aeff7", package = "lash-core", default-features = false, features = ["native-tools-only"] }
 mime_guess = "2.0.5"

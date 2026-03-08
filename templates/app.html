@@ -1,19 +1,30 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="storm-app" data-signals:account-open="false" data-signals:settings-open="false" data-on:keydown__window="evt.key === 'Escape' && ($settingsOpen ? ($settingsOpen = false, $accountOpen = true) : $accountOpen = false)">
+<div
+  class="storm-app"
+  data-signals-accountOpen="false"
+  data-signals-settingsOpen="false"
+  data-signals-prompt="&quot;&quot;"
+  data-signals-draftMode="&quot;&quot;"
+  data-signals-sourceIds="&quot;&quot;"
+  data-signals-status="&quot;Seed a direction or select a card to branch from it.&quot;"
+  data-signals-generating="false"
+  data-signals-latestRunId="&quot;&quot;"
+  data-on-keydown__window="evt.key === 'Escape' && ($settingsOpen ? ($settingsOpen = false, $accountOpen = true) : $accountOpen = false)"
+>
 
   <button
     id="avatar-button"
     class="avatar-btn"
     type="button"
     aria-label="Open account menu"
-    data-on:click__stop="$accountOpen = !$accountOpen; $settingsOpen = false"
+    data-on-click__stop="$accountOpen = !$accountOpen; $settingsOpen = false"
   >
     <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
   </button>
 
-  <div id="account-backdrop" class="backdrop" data-show="$accountOpen || $settingsOpen" data-on:click="$accountOpen = false; $settingsOpen = false"></div>
+  <div id="account-backdrop" class="backdrop" data-show="$accountOpen || $settingsOpen" data-on-click="$accountOpen = false; $settingsOpen = false"></div>
 
   <section id="account-sheet" class="sheet" role="dialog" aria-label="Account" data-show="$accountOpen && !$settingsOpen">
     <div class="sheet-header">
@@ -23,7 +34,7 @@
     </div>
 
     <button id="settings-trigger" class="settings-link" type="button"
-      data-on:click__stop="$settingsOpen = true; $accountOpen = false">
+      data-on-click__stop="$settingsOpen = true; $accountOpen = false">
       <span class="settings-link-copy">
         <span class="eyebrow">Settings</span>
         <strong>Runtime Provider</strong>
@@ -32,14 +43,14 @@
     </button>
 
     <div class="sheet-actions">
-      <button class="btn btn-ghost" type="button" data-on:click="$accountOpen = false; $settingsOpen = false">Close</button>
-      <button class="btn btn-accent" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
+      <button class="btn btn-ghost" type="button" data-on-click="$accountOpen = false; $settingsOpen = false">Close</button>
+      <button class="btn btn-accent" type="button" data-on-click="window.designstormAuth.signOut()">Sign out</button>
     </div>
   </section>
 
   <section id="settings-sheet" class="sheet" role="dialog" aria-label="Settings" data-show="$settingsOpen">
     <div class="sheet-header-row">
-      <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on:click__stop="$settingsOpen = false; $accountOpen = true">&lsaquo;</button>
+      <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on-click__stop="$settingsOpen = false; $accountOpen = true">&lsaquo;</button>
       <div>
         <span class="eyebrow">Settings</span>
         <h2>Runtime Provider</h2>
@@ -54,24 +65,37 @@
     {{ provider_panel|safe }}
 
     <div class="sheet-actions">
-      <button class="btn btn-ghost" type="button" data-on:click="$accountOpen = false; $settingsOpen = false">Close</button>
+      <button class="btn btn-ghost" type="button" data-on-click="$accountOpen = false; $settingsOpen = false">Close</button>
     </div>
   </section>
 
   <form id="storm-form" class="composer" hidden>
     <div id="storm-draft-context" class="draft-context" hidden></div>
 
+    <input id="storm-draft-mode" data-bind-draftMode type="hidden" value="">
+    <input id="storm-source-ids" data-bind-sourceIds type="hidden" value="">
+    <input id="storm-status-signal" data-bind-status type="hidden" value="Seed a direction or select a card to branch from it.">
+
     <textarea
       id="storm-prompt"
-      name="prompt"
+      data-bind-prompt
       rows="4"
       placeholder="Describe the design direction..."
     ></textarea>
 
     <div class="composer-actions">
-      <button id="storm-submit" class="btn btn-accent" type="submit">Generate</button>
+      <button
+        id="storm-submit"
+        class="btn btn-accent"
+        type="button"
+        data-on-click="@post('/storms/generate')"
+        data-attr-disabled="$generating"
+        data-class="{
+          'is-loading': $generating,
+        }"
+      >Generate</button>
       <button id="storm-clear-context" class="btn btn-ghost btn-sm" type="button" disabled>Clear</button>
-      <span id="storm-status" class="status-text"></span>
+      <span id="storm-status" class="status-text" data-text="$status">Seed a direction or select a card to branch from it.</span>
     </div>
   </form>
 
@@ -79,7 +103,7 @@
     <div class="canvas-grid" aria-hidden="true"></div>
     <div id="storm-board" class="board">
       <svg id="storm-lines" class="board-lines" aria-hidden="true"></svg>
-      <div id="storm-runs" class="board-nodes"></div>
+      {{ board_html|safe }}
     </div>
   </section>
 

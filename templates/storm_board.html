@@ -1,0 +1,36 @@
+<div id="storm-runs" class="board-nodes">
+  {% for run in runs %}
+    <article
+      class="storm-node"
+      data-run-id="{{ run.id }}"
+      data-run-prompt="{{ run.prompt }}"
+      data-run-title="{{ run.title }}"
+      data-run-summary="{{ run.summary }}"
+      data-run-assistant-summary="{{ run.assistant_summary }}"
+      data-run-preview-url="{{ run.preview_url }}"
+      data-run-created-at="{{ run.created_iso() }}"
+      data-run-submitted="{{ run.submitted }}"
+      data-run-parent-ids="{{ run.parent_ids_csv() }}"
+    >
+      <div class="storm-node-shell">
+        <div class="storm-node-meta">
+          <span class="meta-note">{{ run.created_label() }}</span>
+          <span class="{{ run.status_class() }}">{{ run.status_label() }}</span>
+        </div>
+        <div class="storm-node-preview">
+          <iframe src="{{ run.preview_url }}" loading="lazy" tabindex="-1" aria-hidden="true"></iframe>
+        </div>
+        <div class="storm-node-copy">
+          <h3>{{ run.title }}</h3>
+          <p>{{ run.summary }}</p>
+        </div>
+        <div class="storm-node-actions">
+          <button class="node-action" type="button" data-run-action="inspect">Inspect</button>
+          <button class="node-action" type="button" data-run-action="fullscreen">Open</button>
+          <button class="node-action" type="button" data-run-action="fork">Fork</button>
+          <button class="node-action" type="button" data-run-action="combine">Combine</button>
+        </div>
+      </div>
+    </article>
+  {% endfor %}
+</div>
