@@ -518,9 +518,7 @@ function computeResizedFrame(
 }
 
 function getViewportCenterWorld(): Point {
-  const canvas = $("storm-canvas");
-  if (!canvas) return clientToWorld(window.innerWidth * 0.5, window.innerHeight * 0.5);
-  const rect = canvas.getBoundingClientRect();
+  const rect = getCanvasRect();
   return clientToWorld(rect.left + rect.width * 0.5, rect.top + rect.height * 0.5);
 }
 
@@ -1644,10 +1642,21 @@ function renderWire(): void {
   svg.appendChild(head);
 }
 
+let canvasRect: DOMRect | null = null;
+
+function getCanvasRect(): DOMRect {
+  if (!canvasRect) {
+    const canvas = $("storm-canvas");
+    canvasRect = canvas?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+  }
+  return canvasRect;
+}
+
 function clientToWorld(clientX: number, clientY: number): Point {
+  const rect = getCanvasRect();
   return {
-    x: (clientX - state.pan.x) / state.scale,
-    y: (clientY - state.pan.y) / state.scale,
+    x: (clientX - rect.left - state.pan.x) / state.scale,
+    y: (clientY - rect.top - state.pan.y) / state.scale,
   };
 }
 
@@ -2043,6 +2052,7 @@ function bindNodeInteractions(): void {
     const target = e.target as HTMLElement;
     if (target.closest("[data-run-action]")) return;
     if (target.closest("[data-node-menu]")) return;
+    if (target.closest(".board-node") && !target.closest(".edge-handle")) return;
 
     const resizeHandle = target.closest<HTMLElement>("[data-node-resize-handle]");
     const resizeRun = target.closest<HTMLElement>(".storm-node");
@@ -2054,7 +2064,7 @@ function bindNodeInteractions(): void {
       const axisX = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeX ?? "0", 10))) as -1 | 0 | 1;
       const axisY = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeY ?? "0", 10))) as -1 | 0 | 1;
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       state.pointerState = {
         mode: "resize",
         pointerId: e.pointerId,
@@ -2118,12 +2128,13 @@ function bindNodeInteractions(): void {
 
     const node = target.closest<HTMLElement>(".storm-node");
     const runId = node?.dataset.runId;
-    if (!node || !runId) return;
-    const pt = state.positions.get(runId);
-    if (!pt) return;
-    e.preventDefault();
-    state.pointerState = { mode: "drag", pointerId: e.pointerId, runId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
-    node.setPointerCapture(e.pointerId);
+      if (!node || !runId) return;
+      const pt = state.positions.get(runId);
+      if (!pt) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      state.pointerState = { mode: "drag", pointerId: e.pointerId, runId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
+      node.setPointerCapture(e.pointerId);
   });
 
   window.addEventListener("pointermove", (e) => {
@@ -3483,6 +3494,8 @@ function bindBoardNodeInteractions(): void {
       if (!resizeHandle) return;
       const axisX = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeX ?? "0", 10))) as -1 | 0 | 1;
       const axisY = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeY ?? "0", 10))) as -1 | 0 | 1;
+      e.preventDefault();
+      e.stopImmediatePropagation();
       state.pointerState = {
         mode: "resize",
         pointerId: e.pointerId,
@@ -3502,6 +3515,7 @@ function bindBoardNodeInteractions(): void {
     const pt = state.positions.get(nodeId);
     if (!pt) return;
     e.preventDefault();
+    e.stopImmediatePropagation();
     state.pointerState = { mode: "drag-board-node", pointerId: e.pointerId, nodeId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
     boardNode.setPointerCapture(e.pointerId);
   });
@@ -4082,8 +4096,8 @@ function bindRadialMenuListeners(items: RadialItem[]): void {
   const handleClick = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    executeRadialSelected(getItems());
-    if (!state.radialMenu.subMenuItems) closeRadialMenu();
+    if (executeRadialSelected(getItems())) closeRadialMenu();
+    else if (!state.radialMenu.subMenuItems) closeRadialMenu();
   };
 
   const handleMouseUp = (e: MouseEvent) => {
