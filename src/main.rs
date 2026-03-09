@@ -1193,6 +1193,14 @@ impl BoardNodeSummary {
         self.content.get("file_name").and_then(|v| v.as_str()).unwrap_or("")
     }
 
+    fn harmony_mode(&self) -> &str {
+        self.content.get("mode").and_then(|v| v.as_str()).unwrap_or("complementary")
+    }
+
+    fn conditional_label(&self) -> &str {
+        self.content.get("label").and_then(|v| v.as_str()).unwrap_or("If / Else")
+    }
+
     fn has_preset(&self) -> bool {
         self.content.get("preset").and_then(|v| v.as_str()).is_some()
     }
@@ -2042,13 +2050,13 @@ async fn run_generate_node_inner(
                     }
                 }
             }
-            "image" => {
+            "image" | "draw" => {
                 if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
                     .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
                     let alt = src.content.get("alt").and_then(|v| v.as_str()).unwrap_or("");
                     if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
                         if let Ok(asset_uuid) = Uuid::from_str(aid) {
-                            let desc = if alt.is_empty() { "image".to_string() } else { alt.to_string() };
+                            let desc = if alt.is_empty() { if edge.source_type == "draw" { "drawing" } else { "image" }.to_string() } else { alt.to_string() };
                             asset_ids.push((asset_uuid, desc.clone()));
                             user_parts.push(format!("Reference image available at: inputs/{} — use copy_input to include it in your output if needed", desc));
                         }
@@ -2121,6 +2129,142 @@ async fn run_generate_node_inner(
                     }
                 }
             }
+            "color_harmony" => {
+                if let Ok(Some(harmony_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    let mode = harmony_node.content.get("mode").and_then(|v| v.as_str()).unwrap_or("complementary");
+                    // Find the source color wired into this harmony node
+                    let source_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
+                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                                  source_slot, target_slot
+                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'source'"#,
+                    )
+                    .bind(edge.source_id)
+                    .bind(viewer.id)
+                    .fetch_all(&state.db)
+                    .await
+                    .unwrap_or_default();
+                    if let Some(source_edge) = source_edges.first() {
+                        if source_edge.source_type == "color" {
+                            if let Ok(Some(color_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                                .bind(source_edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                                let base_hex = color_node.content.get("value").and_then(|v| v.as_str()).unwrap_or("#5b9cb8");
+                                let colors = compute_harmony_colors(base_hex, mode);
+                                user_parts.push(format!("Color harmony ({}) constraint: use these colors: {}", mode.replace('_', "-"), colors.join(", ")));
+                            }
+                        }
+                    }
+                }
+            }
+            "conditional" => {
+                // Resolve the condition bool, then follow the appropriate branch
+                if let Ok(Some(cond_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    let cond_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
+                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                                  source_slot, target_slot
+                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2"#,
+                    )
+                    .bind(edge.source_id)
+                    .bind(viewer.id)
+                    .fetch_all(&state.db)
+                    .await
+                    .unwrap_or_default();
+                    // Find the condition value
+                    let mut condition = false;
+                    for ce in &cond_edges {
+                        if ce.target_slot == "condition" && ce.source_type == "bool_value" {
+                            if let Ok(Some(bool_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                                .bind(ce.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                                condition = bool_node.content.get("value").and_then(|v| v.as_bool()).unwrap_or(false);
+                            }
+                        }
+                    }
+                    // Follow the active branch
+                    let active_slot = if condition { "if_true" } else { "if_false" };
+                    for ce in &cond_edges {
+                        if ce.target_slot != active_slot { continue; }
+                        if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                            .bind(ce.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                            match src.node_type.as_str() {
+                                "entropy" => {
+                                    let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
+                                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                                    entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
+                                }
+                                "user_input" => {
+                                    let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !text.is_empty() { user_parts.push(format!("User direction: \"{}\"", text)); }
+                                }
+                                "color" => {
+                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !val.is_empty() { user_parts.push(format!("Color constraint: {}", val)); }
+                                }
+                                "color_palette" => {
+                                    let colors: Vec<&str> = src.content.get("colors").and_then(|v| v.as_array())
+                                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect()).unwrap_or_default();
+                                    if !colors.is_empty() { user_parts.push(format!("Color palette constraint: use these colors: {}", colors.join(", "))); }
+                                }
+                                "color_harmony" => {
+                                    // Recursively resolve the harmony's source color
+                                    let hmode = src.content.get("mode").and_then(|v| v.as_str()).unwrap_or("complementary");
+                                    let h_source_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
+                                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                                                  source_slot, target_slot
+                                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'source'"#,
+                                    ).bind(src.id).bind(viewer.id).fetch_all(&state.db).await.unwrap_or_default();
+                                    if let Some(hse) = h_source_edges.first() {
+                                        if hse.source_type == "color" {
+                                            if let Ok(Some(cn)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                                                .bind(hse.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                                                let base = cn.content.get("value").and_then(|v| v.as_str()).unwrap_or("#5b9cb8");
+                                                let colors = compute_harmony_colors(base, hmode);
+                                                user_parts.push(format!("Color harmony ({}) constraint: use these colors: {}", hmode.replace('_', "-"), colors.join(", ")));
+                                            }
+                                        }
+                                    }
+                                }
+                                "string_value" => {
+                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !val.is_empty() {
+                                        let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
+                                            let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
+                                            format!("{}: \"{}\"", plabel, val)
+                                        } else { format!("String parameter: \"{}\"", val) };
+                                        user_parts.push(label);
+                                    }
+                                }
+                                "int_value" => {
+                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) { user_parts.push(format!("Integer parameter: {}", val)); }
+                                }
+                                "float_value" => {
+                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) { user_parts.push(format!("Float parameter: {}", val)); }
+                                }
+                                "bool_value" => {
+                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) { user_parts.push(format!("Boolean parameter: {}", val)); }
+                                }
+                                "font" => {
+                                    let family = src.content.get("family").and_then(|v| v.as_str()).unwrap_or("");
+                                    let weight = src.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400");
+                                    let size = src.content.get("size").and_then(|v| v.as_str()).unwrap_or("16");
+                                    let lh = src.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5");
+                                    let mut parts = Vec::new();
+                                    if !family.is_empty() { parts.push(format!("font-family: {}", family)); }
+                                    parts.push(format!("font-weight: {}", weight));
+                                    parts.push(format!("font-size: {}px", size));
+                                    parts.push(format!("line-height: {}", lh));
+                                    user_parts.push(format!("Typography constraint: {}", parts.join(", ")));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    let _ = cond_node; // suppress unused warning
+                }
+            }
             "set" => {
                 // Expand set: resolve all members recursively
                 let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
@@ -2164,11 +2308,11 @@ async fn run_generate_node_inner(
                                     user_parts.push(format!("Color palette constraint: use these colors: {}", colors.join(", ")));
                                 }
                             }
-                            "image" => {
+                            "image" | "draw" => {
                                 let alt = src.content.get("alt").and_then(|v| v.as_str()).unwrap_or("");
                                 if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
                                     if let Ok(asset_uuid) = Uuid::from_str(aid) {
-                                        let desc = if alt.is_empty() { "image".to_string() } else { alt.to_string() };
+                                        let desc = if alt.is_empty() { if src.node_type == "draw" { "drawing" } else { "image" }.to_string() } else { alt.to_string() };
                                         asset_ids.push((asset_uuid, desc.clone()));
                                         user_parts.push(format!("Reference image available at: inputs/{} — use copy_input to include it in your output if needed", desc));
                                     }
@@ -4244,6 +4388,96 @@ async fn load_board_edges(state: &AppState, user_id: Uuid) -> Vec<BoardEdgeSumma
 
 // ─── Wikipedia random page ───
 
+// ─── OKLCH color harmony computation ───
+
+fn hex_to_oklch(hex: &str) -> (f64, f64, f64) {
+    let hex = hex.trim_start_matches('#');
+    let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0) as f64 / 255.0;
+    let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0) as f64 / 255.0;
+    let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0) as f64 / 255.0;
+    // sRGB to linear
+    let to_linear = |c: f64| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
+    let lr = to_linear(r);
+    let lg = to_linear(g);
+    let lb = to_linear(b);
+    // Linear sRGB to LMS (via OKLab M1)
+    let l = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
+    let m = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
+    let s = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
+    // Cube root
+    let l_ = l.cbrt();
+    let m_ = m.cbrt();
+    let s_ = s.cbrt();
+    // LMS to OKLab (M2)
+    let ok_l = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
+    let ok_a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_;
+    let ok_b = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_;
+    // OKLab to OKLCH
+    let c = (ok_a * ok_a + ok_b * ok_b).sqrt();
+    let h = ok_b.atan2(ok_a).to_degrees();
+    let h = if h < 0.0 { h + 360.0 } else { h };
+    (ok_l, c, h)
+}
+
+fn oklch_to_hex(l: f64, c: f64, h: f64) -> String {
+    let h_rad = h.to_radians();
+    let ok_a = c * h_rad.cos();
+    let ok_b = c * h_rad.sin();
+    // OKLab to LMS (M2 inverse)
+    let l_ = l + 0.3963377774 * ok_a + 0.2158037573 * ok_b;
+    let m_ = l - 0.1055613458 * ok_a - 0.0638541728 * ok_b;
+    let s_ = l - 0.0894841775 * ok_a - 1.2914855480 * ok_b;
+    let lms_l = l_ * l_ * l_;
+    let lms_m = m_ * m_ * m_;
+    let lms_s = s_ * s_ * s_;
+    // LMS to linear sRGB (M1 inverse)
+    let lr =  4.0767416621 * lms_l - 3.3077115913 * lms_m + 0.2309699292 * lms_s;
+    let lg = -1.2684380046 * lms_l + 2.6097574011 * lms_m - 0.3413193965 * lms_s;
+    let lb = -0.0041960863 * lms_l - 0.7034186147 * lms_m + 1.7076147010 * lms_s;
+    // Linear to sRGB
+    let from_linear = |c: f64| {
+        let c = c.clamp(0.0, 1.0);
+        if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
+    };
+    let r = (from_linear(lr) * 255.0).round() as u8;
+    let g = (from_linear(lg) * 255.0).round() as u8;
+    let b = (from_linear(lb) * 255.0).round() as u8;
+    format!("#{:02x}{:02x}{:02x}", r, g, b)
+}
+
+fn compute_harmony_colors(base_hex: &str, mode: &str) -> Vec<String> {
+    let (l, c, h) = hex_to_oklch(base_hex);
+    let wrap = |angle: f64| ((angle % 360.0) + 360.0) % 360.0;
+    match mode {
+        "complementary" => vec![
+            base_hex.to_string(),
+            oklch_to_hex(l, c, wrap(h + 180.0)),
+        ],
+        "analogous" => vec![
+            oklch_to_hex(l, c, wrap(h - 30.0)),
+            base_hex.to_string(),
+            oklch_to_hex(l, c, wrap(h + 30.0)),
+        ],
+        "triadic" => vec![
+            base_hex.to_string(),
+            oklch_to_hex(l, c, wrap(h + 120.0)),
+            oklch_to_hex(l, c, wrap(h + 240.0)),
+        ],
+        "split_complementary" => vec![
+            base_hex.to_string(),
+            oklch_to_hex(l, c, wrap(h + 150.0)),
+            oklch_to_hex(l, c, wrap(h + 210.0)),
+        ],
+        "tetradic" => vec![
+            base_hex.to_string(),
+            oklch_to_hex(l, c, wrap(h + 90.0)),
+            oklch_to_hex(l, c, wrap(h + 180.0)),
+            oklch_to_hex(l, c, wrap(h + 270.0)),
+        ],
+        _ => vec![base_hex.to_string()],
+    }
+}
+
 async fn fetch_wikipedia_random(http: &Client) -> Result<serde_json::Value, AppError> {
     // Follow the random redirect to get the resolved page URL and title
     let resp = http
@@ -4292,15 +4526,19 @@ fn valid_board_node_type(node_type: &str) -> bool {
         "entropy"
             | "user_input"
             | "generate"
+            | "color"
             | "color_palette"
+            | "color_harmony"
             | "pick_k"
             | "set"
             | "image"
+            | "draw"
             | "int_value"
             | "float_value"
             | "string_value"
             | "bool_value"
             | "font"
+            | "conditional"
     )
 }
 
@@ -4326,6 +4564,7 @@ fn node_slots(node_type: &str) -> &'static [SlotDef] {
             SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
         ],
         "image" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
+        "draw" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
         "set" => &[
             SlotDef { name: "members", direction: "in", value_type: "node_ref", multiple: true },
             SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
@@ -4340,6 +4579,16 @@ fn node_slots(node_type: &str) -> &'static [SlotDef] {
         "string_value" => &[SlotDef { name: "value", direction: "out", value_type: "string", multiple: false }],
         "bool_value" => &[SlotDef { name: "value", direction: "out", value_type: "bool", multiple: false }],
         "font" => &[
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+        ],
+        "color_harmony" => &[
+            SlotDef { name: "source", direction: "in", value_type: "node_ref", multiple: false },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+        ],
+        "conditional" => &[
+            SlotDef { name: "condition", direction: "in", value_type: "bool", multiple: false },
+            SlotDef { name: "if_true", direction: "in", value_type: "node_ref", multiple: true },
+            SlotDef { name: "if_false", direction: "in", value_type: "node_ref", multiple: true },
             SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
         ],
         _ => &[],
@@ -4406,11 +4655,14 @@ async fn default_board_node_content(
         "pick_k" => Ok(json!({"k": 1, "replace": false})),
         "set" => Ok(json!({"title": "Set", "description": ""})),
         "image" => Ok(json!({"url": "", "alt": ""})),
+        "draw" => Ok(json!({"url": "", "alt": "drawing"})),
         "int_value" => Ok(json!({"value": 0, "min": 0, "max": 100, "random": false})),
         "float_value" => Ok(json!({"value": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "random": false})),
         "string_value" => Ok(json!({"value": ""})),
         "bool_value" => Ok(json!({"value": false})),
         "font" => Ok(json!({"family": "", "weight": "400", "size": "16", "lineHeight": "1.5"})),
+        "color_harmony" => Ok(json!({"mode": "complementary"})),
+        "conditional" => Ok(json!({"label": "If / Else"})),
         _ => Ok(json!({})),
     }
 }

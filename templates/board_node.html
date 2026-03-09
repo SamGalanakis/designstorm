@@ -120,6 +120,24 @@
         {% endif %}
       </div>
 
+      {% else if node.node_type == "draw" %}
+      <div class="draw-node-shell">
+        <div class="draw-node-header">
+          <span class="eyebrow draw-eyebrow">Draw</span>
+          <div class="draw-toolbar">
+            <input type="color" class="draw-color-picker" value="#ffffff" title="Brush color" />
+            <input type="range" class="draw-size-slider" min="1" max="30" value="4" title="Brush size" />
+            <button class="draw-tool-btn draw-tool-active" data-draw-tool="draw" title="Brush">&#x270E;</button>
+            <button class="draw-tool-btn" data-draw-tool="erase" title="Eraser">&#x2395;</button>
+            <button class="draw-tool-btn" data-draw-tool="clear" title="Clear">&#x2715;</button>
+          </div>
+        </div>
+        {% if node.image_url() != "" %}
+        <img src="{{ node.image_url() }}" class="draw-node-saved" />
+        {% endif %}
+        <canvas class="draw-node-canvas" width="400" height="300"></canvas>
+      </div>
+
       {% else if node.node_type == "int_value" %}
       <div class="value-shell value-int-shell">
         <div class="value-header">
@@ -171,6 +189,39 @@
           <span class="bool-toggle-track"><span class="bool-toggle-thumb"></span></span>
           <span class="bool-toggle-text">{% if node.bool_value() %}true{% else %}false{% endif %}</span>
         </label>
+      </div>
+
+      {% else if node.node_type == "color_harmony" %}
+      <div class="harmony-shell">
+        <div class="harmony-header">
+          <span class="eyebrow harmony-eyebrow">Harmony</span>
+        </div>
+        <select class="harmony-mode-select">
+          <option value="complementary" {% if node.harmony_mode() == "complementary" %}selected{% endif %}>Complementary</option>
+          <option value="analogous" {% if node.harmony_mode() == "analogous" %}selected{% endif %}>Analogous</option>
+          <option value="triadic" {% if node.harmony_mode() == "triadic" %}selected{% endif %}>Triadic</option>
+          <option value="split_complementary" {% if node.harmony_mode() == "split_complementary" %}selected{% endif %}>Split Comp.</option>
+          <option value="tetradic" {% if node.harmony_mode() == "tetradic" %}selected{% endif %}>Tetradic</option>
+        </select>
+        <div class="harmony-swatches" id="harmony-swatches-{{ node.id }}"></div>
+        <div class="harmony-info" id="harmony-info-{{ node.id }}">Wire a color source</div>
+      </div>
+
+      {% else if node.node_type == "conditional" %}
+      <div class="cond-shell">
+        <div class="cond-header">
+          <span class="eyebrow cond-eyebrow">If / Else</span>
+          <div class="cond-indicator" id="cond-indicator-{{ node.id }}">?</div>
+        </div>
+        <div class="cond-branches">
+          <div class="cond-branch cond-branch-true">
+            <span class="cond-branch-label">True</span>
+          </div>
+          <div class="cond-branch cond-branch-false">
+            <span class="cond-branch-label">False</span>
+          </div>
+        </div>
+        <div class="cond-info" id="cond-info-{{ node.id }}">Wire a bool condition</div>
       </div>
 
       {% else if node.node_type == "font" %}

@@ -59,7 +59,7 @@ type DraftContext = {
   label: string;
 };
 
-type BoardNodeType = "entropy" | "user_input" | "generate" | "color" | "color_palette" | "pick_k" | "set" | "image" | "int_value" | "float_value" | "string_value" | "bool_value" | "font";
+type BoardNodeType = "entropy" | "user_input" | "generate" | "color" | "color_palette" | "color_harmony" | "pick_k" | "set" | "image" | "int_value" | "float_value" | "string_value" | "bool_value" | "font" | "conditional";
 
 type BoardNode = {
   id: string;
@@ -102,6 +102,7 @@ const NODE_SLOTS: Record<string, SlotDef[]> = {
     { name: "out", direction: "out", valueType: "node_ref", multiple: false },
   ],
   image: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  draw: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
   set: [
     { name: "members", direction: "in", valueType: "node_ref", multiple: true },
     { name: "out", direction: "out", valueType: "node_ref", multiple: false },
@@ -116,6 +117,16 @@ const NODE_SLOTS: Record<string, SlotDef[]> = {
   string_value: [{ name: "value", direction: "out", valueType: "string", multiple: false }],
   bool_value: [{ name: "value", direction: "out", valueType: "bool", multiple: false }],
   font: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  color_harmony: [
+    { name: "source", direction: "in", valueType: "node_ref", multiple: false },
+    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+  ],
+  conditional: [
+    { name: "condition", direction: "in", valueType: "bool", multiple: false },
+    { name: "if_true", direction: "in", valueType: "node_ref", multiple: true },
+    { name: "if_false", direction: "in", valueType: "node_ref", multiple: true },
+    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+  ],
 };
 
 type AnchorSide = "top" | "bottom" | "left" | "right";
@@ -271,6 +282,10 @@ const BOOL_NODE_WIDTH = 140;
 const BOOL_NODE_HEIGHT = 80;
 const FONT_NODE_WIDTH = 180;
 const FONT_NODE_HEIGHT = 160;
+const HARMONY_NODE_WIDTH = 200;
+const HARMONY_NODE_HEIGHT = 140;
+const CONDITIONAL_NODE_WIDTH = 180;
+const CONDITIONAL_NODE_HEIGHT = 120;
 const EDGE_HANDLE_PROXIMITY = 30;
 const INITIAL_PAN: Point = { x: 160, y: 120 };
 const BACKGROUND_CHUNK_WORLD_SIZE = 1536;
@@ -424,6 +439,8 @@ function nodeDimensions(nodeType: string): { w: number; h: number } {
     case "string_value": return { w: STRING_NODE_WIDTH, h: STRING_NODE_HEIGHT };
     case "bool_value": return { w: BOOL_NODE_WIDTH, h: BOOL_NODE_HEIGHT };
     case "font": return { w: FONT_NODE_WIDTH, h: FONT_NODE_HEIGHT };
+    case "color_harmony": return { w: HARMONY_NODE_WIDTH, h: HARMONY_NODE_HEIGHT };
+    case "conditional": return { w: CONDITIONAL_NODE_WIDTH, h: CONDITIONAL_NODE_HEIGHT };
     default: return { w: ENTROPY_NODE_WIDTH, h: ENTROPY_NODE_HEIGHT };
   }
 }
@@ -1947,6 +1964,8 @@ function hydrateBoardFromDom(): void {
   updateGenerateInputs();
   updateSetMembers();
   updatePickKInfo();
+  updateHarmonyPreviews();
+  updateConditionalPreviews();
   renderSlotHandles();
   renderInspector();
   renderFocus();
@@ -2777,6 +2796,8 @@ async function deleteBoardNode(nodeId: string): Promise<void> {
   updateGenerateInputs();
   updateSetMembers();
   updatePickKInfo();
+  updateHarmonyPreviews();
+  updateConditionalPreviews();
 }
 
 async function duplicateBoardNode(sourceNodeId: string): Promise<void> {
@@ -2982,6 +3003,76 @@ function updatePickKInfo(): void {
   }
 }
 
+// ─── Color harmony helpers ───
+// Uses existing oklchToHex() and hexToOklch() defined below in the color picker section.
+
+function computeHarmonyColors(baseHex: string, mode: string): string[] {
+  const { lightness: l, chroma: c, hue: h } = hexToOklch(baseHex);
+  const wrap = (a: number) => ((a % 360) + 360) % 360;
+  switch (mode) {
+    case "complementary": return [baseHex, oklchToHex(l, c, wrap(h + 180))];
+    case "analogous": return [oklchToHex(l, c, wrap(h - 30)), baseHex, oklchToHex(l, c, wrap(h + 30))];
+    case "triadic": return [baseHex, oklchToHex(l, c, wrap(h + 120)), oklchToHex(l, c, wrap(h + 240))];
+    case "split_complementary": return [baseHex, oklchToHex(l, c, wrap(h + 150)), oklchToHex(l, c, wrap(h + 210))];
+    case "tetradic": return [baseHex, oklchToHex(l, c, wrap(h + 90)), oklchToHex(l, c, wrap(h + 180)), oklchToHex(l, c, wrap(h + 270))];
+    default: return [baseHex];
+  }
+}
+
+function updateHarmonyPreviews(): void {
+  for (const node of state.boardNodes) {
+    if (node.nodeType !== "color_harmony") continue;
+    const swatchesEl = document.getElementById(`harmony-swatches-${node.id}`);
+    const infoEl = document.getElementById(`harmony-info-${node.id}`);
+    if (!swatchesEl) continue;
+    const mode = (node.content.mode as string) ?? "complementary";
+    // Find the wired source color
+    const sourceEdge = state.edges.find((e) => e.targetId === node.id && e.targetSlot === "source");
+    let baseHex = "#888888";
+    if (sourceEdge) {
+      const sourceNode = state.boardNodes.find((n) => n.id === sourceEdge.sourceId);
+      if (sourceNode?.nodeType === "color") {
+        baseHex = (sourceNode.content.value as string) ?? "#888888";
+      }
+    }
+    const colors = computeHarmonyColors(baseHex, mode);
+    swatchesEl.innerHTML = colors.map((c) =>
+      `<div class="harmony-swatch" style="background: ${escapeHtml(c)};"></div>`
+    ).join("");
+    if (infoEl) {
+      const label = sourceEdge ? mode.replace(/_/g, " ") : "Wire a color source";
+      infoEl.textContent = label;
+    }
+  }
+}
+
+function updateConditionalPreviews(): void {
+  for (const node of state.boardNodes) {
+    if (node.nodeType !== "conditional") continue;
+    const indicatorEl = document.getElementById(`cond-indicator-${node.id}`);
+    const infoEl = document.getElementById(`cond-info-${node.id}`);
+    if (!indicatorEl) continue;
+    // Find the condition bool
+    const condEdge = state.edges.find((e) => e.targetId === node.id && e.targetSlot === "condition");
+    let condValue: boolean | null = null;
+    if (condEdge) {
+      const condNode = state.boardNodes.find((n) => n.id === condEdge.sourceId);
+      if (condNode?.nodeType === "bool_value") {
+        condValue = (condNode.content.value as boolean) ?? false;
+      }
+    }
+    const trueCount = state.edges.filter((e) => e.targetId === node.id && e.targetSlot === "if_true").length;
+    const falseCount = state.edges.filter((e) => e.targetId === node.id && e.targetSlot === "if_false").length;
+    indicatorEl.className = "cond-indicator" + (condValue === true ? " is-true" : condValue === false ? " is-false" : "");
+    indicatorEl.textContent = condValue === null ? "?" : condValue ? "T" : "F";
+    if (infoEl) {
+      infoEl.textContent = condValue === null
+        ? "Wire a bool condition"
+        : `${condValue ? "True" : "False"} branch active (${trueCount}T / ${falseCount}F)`;
+    }
+  }
+}
+
 // ─── Node content persistence helper ───
 
 function persistNodeContent(nodeId: string, content: Record<string, unknown>): void {
@@ -3097,6 +3188,7 @@ function showColorNodePicker(nodeId: string): void {
         if (swatch) swatch.style.background = hex;
         if (hexLabel) hexLabel.textContent = hex;
       }
+      updateHarmonyPreviews();
     }
   });
 }
@@ -3384,6 +3476,109 @@ function triggerImageUpload(nodeId: string): void {
   input.click();
 }
 
+// ─── Draw node ───
+
+const drawInstances = new Map<string, { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; drawing: boolean; color: string; size: number; mode: "draw" | "erase"; lastPoint: { x: number; y: number } | null }>();
+
+function initDrawCanvas(nodeId: string): void {
+  if (drawInstances.has(nodeId)) return;
+  const nodeEl = document.querySelector<HTMLElement>(`.board-node[data-node-id="${nodeId}"]`);
+  if (!nodeEl) return;
+  const canvas = nodeEl.querySelector<HTMLCanvasElement>(".draw-node-canvas");
+  if (!canvas) return;
+
+  const ctx = canvas.getContext("2d")!;
+  const inst = { canvas, ctx, drawing: false, color: "#ffffff", size: 4, mode: "draw" as "draw" | "erase", lastPoint: null as { x: number; y: number } | null };
+  drawInstances.set(nodeId, inst);
+
+  // Load saved image if it exists
+  const savedImg = nodeEl.querySelector<HTMLImageElement>(".draw-node-saved");
+  if (savedImg && savedImg.src) {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => { ctx.drawImage(img, 0, 0, canvas.width, canvas.height); };
+    img.src = savedImg.src;
+  }
+
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  const getPos = (e: PointerEvent): { x: number; y: number } => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (canvas.height / rect.height),
+    };
+  };
+
+  canvas.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    inst.drawing = true;
+    inst.lastPoint = getPos(e);
+    canvas.setPointerCapture(e.pointerId);
+  });
+
+  canvas.addEventListener("pointermove", (e) => {
+    if (!inst.drawing || !inst.lastPoint) return;
+    e.stopPropagation();
+    const pos = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(inst.lastPoint.x, inst.lastPoint.y);
+    ctx.lineTo(pos.x, pos.y);
+    if (inst.mode === "erase") {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.strokeStyle = "rgba(0,0,0,1)";
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = inst.color;
+    }
+    ctx.lineWidth = inst.size;
+    ctx.stroke();
+    inst.lastPoint = pos;
+  });
+
+  const endDraw = () => {
+    if (inst.drawing) {
+      inst.drawing = false;
+      inst.lastPoint = null;
+      saveDrawing(nodeId);
+    }
+  };
+  canvas.addEventListener("pointerup", endDraw);
+  canvas.addEventListener("pointercancel", endDraw);
+  canvas.addEventListener("lostpointercapture", endDraw);
+}
+
+let drawSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function saveDrawing(nodeId: string): void {
+  // Debounce saves
+  if (drawSaveTimer) clearTimeout(drawSaveTimer);
+  drawSaveTimer = setTimeout(async () => {
+    const inst = drawInstances.get(nodeId);
+    if (!inst) return;
+    const blob = await new Promise<Blob | null>((resolve) => inst.canvas.toBlob(resolve, "image/png"));
+    if (!blob) return;
+    const formData = new FormData();
+    formData.append("file", blob, "drawing.png");
+    try {
+      const resp = await fetch("/assets", { method: "POST", credentials: "include", body: formData });
+      if (!resp.ok) throw new Error(await resp.text());
+      const { id, url } = await resp.json();
+      const node = state.boardNodes.find((n) => n.id === nodeId);
+      if (node) {
+        node.content.asset_id = id;
+        node.content.url = url;
+        node.content.alt = "drawing";
+        persistNodeContent(nodeId, { asset_id: id, url, alt: "drawing" });
+      }
+    } catch (err) {
+      console.error("Draw save failed:", err);
+    }
+  }, 800);
+}
+
 function triggerFontUpload(nodeId: string): void {
   const input = document.createElement("input");
   input.type = "file";
@@ -3576,6 +3771,12 @@ function bindBoardNodeInteractions(): void {
       }
       return;
     }
+    // Color harmony: mode select
+    if (target.closest(".harmony-mode-select")) return;
+
+    // Conditional: label input
+    if (target.closest(".cond-label-input")) return;
+
     // Pick K: stepper buttons
     if (target.closest("[data-action='increment-k']") || target.closest("[data-action='decrement-k']")) {
       const node = state.boardNodes.find((n) => n.id === nodeId);
@@ -3599,6 +3800,28 @@ function bindBoardNodeInteractions(): void {
         persistNodeContent(nodeId, { k: node.content.k ?? 1, replace: checked });
         updatePickKInfo();
       }
+      return;
+    }
+    // Draw: tool buttons
+    const drawToolBtn = target.closest<HTMLElement>("[data-draw-tool]");
+    if (drawToolBtn) {
+      const tool = drawToolBtn.dataset.drawTool;
+      initDrawCanvas(nodeId);
+      const inst = drawInstances.get(nodeId);
+      if (inst && tool === "clear") {
+        inst.ctx.clearRect(0, 0, inst.canvas.width, inst.canvas.height);
+        saveDrawing(nodeId);
+      } else if (inst && (tool === "draw" || tool === "erase")) {
+        inst.mode = tool;
+        const shell = drawToolBtn.closest(".draw-toolbar");
+        shell?.querySelectorAll(".draw-tool-btn").forEach((b) => b.classList.remove("draw-tool-active"));
+        drawToolBtn.classList.add("draw-tool-active");
+      }
+      return;
+    }
+    // Draw: clicking toolbar controls inits the canvas
+    if (target.closest(".draw-color-picker") || target.closest(".draw-size-slider") || target.closest(".draw-node-canvas")) {
+      initDrawCanvas(nodeId);
       return;
     }
     // Image: click drop zone
@@ -3692,6 +3915,7 @@ function bindBoardNodeInteractions(): void {
         if (textEl) textEl.textContent = target.checked ? "true" : "false";
       }
       persistNodeContent(nodeId, node.content);
+      updateConditionalPreviews();
     } else if (target.dataset.action === "toggle-random") {
       node.content.random = target.checked;
       persistNodeContent(nodeId, node.content);
@@ -3706,6 +3930,28 @@ function bindBoardNodeInteractions(): void {
         preview.style.fontSize = `${node.content.size ?? 16}px`;
         preview.style.lineHeight = String(node.content.lineHeight ?? "1.5");
       }
+    } else if (target.classList.contains("harmony-mode-select") && node.nodeType === "color_harmony") {
+      node.content.mode = target.value;
+      persistNodeContent(nodeId, { mode: target.value });
+      updateHarmonyPreviews();
+    } else if (target.classList.contains("cond-label-input") && node.nodeType === "conditional") {
+      node.content.label = target.value;
+      persistNodeContent(nodeId, { label: target.value });
+    }
+  });
+
+  // Draw node: live color & size updates
+  container.addEventListener("input", (e) => {
+    const target = e.target as HTMLInputElement;
+    const boardNode = target.closest<HTMLElement>(".board-node");
+    const nodeId = boardNode?.dataset.nodeId;
+    if (!nodeId) return;
+    if (target.classList.contains("draw-color-picker")) {
+      const inst = drawInstances.get(nodeId);
+      if (inst) inst.color = target.value;
+    } else if (target.classList.contains("draw-size-slider")) {
+      const inst = drawInstances.get(nodeId);
+      if (inst) inst.size = Number(target.value);
     }
   });
 
@@ -3776,6 +4022,7 @@ function bindBoardNodeInteractions(): void {
     if (target.closest(".pickk-replace-label")) return;
     if (target.closest("[data-action='upload-image']")) return;
     if (target.closest("[data-action='upload-font']")) return;
+    if (target.closest(".draw-node-shell")) return;
     if (target.closest(".font-family-input")) return;
     if (target.closest(".font-weight-select")) return;
     if (target.closest(".font-size-input")) return;
@@ -3995,6 +4242,12 @@ function getPaletteItems(): Array<{ id: string; type: string; label: string; det
       case "font":
         items.push({ id: node.id, type: "font", label: "Font", detail: (node.content.family as string) || "No family set" });
         break;
+      case "color_harmony":
+        items.push({ id: node.id, type: "color_harmony", label: "Harmony", detail: ((node.content.mode as string) ?? "complementary").replace(/_/g, " ") });
+        break;
+      case "conditional":
+        items.push({ id: node.id, type: "conditional", label: "If/Else", detail: (node.content.label as string) ?? "" });
+        break;
     }
   }
   return items;
@@ -4166,13 +4419,16 @@ function getRadialItems(): RadialItem[] {
     };
     const mediaChildren: RadialItem[] = [
       { id: "image", angle: 0, label: "Image", icon: "🖼", disabled: !canConnect(wire.type, "image"), action: () => { makeAndConnect("image"); } },
-      { id: "color", angle: 90, label: "Color", icon: "◆", disabled: !canConnect(wire.type, "color"), action: () => { makeAndConnect("color"); } },
-      { id: "palette", angle: 180, label: "Palette", icon: "🎨", disabled: !canConnect(wire.type, "color_palette"), action: () => { makeAndConnect("color_palette"); } },
-      { id: "font", angle: 270, label: "Font", icon: "🔤", disabled: !canConnect(wire.type, "font"), action: () => { makeAndConnect("font"); } },
+      { id: "draw", angle: 60, label: "Draw", icon: "✎", disabled: !canConnect(wire.type, "draw"), action: () => { makeAndConnect("draw"); } },
+      { id: "color", angle: 120, label: "Color", icon: "◆", disabled: !canConnect(wire.type, "color"), action: () => { makeAndConnect("color"); } },
+      { id: "harmony", angle: 180, label: "Harmony", icon: "◇", disabled: !canConnect(wire.type, "color_harmony"), action: () => { makeAndConnect("color_harmony"); } },
+      { id: "palette", angle: 240, label: "Palette", icon: "🎨", disabled: !canConnect(wire.type, "color_palette"), action: () => { makeAndConnect("color_palette"); } },
+      { id: "font", angle: 300, label: "Font", icon: "🔤", disabled: !canConnect(wire.type, "font"), action: () => { makeAndConnect("font"); } },
     ];
     const logicChildren: RadialItem[] = [
       { id: "set", angle: 0, label: "Set", icon: "⊞", disabled: !canConnect(wire.type, "set"), action: () => { makeAndConnect("set"); } },
-      { id: "pickk", angle: 180, label: "Pick K", icon: "⊟", disabled: !canConnect(wire.type, "pick_k"), action: () => { makeAndConnect("pick_k"); } },
+      { id: "pickk", angle: 120, label: "Pick K", icon: "⊟", disabled: !canConnect(wire.type, "pick_k"), action: () => { makeAndConnect("pick_k"); } },
+      { id: "conditional", angle: 240, label: "If/Else", icon: "⑃", disabled: !canConnect(wire.type, "conditional"), action: () => { makeAndConnect("conditional"); } },
     ];
     const valuesChildren: RadialItem[] = [
       { id: "int", angle: 0, label: "Int", icon: "＃", disabled: !canConnect(wire.type, "int_value"), action: () => { makeAndConnect("int_value"); } },
@@ -4207,13 +4463,16 @@ function getRadialItems(): RadialItem[] {
 
     const mediaChildren: RadialItem[] = [
       { id: "image", angle: 0, label: "Image", icon: "🖼", action: () => { createBoardNode("image", worldPos, centered); } },
-      { id: "color", angle: 90, label: "Color", icon: "◆", action: () => { createBoardNode("color", worldPos, centered); } },
-      { id: "palette", angle: 180, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos, centered); } },
-      { id: "font", angle: 270, label: "Font", icon: "🔤", action: () => { createBoardNode("font", worldPos, centered); } },
+      { id: "draw", angle: 60, label: "Draw", icon: "✎", action: () => { createBoardNode("draw", worldPos, centered); } },
+      { id: "color", angle: 120, label: "Color", icon: "◆", action: () => { createBoardNode("color", worldPos, centered); } },
+      { id: "harmony", angle: 180, label: "Harmony", icon: "◇", action: () => { createBoardNode("color_harmony", worldPos, centered); } },
+      { id: "palette", angle: 240, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos, centered); } },
+      { id: "font", angle: 300, label: "Font", icon: "🔤", action: () => { createBoardNode("font", worldPos, centered); } },
     ];
     const logicChildren: RadialItem[] = [
       { id: "set", angle: 0, label: "Set", icon: "⊞", action: () => { createBoardNode("set", worldPos, centered); } },
-      { id: "pickk", angle: 180, label: "Pick K", icon: "⊟", action: () => { createBoardNode("pick_k", worldPos, centered); } },
+      { id: "pickk", angle: 120, label: "Pick K", icon: "⊟", action: () => { createBoardNode("pick_k", worldPos, centered); } },
+      { id: "conditional", angle: 240, label: "If/Else", icon: "⑃", action: () => { createBoardNode("conditional", worldPos, centered); } },
     ];
     const valuesChildren: RadialItem[] = [
       { id: "int", angle: 0, label: "Int", icon: "＃", action: () => { createBoardNode("int_value", worldPos, centered); } },

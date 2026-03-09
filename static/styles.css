@@ -1770,6 +1770,131 @@ body.is-shift-held .board-node { cursor: grab; }
   box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
 }
 
+/* ─── Draw node ─── */
+
+.board-node-draw { width: 420px; }
+
+.draw-node-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.25);
+  overflow: hidden;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.board-node-draw:hover .draw-node-shell {
+  transform: translateY(-2px);
+  border-color: rgba(180, 180, 180, 0.35);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.35);
+}
+
+.board-node-draw.is-active .draw-node-shell {
+  border-color: var(--accent);
+  box-shadow: 0 16px 44px rgba(0,0,0,0.4), 0 0 16px var(--accent-glow);
+}
+
+.draw-node-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.draw-eyebrow {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-family: "IBM Plex Mono", monospace;
+  white-space: nowrap;
+}
+
+.draw-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.draw-color-picker {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.draw-color-picker::-webkit-color-swatch-wrapper { padding: 1px; }
+.draw-color-picker::-webkit-color-swatch { border: none; border-radius: 2px; }
+.draw-color-picker::-moz-color-swatch { border: none; border-radius: 2px; }
+
+.draw-size-slider {
+  width: 50px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.draw-tool-btn {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.draw-tool-btn:hover {
+  background: var(--surface-overlay);
+  color: var(--text);
+}
+
+.draw-tool-btn.draw-tool-active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(var(--accent-rgb, 100, 100, 255), 0.1);
+}
+
+.draw-node-canvas {
+  flex: 1;
+  width: 100%;
+  min-height: 200px;
+  cursor: crosshair;
+  display: block;
+  touch-action: none;
+  background:
+    repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
+}
+
+.draw-node-saved {
+  display: none;
+}
+
+.board-node-draw.is-wire-target .draw-node-shell {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
+}
+
 /* ─── Value nodes (int, float, string, bool) ─── */
 
 .board-node-int_value { width: 150px; }
@@ -2055,6 +2180,191 @@ body.is-shift-held .board-node { cursor: grab; }
   box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
 }
 
+/* ─── Color Harmony node ─── */
+
+.board-node-color_harmony { width: 200px; }
+
+.harmony-shell {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  border: 1px solid rgba(160, 130, 200, 0.2);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.25);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.board-node-color_harmony:hover .harmony-shell {
+  transform: translateY(-2px);
+  border-color: rgba(160, 130, 200, 0.35);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.35), 0 0 12px rgba(160, 130, 200, 0.12);
+}
+
+.board-node-color_harmony.is-active .harmony-shell {
+  border-color: rgba(160, 130, 200, 0.5);
+  box-shadow: 0 16px 44px rgba(0,0,0,0.4), 0 0 16px rgba(160, 130, 200, 0.15);
+}
+
+.board-node-color_harmony.is-wire-target .harmony-shell {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
+}
+
+.harmony-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.harmony-eyebrow { color: rgba(160, 130, 200, 0.8); }
+
+.harmony-mode-select {
+  width: 100%;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: rgba(255,255,255,0.05);
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.harmony-mode-select:focus { outline: 1px solid var(--accent); }
+
+.harmony-swatches {
+  display: flex;
+  gap: 3px;
+  min-height: 28px;
+  align-items: stretch;
+}
+
+.harmony-swatch {
+  flex: 1;
+  min-width: 20px;
+  height: 28px;
+  border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.harmony-info {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-align: center;
+  text-transform: capitalize;
+}
+
+/* ─── Conditional node ─── */
+
+.board-node-conditional { width: 180px; }
+
+.cond-shell {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  border: 1px solid rgba(200, 170, 100, 0.2);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.25);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.board-node-conditional:hover .cond-shell {
+  transform: translateY(-2px);
+  border-color: rgba(200, 170, 100, 0.35);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.35), 0 0 12px rgba(200, 170, 100, 0.12);
+}
+
+.board-node-conditional.is-active .cond-shell {
+  border-color: rgba(200, 170, 100, 0.5);
+  box-shadow: 0 16px 44px rgba(0,0,0,0.4), 0 0 16px rgba(200, 170, 100, 0.15);
+}
+
+.board-node-conditional.is-wire-target .cond-shell {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
+}
+
+.cond-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cond-eyebrow { color: rgba(200, 170, 100, 0.8); }
+
+.cond-indicator {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: "IBM Plex Mono", monospace;
+  background: rgba(255,255,255,0.06);
+  color: var(--text-faint);
+  border: 1px solid rgba(255,255,255,0.1);
+  transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.cond-indicator.is-true {
+  background: rgba(100, 200, 130, 0.15);
+  color: rgba(100, 200, 130, 0.9);
+  border-color: rgba(100, 200, 130, 0.3);
+}
+
+.cond-indicator.is-false {
+  background: rgba(200, 120, 100, 0.15);
+  color: rgba(200, 120, 100, 0.9);
+  border-color: rgba(200, 120, 100, 0.3);
+}
+
+.cond-branches {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.cond-branch {
+  padding: 6px 8px;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.cond-branch-true {
+  background: rgba(100, 200, 130, 0.06);
+  color: rgba(100, 200, 130, 0.7);
+  border-color: rgba(100, 200, 130, 0.12);
+}
+
+.cond-branch-false {
+  background: rgba(200, 120, 100, 0.06);
+  color: rgba(200, 120, 100, 0.7);
+  border-color: rgba(200, 120, 100, 0.12);
+}
+
+.cond-branch-label {
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.02em;
+}
+
+.cond-info {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
 /* ─── Slot handles ─── */
 
 .slot-handle {
@@ -2261,7 +2571,10 @@ body.is-shift-held .board-node { cursor: grab; }
 .is-wire-invalid .pickk-shell,
 .is-wire-invalid .set-shell,
 .is-wire-invalid .image-node-shell,
+.is-wire-invalid .draw-node-shell,
 .is-wire-invalid .font-shell,
+.is-wire-invalid .harmony-shell,
+.is-wire-invalid .cond-shell,
 .is-wire-invalid .value-shell {
   border-color: rgba(200, 80, 80, 0.5) !important;
   box-shadow: 0 0 16px rgba(200, 80, 80, 0.15), 0 8px 28px rgba(0,0,0,0.3) !important;
