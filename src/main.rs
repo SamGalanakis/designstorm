@@ -2827,20 +2827,16 @@ async fn preview_index_redirect(Path(run_id): Path<Uuid>) -> Redirect {
 
 async fn preview_index(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path(run_id): Path<Uuid>,
 ) -> Result<Response, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    let run = get_owned_run(&state, viewer.id, run_id).await?;
-    info!(user_id = %viewer.id, run_id = %run_id, "serving preview index");
+    let run = get_run(&state, run_id).await?;
     let html = match tokio::fs::read_to_string(run.workspace_dir.join("index.html")).await {
         Ok(html) => html,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match load_persisted_workspace_entry(&state, viewer.id, run_id, "index.html").await? {
+            match load_persisted_workspace_entry(&state, run.owner_user_id, run_id, "index.html").await? {
                 Some(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
                 None => {
                     warn!(
-                        user_id = %viewer.id,
                         run_id = %run_id,
                         workspace_dir = %run.workspace_dir.display(),
                         "preview workspace file missing"
@@ -2854,7 +2850,6 @@ async fn preview_index(
     let (html, removed_refresh_tags) = strip_meta_refresh_tags(&html);
     if removed_refresh_tags > 0 {
         warn!(
-            user_id = %viewer.id,
             run_id = %run_id,
             removed_refresh_tags,
             "sanitized preview html"
@@ -2881,25 +2876,16 @@ async fn preview_index(
 
 async fn preview_asset(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path((run_id, path)): Path<(Uuid, String)>,
 ) -> Result<Response, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    let run = get_owned_run(&state, viewer.id, run_id).await?;
+    let run = get_run(&state, run_id).await?;
     let normalized_path = normalize_workspace_asset_path(&path);
     let asset_path = resolve_workspace_path(&run.workspace_dir, &normalized_path)
         .map_err(AppError::BadRequest)?;
-    info!(
-        user_id = %viewer.id,
-        run_id = %run_id,
-        path = %path,
-        normalized_path = %normalized_path,
-        "serving preview asset"
-    );
     let bytes = match tokio::fs::read(&asset_path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match load_persisted_workspace_entry(&state, viewer.id, run_id, &normalized_path).await? {
+            match load_persisted_workspace_entry(&state, run.owner_user_id, run_id, &normalized_path).await? {
                 Some(bytes) => bytes,
                 None => return Ok(StatusCode::NOT_FOUND.into_response()),
             }
@@ -3515,9 +3501,8 @@ async fn copy_assets_to_workspace_inputs(
     Ok(results)
 }
 
-async fn get_owned_run(
+async fn get_run(
     state: &AppState,
-    user_id: Uuid,
     run_id: Uuid,
 ) -> Result<StormRunRecord, AppError> {
     let run = sqlx::query_as::<_, StormRunRow>(
@@ -3525,16 +3510,27 @@ async fn get_owned_run(
         SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url,
                submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height
         FROM storm_runs
-        WHERE id = $1 AND owner_user_id = $2
+        WHERE id = $1
         "#,
     )
     .bind(run_id)
-    .bind(user_id)
     .fetch_optional(&state.db)
     .await?;
 
     run.map(StormRunRecord::from)
         .ok_or_else(|| AppError::BadRequest("Storm run not found.".to_string()))
+}
+
+async fn get_owned_run(
+    state: &AppState,
+    user_id: Uuid,
+    run_id: Uuid,
+) -> Result<StormRunRecord, AppError> {
+    let run = get_run(state, run_id).await?;
+    if run.owner_user_id != user_id {
+        return Err(AppError::BadRequest("Storm run not found.".to_string()));
+    }
+    Ok(run)
 }
 
 async fn store_storm_run(db: &PgPool, record: &StormRunRecord) -> Result<(), AppError> {
