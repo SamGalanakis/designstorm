@@ -2440,7 +2440,7 @@ function bindNodeInteractions(): void {
       updateBoardTransform();
       const url = nodeKind === "run" ? `/storms/${nodeId}/position` : `/nodes/${nodeId}/position`;
       const pos = state.positions.get(nodeId);
-      if (pos) {
+      if (pos && !nodeId.startsWith("generating-placeholder-")) {
         fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2529,7 +2529,7 @@ function bindNodeInteractions(): void {
     const pos = state.positions.get(runId);
     state.pointerState = null;
     updateBoardTransform();
-    if (moved && pos) {
+    if (moved && pos && !runId.startsWith("generating-placeholder-")) {
       fetch(`/storms/${runId}/position`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
