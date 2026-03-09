@@ -98,13 +98,34 @@
       <div class="generate-shell">
         <div class="generate-header">
           <span class="eyebrow generate-eyebrow">Generate</span>
+          <span class="generate-status" data-show="$_generating" data-text="$_status"></span>
         </div>
         <div class="generate-inputs" id="gen-inputs-{{ node.id }}">
           <span class="generate-placeholder">Wire inputs here</span>
         </div>
+        <div class="generate-preview-loading" data-show="$_generating"
+          data-effect="
+            if ($_generating) {
+              if (!window._genTimer) {
+                $_genElapsed = 0;
+                window._genTimer = setInterval(() => $_genElapsed++, 1000);
+              }
+            } else if (window._genTimer) {
+              clearInterval(window._genTimer);
+              window._genTimer = null;
+            }
+          "
+        >
+          <div class="generate-spinner-ring"></div>
+          <span class="generate-timer" data-text="$_genElapsed + 's'"></span>
+        </div>
         <button class="generate-run-btn" data-node-action="run" title="Run generation"
+          data-indicator:_generating
+          data-attr:disabled="$_generating"
+          data-class:is-running="$_generating"
           data-on:click__prevent="@post('/nodes/{{ node.id }}/run')">
-          <span class="generate-run-icon">&#x25B6;</span>
+          <span class="generate-run-icon" data-show="!$_generating">&#x25B6;</span>
+          <span class="generate-run-label" data-show="$_generating">Generating&hellip;</span>
         </button>
       </div>
       {% else if node.node_type == "user_input" %}
