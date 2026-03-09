@@ -164,6 +164,7 @@ type RadialMenuState = {
   selectedIndex: number | null;
   subMenuParent: RadialItem[] | null;
   subMenuItems: RadialItem[] | null;
+  subMenuLabel: string | null;
 };
 
 type StormState = {
@@ -323,7 +324,7 @@ const state: StormState = {
   pan: { ...INITIAL_PAN },
   scale: 1,
   pointerState: null,
-  radialMenu: { open: false, position: { x: 0, y: 0 }, selectedIndex: null, subMenuParent: null, subMenuItems: null },
+  radialMenu: { open: false, position: { x: 0, y: 0 }, selectedIndex: null, subMenuParent: null, subMenuItems: null, subMenuLabel: null },
   lastCursor: { x: 0, y: 0 },
   spacePanHeld: false,
   boardTool: "select",
@@ -4248,6 +4249,12 @@ function getPaletteItems(): Array<{ id: string; type: string; label: string; det
       case "conditional":
         items.push({ id: node.id, type: "conditional", label: "If/Else", detail: (node.content.label as string) ?? "" });
         break;
+      case "color":
+        items.push({ id: node.id, type: "color", label: "Color", detail: (node.content.hex as string) ?? "#000000" });
+        break;
+      case "draw":
+        items.push({ id: node.id, type: "draw", label: "Draw", detail: "Drawing canvas" });
+        break;
     }
   }
   return items;
@@ -4374,9 +4381,9 @@ function hideComposer(opts?: { preserveDraft?: boolean }): void {
 
 // ─── Radial menu geometry ───
 
-const RADIAL_RADIUS = 100;
+const RADIAL_RADIUS = 130;
 const RADIAL_DEAD_ZONE = 15;
-const RADIAL_MAX_DIST = 200;
+const RADIAL_MAX_DIST = 260;
 
 function findClosestItem(offsetX: number, offsetY: number, items: RadialItem[], deadZone: number): { index: number; angle: number } | null {
   const distance = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
@@ -4417,15 +4424,17 @@ function getRadialItems(): RadialItem[] {
       });
       pendingWireSource = null;
     };
-    const mediaChildren: RadialItem[] = [
-      { id: "image", angle: 0, label: "Image", icon: "🖼", disabled: !canConnect(wire.type, "image"), action: () => { makeAndConnect("image"); } },
-      { id: "draw", angle: 60, label: "Draw", icon: "✎", disabled: !canConnect(wire.type, "draw"), action: () => { makeAndConnect("draw"); } },
-      { id: "color", angle: 120, label: "Color", icon: "◆", disabled: !canConnect(wire.type, "color"), action: () => { makeAndConnect("color"); } },
-      { id: "harmony", angle: 180, label: "Harmony", icon: "◇", disabled: !canConnect(wire.type, "color_harmony"), action: () => { makeAndConnect("color_harmony"); } },
-      { id: "palette", angle: 240, label: "Palette", icon: "🎨", disabled: !canConnect(wire.type, "color_palette"), action: () => { makeAndConnect("color_palette"); } },
-      { id: "font", angle: 300, label: "Font", icon: "🔤", disabled: !canConnect(wire.type, "font"), action: () => { makeAndConnect("font"); } },
+    const tokensChildren: RadialItem[] = [
+      { id: "color", angle: 0, label: "Color", icon: "◆", disabled: !canConnect(wire.type, "color"), action: () => { makeAndConnect("color"); } },
+      { id: "harmony", angle: 90, label: "Harmony", icon: "◇", disabled: !canConnect(wire.type, "color_harmony"), action: () => { makeAndConnect("color_harmony"); } },
+      { id: "palette", angle: 180, label: "Palette", icon: "🎨", disabled: !canConnect(wire.type, "color_palette"), action: () => { makeAndConnect("color_palette"); } },
+      { id: "font", angle: 270, label: "Font", icon: "🔤", disabled: !canConnect(wire.type, "font"), action: () => { makeAndConnect("font"); } },
     ];
-    const logicChildren: RadialItem[] = [
+    const assetsChildren: RadialItem[] = [
+      { id: "image", angle: 0, label: "Image", icon: "🖼", disabled: !canConnect(wire.type, "image"), action: () => { makeAndConnect("image"); } },
+      { id: "draw", angle: 180, label: "Draw", icon: "✎", disabled: !canConnect(wire.type, "draw"), action: () => { makeAndConnect("draw"); } },
+    ];
+    const flowChildren: RadialItem[] = [
       { id: "set", angle: 0, label: "Set", icon: "⊞", disabled: !canConnect(wire.type, "set"), action: () => { makeAndConnect("set"); } },
       { id: "pickk", angle: 120, label: "Pick K", icon: "⊟", disabled: !canConnect(wire.type, "pick_k"), action: () => { makeAndConnect("pick_k"); } },
       { id: "conditional", angle: 240, label: "If/Else", icon: "⑃", disabled: !canConnect(wire.type, "conditional"), action: () => { makeAndConnect("conditional"); } },
@@ -4436,13 +4445,15 @@ function getRadialItems(): RadialItem[] {
       { id: "string", angle: 180, label: "Str", icon: "𝐓", disabled: !canConnect(wire.type, "string_value"), action: () => { makeAndConnect("string_value"); } },
       { id: "bool", angle: 270, label: "Bool", icon: "⊘", disabled: !canConnect(wire.type, "bool_value"), action: () => { makeAndConnect("bool_value"); } },
     ];
+    const sliceAngle = 360 / 7;
     return [
       { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary" as const, disabled: !canConnect(wire.type, "generate"), action: () => { makeAndConnect("generate"); } },
-      { id: "entropy", angle: 60, label: "Entropy", icon: "🎲", disabled: !canConnect(wire.type, "entropy"), action: () => { makeAndConnect("entropy"); } },
-      { id: "input", angle: 120, label: "Input", icon: "✎", disabled: !canConnect(wire.type, "user_input"), action: () => { makeAndConnect("user_input"); } },
-      { id: "media", angle: 180, label: "Media", icon: "🖼", disabled: mediaChildren.every((c) => c.disabled), action: () => {}, children: mediaChildren },
-      { id: "logic", angle: 240, label: "Logic", icon: "⊞", disabled: logicChildren.every((c) => c.disabled), action: () => {}, children: logicChildren },
-      { id: "values", angle: 300, label: "Values", icon: "＃", disabled: valuesChildren.every((c) => c.disabled), action: () => {}, children: valuesChildren },
+      { id: "entropy", angle: sliceAngle, label: "Entropy", icon: "🎲", disabled: !canConnect(wire.type, "entropy"), action: () => { makeAndConnect("entropy"); } },
+      { id: "input", angle: sliceAngle * 2, label: "Input", icon: "✎", disabled: !canConnect(wire.type, "user_input"), action: () => { makeAndConnect("user_input"); } },
+      { id: "tokens", angle: sliceAngle * 3, label: "Tokens", icon: "◆", disabled: tokensChildren.every((c) => c.disabled), action: () => {}, children: tokensChildren },
+      { id: "assets", angle: sliceAngle * 4, label: "Assets", icon: "🖼", disabled: assetsChildren.every((c) => c.disabled), action: () => {}, children: assetsChildren },
+      { id: "flow", angle: sliceAngle * 5, label: "Flow", icon: "⊞", disabled: flowChildren.every((c) => c.disabled), action: () => {}, children: flowChildren },
+      { id: "values", angle: sliceAngle * 6, label: "Values", icon: "＃", disabled: valuesChildren.every((c) => c.disabled), action: () => {}, children: valuesChildren },
     ];
   }
   if (!state.activeRunId && !state.activeNodeId) {
@@ -4461,15 +4472,17 @@ function getRadialItems(): RadialItem[] {
     const totalChildren = entropyChildren.length;
     entropyChildren.forEach((c, i) => { c.angle = (i * 360) / totalChildren; });
 
-    const mediaChildren: RadialItem[] = [
-      { id: "image", angle: 0, label: "Image", icon: "🖼", action: () => { createBoardNode("image", worldPos, centered); } },
-      { id: "draw", angle: 60, label: "Draw", icon: "✎", action: () => { createBoardNode("draw", worldPos, centered); } },
-      { id: "color", angle: 120, label: "Color", icon: "◆", action: () => { createBoardNode("color", worldPos, centered); } },
-      { id: "harmony", angle: 180, label: "Harmony", icon: "◇", action: () => { createBoardNode("color_harmony", worldPos, centered); } },
-      { id: "palette", angle: 240, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos, centered); } },
-      { id: "font", angle: 300, label: "Font", icon: "🔤", action: () => { createBoardNode("font", worldPos, centered); } },
+    const tokensChildren: RadialItem[] = [
+      { id: "color", angle: 0, label: "Color", icon: "◆", action: () => { createBoardNode("color", worldPos, centered); } },
+      { id: "harmony", angle: 90, label: "Harmony", icon: "◇", action: () => { createBoardNode("color_harmony", worldPos, centered); } },
+      { id: "palette", angle: 180, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos, centered); } },
+      { id: "font", angle: 270, label: "Font", icon: "🔤", action: () => { createBoardNode("font", worldPos, centered); } },
     ];
-    const logicChildren: RadialItem[] = [
+    const assetsChildren: RadialItem[] = [
+      { id: "image", angle: 0, label: "Image", icon: "🖼", action: () => { createBoardNode("image", worldPos, centered); } },
+      { id: "draw", angle: 180, label: "Draw", icon: "✎", action: () => { createBoardNode("draw", worldPos, centered); } },
+    ];
+    const flowChildren: RadialItem[] = [
       { id: "set", angle: 0, label: "Set", icon: "⊞", action: () => { createBoardNode("set", worldPos, centered); } },
       { id: "pickk", angle: 120, label: "Pick K", icon: "⊟", action: () => { createBoardNode("pick_k", worldPos, centered); } },
       { id: "conditional", angle: 240, label: "If/Else", icon: "⑃", action: () => { createBoardNode("conditional", worldPos, centered); } },
@@ -4481,13 +4494,15 @@ function getRadialItems(): RadialItem[] {
       { id: "bool", angle: 270, label: "Bool", icon: "⊘", action: () => { createBoardNode("bool_value", worldPos, centered); } },
     ];
 
+    const sliceAngle = 360 / 7;
     return [
       { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary" as const, action: () => { createBoardNode("generate", worldPos, centered); } },
-      { id: "entropy", angle: 60, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos, centered); }, children: entropyChildren },
-      { id: "input", angle: 120, label: "Input", icon: "✎", action: () => { createBoardNode("user_input", worldPos, centered); } },
-      { id: "media", angle: 180, label: "Media", icon: "🖼", action: () => {}, children: mediaChildren },
-      { id: "logic", angle: 240, label: "Logic", icon: "⊞", action: () => {}, children: logicChildren },
-      { id: "values", angle: 300, label: "Values", icon: "＃", action: () => {}, children: valuesChildren },
+      { id: "entropy", angle: sliceAngle, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos, centered); }, children: entropyChildren },
+      { id: "input", angle: sliceAngle * 2, label: "Input", icon: "✎", action: () => { createBoardNode("user_input", worldPos, centered); } },
+      { id: "tokens", angle: sliceAngle * 3, label: "Tokens", icon: "◆", action: () => {}, children: tokensChildren },
+      { id: "assets", angle: sliceAngle * 4, label: "Assets", icon: "🖼", action: () => {}, children: assetsChildren },
+      { id: "flow", angle: sliceAngle * 5, label: "Flow", icon: "⊞", action: () => {}, children: flowChildren },
+      { id: "values", angle: sliceAngle * 6, label: "Values", icon: "＃", action: () => {}, children: valuesChildren },
     ];
   }
   if (state.activeRunId) {
@@ -4512,11 +4527,24 @@ function renderRadialMenu(items: RadialItem[]): void {
   const center = $("radial-center");
   const itemsContainer = $("radial-items");
   const svg = $("radial-svg") as unknown as SVGSVGElement | null;
+  const backdrop = $("radial-backdrop");
+  const centerLabel = $("radial-center-label");
   if (!center || !itemsContainer || !svg) return;
 
   const pos = state.radialMenu.position;
   center.style.left = `${pos.x}px`;
   center.style.top = `${pos.y}px`;
+
+  // Set backdrop position
+  if (backdrop) {
+    backdrop.style.setProperty("--rx", `${pos.x}px`);
+    backdrop.style.setProperty("--ry", `${pos.y}px`);
+  }
+
+  // Submenu center label
+  if (centerLabel) {
+    centerLabel.textContent = state.radialMenu.subMenuLabel ?? "";
+  }
 
   // Clear and rebuild items
   itemsContainer.innerHTML = "";
@@ -4526,6 +4554,7 @@ function renderRadialMenu(items: RadialItem[]): void {
     const y = pos.y + Math.sin(rads) * RADIAL_RADIUS;
     const div = document.createElement("div");
     div.className = "radial-item";
+    div.style.animationDelay = `${i * 20}ms`;
     if (state.radialMenu.selectedIndex === i) div.classList.add("is-selected");
     if (item.disabled) div.classList.add("is-disabled");
     if (item.variant && item.variant !== "default") div.dataset.variant = item.variant;
@@ -4537,6 +4566,12 @@ function renderRadialMenu(items: RadialItem[]): void {
     labelSpan.textContent = item.label;
     div.appendChild(iconSpan);
     div.appendChild(labelSpan);
+    if (item.children && item.children.length > 0) {
+      const chevron = document.createElement("span");
+      chevron.className = "radial-chevron";
+      chevron.textContent = "▸";
+      div.appendChild(chevron);
+    }
     itemsContainer.appendChild(div);
   });
 
@@ -4566,14 +4601,25 @@ function renderRadialMenu(items: RadialItem[]): void {
     if (item && !item.disabled) {
       const startAngle = item.angle - sliceAngle / 2;
       const endAngle = item.angle + sliceAngle / 2;
+
+      // Brighter fill
       const pathD = renderSlicePath(pos.x, pos.y, startAngle, endAngle, 18, RADIAL_RADIUS - 5);
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("d", pathD);
-      path.setAttribute("fill", "rgba(91, 156, 184, 0.1)");
+      path.setAttribute("fill", "rgba(91, 156, 184, 0.15)");
       path.setAttribute("stroke", "rgba(91, 156, 184, 0.4)");
       path.setAttribute("stroke-width", "1");
       svg.appendChild(path);
 
+      // Outer ring segment on selected slice
+      const outerArc = renderSlicePath(pos.x, pos.y, startAngle, endAngle, RADIAL_RADIUS - 5, RADIAL_RADIUS - 2);
+      const outerPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      outerPath.setAttribute("d", outerArc);
+      outerPath.setAttribute("fill", "rgba(91, 156, 184, 0.5)");
+      outerPath.setAttribute("stroke", "none");
+      svg.appendChild(outerPath);
+
+      // Dashed direction line
       const rads = ((item.angle - 90) * Math.PI) / 180;
       const len = RADIAL_RADIUS - 15;
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -4584,6 +4630,7 @@ function renderRadialMenu(items: RadialItem[]): void {
       line.setAttribute("stroke", "rgba(91, 156, 184, 0.6)");
       line.setAttribute("stroke-width", "2");
       line.setAttribute("stroke-linecap", "square");
+      line.setAttribute("stroke-dasharray", "4 3");
       svg.appendChild(line);
     }
   }
@@ -4594,7 +4641,9 @@ function renderRadialMenu(items: RadialItem[]): void {
 let radialCleanup: (() => void) | null = null;
 
 function openRadialMenu(x: number, y: number): void {
-  state.radialMenu = { open: true, position: { x, y }, selectedIndex: null };
+  state.radialMenu = { open: true, position: { x, y }, selectedIndex: null, subMenuParent: null, subMenuItems: null, subMenuLabel: null };
+  const backdrop = $("radial-backdrop");
+  if (backdrop) { backdrop.hidden = false; }
   const rect = getCanvasRect();
   const worldPos = clientToWorld(x, y);
   console.log("[openRadialMenu]", { clientX: x, clientY: y, rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height }, pan: { ...state.pan }, scale: state.scale, worldPos });
@@ -4610,9 +4659,12 @@ function closeRadialMenu(): void {
   state.radialMenu.selectedIndex = null;
   state.radialMenu.subMenuParent = null;
   state.radialMenu.subMenuItems = null;
+  state.radialMenu.subMenuLabel = null;
   pendingWireSource = null;
   const menu = $("radial-menu");
   if (menu) { menu.hidden = true; menu.setAttribute("aria-hidden", "true"); }
+  const backdrop = $("radial-backdrop");
+  if (backdrop) { backdrop.hidden = true; }
   if (radialCleanup) { radialCleanup(); radialCleanup = null; }
 }
 
@@ -4622,7 +4674,7 @@ function executeRadialSelected(items: RadialItem[]): boolean {
     const item = items[idx];
     if (item && !item.disabled) {
       if (item.children && item.children.length > 0) {
-        openRadialSubMenu(items, item.children);
+        openRadialSubMenu(items, item.children, item.label);
         return false; // Don't close — we opened sub-menu
       }
       item.action();
@@ -4632,9 +4684,10 @@ function executeRadialSelected(items: RadialItem[]): boolean {
   return false;
 }
 
-function openRadialSubMenu(parentItems: RadialItem[], children: RadialItem[]): void {
+function openRadialSubMenu(parentItems: RadialItem[], children: RadialItem[], label?: string): void {
   state.radialMenu.subMenuParent = parentItems;
   state.radialMenu.subMenuItems = children;
+  state.radialMenu.subMenuLabel = label ?? null;
   state.radialMenu.selectedIndex = null;
   renderRadialMenu(children);
   bindRadialMenuListeners(children);
@@ -4657,6 +4710,7 @@ function bindRadialMenuListeners(items: RadialItem[]): void {
       if (parent) {
         state.radialMenu.subMenuItems = null;
         state.radialMenu.subMenuParent = null;
+        state.radialMenu.subMenuLabel = null;
         state.radialMenu.selectedIndex = null;
         currentItems = parent;
         renderRadialMenu(currentItems);
