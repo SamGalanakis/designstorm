@@ -2220,10 +2220,10 @@ body.is-shift-held .board-node { cursor: grab; }
 }
 
 body.is-shift-held .storm-node:hover .node-selection-chrome,
-.storm-node.is-active .node-selection-chrome,
+body.is-shift-held .storm-node.is-active .node-selection-chrome,
 .storm-node.is-resizing .node-selection-chrome,
 body.is-shift-held .board-node:hover .node-selection-chrome,
-.board-node.is-active .node-selection-chrome,
+body.is-shift-held .board-node.is-active .node-selection-chrome,
 .board-node.is-resizing .node-selection-chrome {
   opacity: 1;
 }

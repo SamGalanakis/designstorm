@@ -2034,7 +2034,7 @@ function bindCanvasInteractions(): void {
   });
 
   canvas.addEventListener("pointerup", (e) => {
-    if (state.pointerState?.pointerId === e.pointerId) { state.pointerState = null; canvas.releasePointerCapture(e.pointerId); }
+    if (state.pointerState?.mode === "pan" && state.pointerState.pointerId === e.pointerId) { state.pointerState = null; canvas.releasePointerCapture(e.pointerId); }
   });
 
   canvas.addEventListener("pointercancel", (e) => {
