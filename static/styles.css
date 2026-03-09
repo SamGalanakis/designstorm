@@ -2235,17 +2235,21 @@ body.is-shift-held .board-node { cursor: grab; }
   color: var(--accent);
 }
 
-/* Generate preview loading overlay */
-.generate-preview-loading {
+/* Generating placeholder node */
+.generating-placeholder .storm-node-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.generating-placeholder-body {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 16px 8px;
-  border-radius: 8px;
-  background: var(--bg);
-  border: 1px solid rgba(91, 156, 184, 0.15);
+  padding: 24px 16px;
 }
 
 .generate-spinner-ring {

@@ -2364,13 +2364,56 @@ async fn run_generate_node_inner(
     };
 
     let gen_node_id = node_id;
+    let gen_pos_x = node.position_x;
+    let gen_pos_y = node.position_y;
+    let gen_width = node.width.unwrap_or(200.0);
 
     Ok(datastar_event_stream(Box::pin(stream! {
         yield Ok::<_, Infallible>(patch_signals(json!({
             "_generating": true,
             "_status": "Generating storm...",
             "_latestRunId": "",
+            "_genElapsed": 0,
         }).to_string()));
+
+        // Emit placeholder node to the right of the generate node
+        let placeholder_x = gen_pos_x + gen_width + 60.0;
+        let placeholder_y = gen_pos_y;
+        let placeholder_html = format!(
+            r#"<article class="storm-node generating-placeholder" data-run-id="generating-placeholder-{node_id}"
+                data-position-x="{placeholder_x}" data-position-y="{placeholder_y}"
+                data-run-prompt="" data-run-title="Generating…" data-run-summary=""
+                data-run-assistant-summary="" data-run-preview-url="" data-run-created-at=""
+                data-run-submitted="false" data-run-parent-ids="">
+              <div class="storm-node-shell">
+                <div class="generating-placeholder-body"
+                  data-effect="
+                    if ($_generating) {{
+                      if (!window._genTimer) {{
+                        $_genElapsed = 0;
+                        window._genTimer = setInterval(() => $_genElapsed++, 1000);
+                      }}
+                    }} else if (window._genTimer) {{
+                      clearInterval(window._genTimer);
+                      window._genTimer = null;
+                    }}
+                  "
+                >
+                  <div class="generate-spinner-ring"></div>
+                  <span class="generate-timer" data-text="$_genElapsed + 's'"></span>
+                </div>
+              </div>
+            </article>"#,
+            node_id = gen_node_id,
+            placeholder_x = placeholder_x,
+            placeholder_y = placeholder_y,
+        );
+        yield Ok::<_, Infallible>(
+            PatchElements::new(placeholder_html)
+                .selector("#storm-runs")
+                .mode(ElementPatchMode::Append)
+                .write_as_axum_sse_event(),
+        );
 
         match generate_storm_internal(&state, &viewer, input).await {
             Ok(response) => {
