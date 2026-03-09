@@ -4546,59 +4546,76 @@ function renderRadialMenu(items: RadialItem[]): void {
     centerLabel.textContent = state.radialMenu.subMenuLabel ?? "";
   }
 
-  // Clear and rebuild items
-  itemsContainer.innerHTML = "";
+  // Build items on first render, update classes in-place on subsequent renders
+  const existing = itemsContainer.children;
+  const needsRebuild = existing.length !== items.length;
+  if (needsRebuild) itemsContainer.innerHTML = "";
   items.forEach((item, i) => {
     const rads = ((item.angle - 90) * Math.PI) / 180;
     const x = pos.x + Math.cos(rads) * RADIAL_RADIUS;
     const y = pos.y + Math.sin(rads) * RADIAL_RADIUS;
-    const div = document.createElement("div");
-    div.className = "radial-item";
-    div.style.animationDelay = `${i * 20}ms`;
-    if (state.radialMenu.selectedIndex === i) div.classList.add("is-selected");
-    if (item.disabled) div.classList.add("is-disabled");
-    if (item.variant && item.variant !== "default") div.dataset.variant = item.variant;
-    div.style.left = `${x}px`;
-    div.style.top = `${y}px`;
-    const iconSpan = document.createElement("span");
-    iconSpan.textContent = item.icon;
-    const labelSpan = document.createElement("span");
-    labelSpan.textContent = item.label;
-    div.appendChild(iconSpan);
-    div.appendChild(labelSpan);
-    if (item.children && item.children.length > 0) {
-      const chevron = document.createElement("span");
-      chevron.className = "radial-chevron";
-      chevron.textContent = "▸";
-      div.appendChild(chevron);
+    let div: HTMLElement;
+    if (needsRebuild) {
+      div = document.createElement("div");
+      div.className = "radial-item";
+      div.style.animationDelay = `${i * 20}ms`;
+      div.style.left = `${x}px`;
+      div.style.top = `${y}px`;
+      if (item.variant && item.variant !== "default") div.dataset.variant = item.variant;
+      const iconSpan = document.createElement("span");
+      iconSpan.textContent = item.icon;
+      const labelSpan = document.createElement("span");
+      labelSpan.textContent = item.label;
+      div.appendChild(iconSpan);
+      div.appendChild(labelSpan);
+      if (item.children && item.children.length > 0) {
+        const chevron = document.createElement("span");
+        chevron.className = "radial-chevron";
+        chevron.textContent = "▸";
+        div.appendChild(chevron);
+      }
+      itemsContainer.appendChild(div);
+    } else {
+      div = existing[i] as HTMLElement;
     }
-    itemsContainer.appendChild(div);
+    div.classList.toggle("is-selected", state.radialMenu.selectedIndex === i);
+    div.classList.toggle("is-disabled", !!item.disabled);
   });
 
-  // Update SVG
-  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  // Update SVG — divider lines are static, only rebuild on item count change
   const sliceAngle = 360 / items.length;
-
-  // Divider lines
-  if (items.length > 1) {
-    items.forEach((item) => {
-      const dividerAngle = item.angle - sliceAngle / 2;
-      const rads = ((dividerAngle - 90) * Math.PI) / 180;
-      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-      line.setAttribute("x1", String(pos.x + Math.cos(rads) * 20));
-      line.setAttribute("y1", String(pos.y + Math.sin(rads) * 20));
-      line.setAttribute("x2", String(pos.x + Math.cos(rads) * (RADIAL_RADIUS - 10)));
-      line.setAttribute("y2", String(pos.y + Math.sin(rads) * (RADIAL_RADIUS - 10)));
-      line.setAttribute("stroke", "rgba(255, 255, 255, 0.08)");
-      line.setAttribute("stroke-width", "1");
-      svg.appendChild(line);
-    });
+  let dividersGroup = svg.querySelector(".radial-dividers") as SVGGElement | null;
+  if (!dividersGroup || Number(dividersGroup.dataset.count) !== items.length) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    dividersGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    dividersGroup.classList.add("radial-dividers");
+    dividersGroup.dataset.count = String(items.length);
+    if (items.length > 1) {
+      items.forEach((item) => {
+        const dividerAngle = item.angle - sliceAngle / 2;
+        const rads = ((dividerAngle - 90) * Math.PI) / 180;
+        const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        line.setAttribute("x1", String(pos.x + Math.cos(rads) * 20));
+        line.setAttribute("y1", String(pos.y + Math.sin(rads) * 20));
+        line.setAttribute("x2", String(pos.x + Math.cos(rads) * (RADIAL_RADIUS - 10)));
+        line.setAttribute("y2", String(pos.y + Math.sin(rads) * (RADIAL_RADIUS - 10)));
+        line.setAttribute("stroke", "rgba(255, 255, 255, 0.08)");
+        line.setAttribute("stroke-width", "1");
+        svg.appendChild(line);
+      });
+    }
+    svg.appendChild(dividersGroup);
   }
 
-  // Selected slice highlight + direction indicator
+  // Selection highlight — always rebuild
+  let selGroup = svg.querySelector(".radial-selection") as SVGGElement | null;
+  if (selGroup) selGroup.remove();
+
   if (state.radialMenu.selectedIndex !== null) {
     const item = items[state.radialMenu.selectedIndex];
     if (item && !item.disabled) {
+      selGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      selGroup.classList.add("radial-selection");
       const startAngle = item.angle - sliceAngle / 2;
       const endAngle = item.angle + sliceAngle / 2;
 
@@ -4609,7 +4626,7 @@ function renderRadialMenu(items: RadialItem[]): void {
       path.setAttribute("fill", "rgba(91, 156, 184, 0.15)");
       path.setAttribute("stroke", "rgba(91, 156, 184, 0.4)");
       path.setAttribute("stroke-width", "1");
-      svg.appendChild(path);
+      selGroup.appendChild(path);
 
       // Outer ring segment on selected slice
       const outerArc = renderSlicePath(pos.x, pos.y, startAngle, endAngle, RADIAL_RADIUS - 5, RADIAL_RADIUS - 2);
@@ -4617,7 +4634,7 @@ function renderRadialMenu(items: RadialItem[]): void {
       outerPath.setAttribute("d", outerArc);
       outerPath.setAttribute("fill", "rgba(91, 156, 184, 0.5)");
       outerPath.setAttribute("stroke", "none");
-      svg.appendChild(outerPath);
+      selGroup.appendChild(outerPath);
 
       // Dashed direction line
       const rads = ((item.angle - 90) * Math.PI) / 180;
@@ -4631,7 +4648,9 @@ function renderRadialMenu(items: RadialItem[]): void {
       line.setAttribute("stroke-width", "2");
       line.setAttribute("stroke-linecap", "square");
       line.setAttribute("stroke-dasharray", "4 3");
-      svg.appendChild(line);
+      selGroup.appendChild(line);
+
+      svg.appendChild(selGroup);
     }
   }
 }
