@@ -4558,7 +4558,10 @@ fn node_slots(node_type: &str) -> &'static [SlotDef] {
             SlotDef { name: "sources", direction: "in", value_type: "node_ref", multiple: true },
             SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
         ],
-        "color" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
+        "color" => &[
+            SlotDef { name: "hue", direction: "in", value_type: "float", multiple: false },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+        ],
         "color_palette" => &[
             SlotDef { name: "members", direction: "in", value_type: "node_ref", multiple: true },
             SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },

@@ -96,7 +96,10 @@ const NODE_SLOTS: Record<string, SlotDef[]> = {
     { name: "sources", direction: "in", valueType: "node_ref", multiple: true },
     { name: "out", direction: "out", valueType: "node_ref", multiple: false },
   ],
-  color: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  color: [
+    { name: "hue", direction: "in", valueType: "float", multiple: false },
+    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+  ],
   color_palette: [
     { name: "members", direction: "in", valueType: "node_ref", multiple: true },
     { name: "out", direction: "out", valueType: "node_ref", multiple: false },
@@ -1965,6 +1968,7 @@ function hydrateBoardFromDom(): void {
   updateGenerateInputs();
   updateSetMembers();
   updatePickKInfo();
+  updateColorFromHueInputs();
   updateHarmonyPreviews();
   updateConditionalPreviews();
   renderSlotHandles();
@@ -2797,6 +2801,7 @@ async function deleteBoardNode(nodeId: string): Promise<void> {
   updateGenerateInputs();
   updateSetMembers();
   updatePickKInfo();
+  updateColorFromHueInputs();
   updateHarmonyPreviews();
   updateConditionalPreviews();
 }
@@ -3045,6 +3050,32 @@ function updateHarmonyPreviews(): void {
       infoEl.textContent = label;
     }
   }
+}
+
+function updateColorFromHueInputs(): void {
+  for (const node of state.boardNodes) {
+    if (node.nodeType !== "color") continue;
+    const hueEdge = state.edges.find((e) => e.targetId === node.id && e.targetSlot === "hue");
+    if (!hueEdge) continue;
+    const srcNode = state.boardNodes.find((n) => n.id === hueEdge.sourceId);
+    if (!srcNode || srcNode.nodeType !== "float_value") continue;
+    const t = Math.max(0, Math.min(1, (srcNode.content.value as number) ?? 0));
+    // Map 0-1 to full hue sweep at fixed lightness/chroma
+    const hex = oklchToHex(0.7, 0.15, t * 360);
+    if (node.content.value !== hex) {
+      node.content.value = hex;
+      persistNodeContent(node.id, { value: hex });
+      const nodeEl = document.querySelector<HTMLElement>(`.board-node[data-node-id="${node.id}"]`);
+      if (nodeEl) {
+        const swatch = nodeEl.querySelector<HTMLElement>(".color-node-swatch");
+        const hexLabel = nodeEl.querySelector<HTMLElement>(".color-node-hex");
+        if (swatch) swatch.style.background = hex;
+        if (hexLabel) hexLabel.textContent = hex;
+        nodeEl.style.setProperty("--node-color", hex);
+      }
+    }
+  }
+  updateHarmonyPreviews();
 }
 
 function updateConditionalPreviews(): void {
@@ -3916,6 +3947,7 @@ function bindBoardNodeInteractions(): void {
         if (textEl) textEl.textContent = target.checked ? "true" : "false";
       }
       persistNodeContent(nodeId, node.content);
+      updateColorFromHueInputs();
       updateConditionalPreviews();
     } else if (target.dataset.action === "toggle-random") {
       node.content.random = target.checked;
