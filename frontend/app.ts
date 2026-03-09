@@ -96,14 +96,8 @@ const NODE_SLOTS: Record<string, SlotDef[]> = {
     { name: "sources", direction: "in", valueType: "node_ref", multiple: true },
     { name: "out", direction: "out", valueType: "node_ref", multiple: false },
   ],
-  color_palette: [
-    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
-    { name: "colors_out", direction: "out", valueType: "color[]", multiple: false },
-  ],
-  image: [
-    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
-    { name: "image_out", direction: "out", valueType: "image", multiple: false },
-  ],
+  color_palette: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  image: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
   set: [
     { name: "members", direction: "in", valueType: "node_ref", multiple: true },
     { name: "out", direction: "out", valueType: "node_ref", multiple: false },
@@ -133,8 +127,8 @@ type PointerState =
   | { mode: "pan"; pointerId: number; startClient: Point; startPan: Point }
   | { mode: "drag"; pointerId: number; runId: string; startClient: Point; startPos: Point; moved: boolean }
   | { mode: "drag-board-node"; pointerId: number; nodeId: string; startClient: Point; startPos: Point; moved: boolean }
-  | { mode: "wire"; pointerId: number; sourceRunId: string; sourceType: string; sourceAnchor: AnchorPoint; startWorld: Point; currentWorld: Point; targetRunId: string | null; targetType: string | null; targetAnchor: AnchorPoint | null }
-  | { mode: "wire-pending"; pointerId: number; nodeId: string; nodeEl: HTMLElement; startClient: Point; sourceAnchor: AnchorPoint }
+  | { mode: "wire"; pointerId: number; sourceRunId: string; sourceType: string; sourceAnchor: AnchorPoint; startWorld: Point; currentWorld: Point; targetRunId: string | null; targetType: string | null; targetAnchor: AnchorPoint | null; sourceSlot?: string; targetSlot?: string }
+  | { mode: "wire-pending"; pointerId: number; nodeId: string; nodeEl: HTMLElement; startClient: Point; sourceAnchor: AnchorPoint; sourceSlot?: string }
   | { mode: "resize"; pointerId: number; nodeId: string; nodeKind: "run" | "board"; startClient: Point; startPos: Point; startSize: { w: number; h: number }; axisX: -1 | 0 | 1; axisY: -1 | 0 | 1 }
   | null;
 
@@ -584,6 +578,94 @@ function getEdgeProximity(nodeId: string, worldPt: Point): AnchorPoint | null {
   sides.sort((a, b) => a.dist - b.dist);
   const best = sides[0];
   return { side: best.side, t: Math.max(0.1, Math.min(0.9, best.t)), worldX: best.wx, worldY: best.wy };
+}
+
+/** For multi-slot nodes, snap to the nearest compatible slot handle position.
+ *  Returns the anchor + slotName, or falls back to getEdgeProximity for single-slot nodes. */
+function getSlotSnapAnchor(
+  nodeId: string, world: Point, sourceValueType?: string,
+): { anchor: AnchorPoint; slotName: string } | null {
+  const nodeType = getNodeType(nodeId);
+  const slots = NODE_SLOTS[nodeType];
+  if (!slots || slots.length <= 1) return null; // single-slot → free-form
+
+  const pos = state.positions.get(nodeId);
+  if (!pos) return null;
+  const { w, h } = getNodeDimensions(nodeId);
+
+  const inSlots = slots.filter((s) => s.direction === "in");
+  const outSlots = slots.filter((s) => s.direction === "out");
+
+  let best: { anchor: AnchorPoint; slotName: string; dist: number } | null = null;
+
+  // Check input slot handles (left edge)
+  inSlots.forEach((slot, i) => {
+    const t = (i + 1) / (inSlots.length + 1);
+    const sx = pos.x;
+    const sy = pos.y + t * h;
+    const dist = Math.hypot(world.x - sx, world.y - sy);
+    if (dist < EDGE_HANDLE_PROXIMITY && (!best || dist < best.dist)) {
+      // If we know the source type, check compatibility
+      if (sourceValueType && slot.valueType !== sourceValueType && slot.valueType !== "any" && sourceValueType !== "any") return;
+      best = { anchor: { side: "left", t, worldX: sx, worldY: sy }, slotName: slot.name, dist };
+    }
+  });
+
+  // Check output slot handles (right edge)
+  outSlots.forEach((slot, i) => {
+    const t = (i + 1) / (outSlots.length + 1);
+    const sx = pos.x + w;
+    const sy = pos.y + t * h;
+    const dist = Math.hypot(world.x - sx, world.y - sy);
+    if (dist < EDGE_HANDLE_PROXIMITY && (!best || dist < best.dist)) {
+      if (sourceValueType && slot.valueType !== sourceValueType && slot.valueType !== "any" && sourceValueType !== "any") return;
+      best = { anchor: { side: "right", t, worldX: sx, worldY: sy }, slotName: slot.name, dist };
+    }
+  });
+
+  return best;
+}
+
+/** For multi-slot nodes starting a wire, find which slot handle is nearest to the cursor. */
+function getSourceSlotSnap(
+  nodeId: string, world: Point,
+): { anchor: AnchorPoint; slotName: string } | null {
+  const nodeType = getNodeType(nodeId);
+  const slots = NODE_SLOTS[nodeType];
+  if (!slots || slots.length <= 1) return null;
+
+  const pos = state.positions.get(nodeId);
+  if (!pos) return null;
+  const { w, h } = getNodeDimensions(nodeId);
+
+  const outSlots = slots.filter((s) => s.direction === "out");
+  const inSlots = slots.filter((s) => s.direction === "in");
+
+  let best: { anchor: AnchorPoint; slotName: string; dist: number } | null = null;
+
+  // Output handles on right edge
+  outSlots.forEach((slot, i) => {
+    const t = (i + 1) / (outSlots.length + 1);
+    const sx = pos.x + w;
+    const sy = pos.y + t * h;
+    const dist = Math.hypot(world.x - sx, world.y - sy);
+    if (!best || dist < best.dist) {
+      best = { anchor: { side: "right", t, worldX: sx, worldY: sy }, slotName: slot.name, dist };
+    }
+  });
+
+  // Input handles on left edge
+  inSlots.forEach((slot, i) => {
+    const t = (i + 1) / (inSlots.length + 1);
+    const sx = pos.x;
+    const sy = pos.y + t * h;
+    const dist = Math.hypot(world.x - sx, world.y - sy);
+    if (!best || dist < best.dist) {
+      best = { anchor: { side: "left", t, worldX: sx, worldY: sy }, slotName: slot.name, dist };
+    }
+  });
+
+  return best;
 }
 
 function computeNearestAnchor(nodeId: string, world: Point): AnchorPoint | null {
@@ -2177,8 +2259,11 @@ function bindNodeInteractions(): void {
       const t = parseFloat(handleEl.dataset.t ?? "0.5");
       const anchorPos = getAnchorWorldPos(nodeId, side, t);
       const srcType = getNodeType(nodeId);
-      const sourceAnchor: AnchorPoint = { side, t, worldX: anchorPos.x, worldY: anchorPos.y };
-      state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nodeId, sourceType: srcType, sourceAnchor, startWorld: { x: anchorPos.x, y: anchorPos.y }, currentWorld: { x: anchorPos.x, y: anchorPos.y }, targetRunId: null, targetType: null, targetAnchor: null };
+      // Snap to nearest slot handle for multi-slot nodes
+      const slotSnap = getSourceSlotSnap(nodeId, { x: anchorPos.x, y: anchorPos.y });
+      const sourceAnchor: AnchorPoint = slotSnap?.anchor ?? { side, t, worldX: anchorPos.x, worldY: anchorPos.y };
+      const sourceSlot = slotSnap?.slotName;
+      state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nodeId, sourceType: srcType, sourceAnchor, startWorld: { x: sourceAnchor.worldX, y: sourceAnchor.worldY }, currentWorld: { x: sourceAnchor.worldX, y: sourceAnchor.worldY }, targetRunId: null, targetType: null, targetAnchor: null, sourceSlot };
       nodeEl.classList.add("is-wire-source");
       document.body.classList.add("is-wiring");
       nodeEl.setPointerCapture(e.pointerId);
@@ -2194,12 +2279,14 @@ function bindNodeInteractions(): void {
       if (!nodeEl || !nodeId) return;
 
       const world = clientToWorld(e.clientX, e.clientY);
-      const anchor = computeNearestAnchor(nodeId, world);
+      // Snap to slot handle for multi-slot nodes
+      const slotSnap = getSourceSlotSnap(nodeId, world);
+      const anchor = slotSnap?.anchor ?? computeNearestAnchor(nodeId, world);
       if (!anchor) return;
 
       e.preventDefault();
       e.stopPropagation();
-      state.pointerState = { mode: "wire-pending", pointerId: e.pointerId, nodeId, nodeEl, startClient: { x: e.clientX, y: e.clientY }, sourceAnchor: anchor };
+      state.pointerState = { mode: "wire-pending", pointerId: e.pointerId, nodeId, nodeEl, startClient: { x: e.clientX, y: e.clientY }, sourceAnchor: anchor, sourceSlot: slotSnap?.slotName };
       nodeEl.setPointerCapture(e.pointerId);
     }
   });
@@ -2212,10 +2299,10 @@ function bindNodeInteractions(): void {
       const dx = e.clientX - state.pointerState.startClient.x;
       const dy = e.clientY - state.pointerState.startClient.y;
       if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
-      const { nodeId, nodeEl, sourceAnchor } = state.pointerState;
+      const { nodeId, nodeEl, sourceAnchor, sourceSlot } = state.pointerState;
       const srcType = getNodeType(nodeId);
       const world = clientToWorld(e.clientX, e.clientY);
-      state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nodeId, sourceType: srcType, sourceAnchor, startWorld: { x: sourceAnchor.worldX, y: sourceAnchor.worldY }, currentWorld: world, targetRunId: null, targetType: null, targetAnchor: null };
+      state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nodeId, sourceType: srcType, sourceAnchor, startWorld: { x: sourceAnchor.worldX, y: sourceAnchor.worldY }, currentWorld: world, targetRunId: null, targetType: null, targetAnchor: null, sourceSlot };
       nodeEl.classList.add("is-wire-source");
       document.body.classList.add("is-wiring");
       renderWire();
@@ -2276,11 +2363,26 @@ function bindNodeInteractions(): void {
           hitEl?.classList.add(valid ? "is-wire-target" : "is-wire-invalid");
         }
       }
-      // Track target anchor for snapping
+      // Track target anchor for snapping — prefer slot handles for multi-slot nodes
       if (hit) {
-        state.pointerState.targetAnchor = getEdgeProximity(hit, world);
+        // Determine source value type for compatibility filtering
+        const wireState = state.pointerState as Extract<PointerState, { mode: "wire" }>;
+        const srcSlots = NODE_SLOTS[wireState.sourceType] ?? [];
+        const srcSlotDef = wireState.sourceSlot
+          ? srcSlots.find((s) => s.name === wireState.sourceSlot)
+          : srcSlots.find((s) => s.direction === "out");
+        const srcValueType = srcSlotDef?.valueType;
+        const slotSnap = getSlotSnapAnchor(hit, world, srcValueType);
+        if (slotSnap) {
+          state.pointerState.targetAnchor = slotSnap.anchor;
+          state.pointerState.targetSlot = slotSnap.slotName;
+        } else {
+          state.pointerState.targetAnchor = getEdgeProximity(hit, world);
+          state.pointerState.targetSlot = undefined;
+        }
       } else {
         state.pointerState.targetAnchor = null;
+        state.pointerState.targetSlot = undefined;
       }
       renderWire();
       return;
@@ -2350,7 +2452,7 @@ function bindNodeInteractions(): void {
     }
 
     if (state.pointerState.mode === "wire") {
-      const { sourceRunId, sourceType, sourceAnchor, targetRunId, targetType, targetAnchor } = state.pointerState;
+      const { sourceRunId, sourceType, sourceAnchor, targetRunId, targetType, targetAnchor, sourceSlot, targetSlot } = state.pointerState;
       // Clean up wire visuals
       const srcEl = container.querySelector(`.storm-node[data-run-id="${sourceRunId}"]`)
         ?? container.querySelector(`.board-node[data-node-id="${sourceRunId}"]`);
@@ -2374,7 +2476,8 @@ function bindNodeInteractions(): void {
           const finalTargetAnchor = targetAnchor ?? { side: "top" as AnchorSide, t: 0.5, worldX: 0, worldY: 0 };
           createBoardEdge(
             sourceRunId, sourceType, targetRunId, resolvedTargetType,
-            sourceAnchor, finalTargetAnchor
+            sourceAnchor, finalTargetAnchor,
+            sourceSlot, targetSlot,
           );
         }
       } else if (!targetRunId) {
@@ -3354,6 +3457,13 @@ function bindEdgeHover(): void {
     ];
 
     for (const { id, sel } of allNodes) {
+      // For multi-slot nodes, snap hover handle to slot positions
+      const slotSnap = getSlotSnapAnchor(id, world);
+      if (slotSnap) {
+        const nodeEl = container.querySelector<HTMLElement>(sel);
+        if (nodeEl) showEdgeHandle(nodeEl, slotSnap.anchor);
+        return;
+      }
       const anchor = getEdgeProximity(id, world);
       if (anchor) {
         const nodeEl = container.querySelector<HTMLElement>(sel);
