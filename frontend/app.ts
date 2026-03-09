@@ -134,6 +134,7 @@ type PointerState =
   | { mode: "drag"; pointerId: number; runId: string; startClient: Point; startPos: Point; moved: boolean }
   | { mode: "drag-board-node"; pointerId: number; nodeId: string; startClient: Point; startPos: Point; moved: boolean }
   | { mode: "wire"; pointerId: number; sourceRunId: string; sourceType: string; sourceAnchor: AnchorPoint; startWorld: Point; currentWorld: Point; targetRunId: string | null; targetType: string | null; targetAnchor: AnchorPoint | null }
+  | { mode: "wire-pending"; pointerId: number; nodeId: string; nodeEl: HTMLElement; startClient: Point; sourceAnchor: AnchorPoint }
   | { mode: "resize"; pointerId: number; nodeId: string; nodeKind: "run" | "board"; startClient: Point; startPos: Point; startSize: { w: number; h: number }; axisX: -1 | 0 | 1; axisY: -1 | 0 | 1 }
   | null;
 
@@ -583,6 +584,25 @@ function getEdgeProximity(nodeId: string, worldPt: Point): AnchorPoint | null {
   sides.sort((a, b) => a.dist - b.dist);
   const best = sides[0];
   return { side: best.side, t: Math.max(0.1, Math.min(0.9, best.t)), worldX: best.wx, worldY: best.wy };
+}
+
+function computeNearestAnchor(nodeId: string, world: Point): AnchorPoint | null {
+  const anchor = getEdgeProximity(nodeId, world);
+  if (anchor) return anchor;
+  const pos = state.positions.get(nodeId);
+  if (!pos) return null;
+  const dim = getNodeDimensions(nodeId);
+  const cx = pos.x + dim.w / 2;
+  const cy = pos.y + dim.h / 2;
+  const dx = world.x - cx;
+  const dy = world.y - cy;
+  const absDx = Math.abs(dx) / dim.w;
+  const absDy = Math.abs(dy) / dim.h;
+  let side: AnchorSide;
+  if (absDx > absDy) side = dx > 0 ? "right" : "left";
+  else side = dy > 0 ? "bottom" : "top";
+  const anchorPos = getAnchorWorldPos(nodeId, side, 0.5);
+  return { side, t: 0.5, worldX: anchorPos.x, worldY: anchorPos.y };
 }
 
 function getOccupiedWorldBounds(): WorldBounds | null {
@@ -1605,14 +1625,17 @@ function renderWire(): void {
   const svg = $("storm-lines") as unknown as SVGSVGElement | null;
   if (!svg) return;
   // Remove any previous wire elements
-  svg.querySelectorAll(".storm-wire, .storm-wire-head").forEach((el) => el.remove());
+  svg.querySelectorAll(".storm-wire, .storm-wire-head, .storm-wire-snap, .storm-wire-snap-ring").forEach((el) => el.remove());
   if (!state.pointerState || state.pointerState.mode !== "wire") return;
 
-  const { sourceAnchor, currentWorld } = state.pointerState;
+  const { sourceAnchor, currentWorld, targetAnchor, targetRunId, sourceType } = state.pointerState;
   const sx = sourceAnchor.worldX;
   const sy = sourceAnchor.worldY;
-  const ex = currentWorld.x;
-  const ey = currentWorld.y;
+
+  // If snapped to a target anchor, wire to that point
+  const snapped = targetAnchor && targetRunId;
+  const ex = snapped ? targetAnchor.worldX : currentWorld.x;
+  const ey = snapped ? targetAnchor.worldY : currentWorld.y;
 
   // Read current SVG offset from its style
   const svgLeft = parseFloat(svg.style.left) || 0;
@@ -1628,8 +1651,26 @@ function renderWire(): void {
   const tension = Math.min(dist * 0.4, 80);
   const srcCtrl = getControlOffset(sourceAnchor.side, tension);
 
+  // Compute target control point — mirror if snapped, otherwise aim inward
+  let tgtCtrlX = lex;
+  let tgtCtrlY = ley;
+  if (snapped) {
+    const tgtCtrl = getControlOffset(targetAnchor.side, tension);
+    tgtCtrlX = lex + tgtCtrl.x;
+    tgtCtrlY = ley + tgtCtrl.y;
+  } else {
+    // Infer target direction from approach angle
+    const dx = lex - lsx;
+    const dy = ley - lsy;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      tgtCtrlX = lex - Math.sign(dx) * tension;
+    } else {
+      tgtCtrlY = ley - Math.sign(dy) * tension;
+    }
+  }
+
   const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  path.setAttribute("d", `M ${lsx} ${lsy} C ${lsx + srcCtrl.x} ${lsy + srcCtrl.y}, ${lex} ${ley}, ${lex} ${ley}`);
+  path.setAttribute("d", `M ${lsx} ${lsy} C ${lsx + srcCtrl.x} ${lsy + srcCtrl.y}, ${tgtCtrlX} ${tgtCtrlY}, ${lex} ${ley}`);
   path.setAttribute("class", "storm-wire");
   svg.appendChild(path);
 
@@ -1640,6 +1681,26 @@ function renderWire(): void {
   head.setAttribute("r", "4");
   head.setAttribute("class", "storm-wire-head");
   svg.appendChild(head);
+
+  // Snap indicator at target anchor
+  if (snapped) {
+    const targetType = state.pointerState.targetType ?? "";
+    const valid = canConnect(sourceType, targetType);
+    if (valid) {
+      const snap = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      snap.setAttribute("cx", String(lex));
+      snap.setAttribute("cy", String(ley));
+      snap.setAttribute("r", "5");
+      snap.setAttribute("class", "storm-wire-snap is-snapped");
+      svg.appendChild(snap);
+      const ring = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      ring.setAttribute("cx", String(lex));
+      ring.setAttribute("cy", String(ley));
+      ring.setAttribute("r", "12");
+      ring.setAttribute("class", "storm-wire-snap-ring is-snapped");
+      svg.appendChild(ring);
+    }
+  }
 }
 
 let canvasRect: DOMRect | null = null;
@@ -1981,18 +2042,21 @@ function bindCanvasInteractions(): void {
   });
 
   window.addEventListener("keydown", (e) => {
+    if (e.key === "Shift") document.body.classList.add("is-shift-held");
     if (e.code !== "Space" || isEditableTarget(e.target)) return;
     state.spacePanHeld = true;
     e.preventDefault();
   });
 
   window.addEventListener("keyup", (e) => {
+    if (e.key === "Shift") document.body.classList.remove("is-shift-held");
     if (e.code !== "Space") return;
     state.spacePanHeld = false;
   });
 
   window.addEventListener("blur", () => {
     state.spacePanHeld = false;
+    document.body.classList.remove("is-shift-held");
   });
 }
 
@@ -2015,6 +2079,9 @@ function bindNodeInteractions(): void {
     if (state.pointerState.mode === "wire") {
       return container.querySelector<HTMLElement>(`.storm-node[data-run-id="${state.pointerState.sourceRunId}"]`)
         ?? container.querySelector<HTMLElement>(`.board-node[data-node-id="${state.pointerState.sourceRunId}"]`);
+    }
+    if (state.pointerState.mode === "wire-pending") {
+      return state.pointerState.nodeEl;
     }
     if (state.pointerState.mode === "resize") {
       return state.pointerState.nodeKind === "run"
@@ -2054,30 +2121,45 @@ function bindNodeInteractions(): void {
     if (target.closest("[data-node-menu]")) return;
     if (target.closest(".board-node") && !target.closest(".edge-handle")) return;
 
-    const resizeHandle = target.closest<HTMLElement>("[data-node-resize-handle]");
-    const resizeRun = target.closest<HTMLElement>(".storm-node");
-    if (resizeHandle && resizeRun?.dataset.runId) {
-      const runId = resizeRun.dataset.runId;
-      const size = getRenderedNodeSize(resizeRun);
-      const pos = state.positions.get(runId);
-      if (!pos) return;
-      const axisX = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeX ?? "0", 10))) as -1 | 0 | 1;
-      const axisY = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeY ?? "0", 10))) as -1 | 0 | 1;
+    // Shift held: resize handles and drag mode
+    if (e.shiftKey) {
+      const resizeHandle = target.closest<HTMLElement>("[data-node-resize-handle]");
+      const resizeRun = target.closest<HTMLElement>(".storm-node");
+      if (resizeHandle && resizeRun?.dataset.runId) {
+        const runId = resizeRun.dataset.runId;
+        const size = getRenderedNodeSize(resizeRun);
+        const pos = state.positions.get(runId);
+        if (!pos) return;
+        const axisX = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeX ?? "0", 10))) as -1 | 0 | 1;
+        const axisY = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeY ?? "0", 10))) as -1 | 0 | 1;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        state.pointerState = {
+          mode: "resize",
+          pointerId: e.pointerId,
+          nodeId: runId,
+          nodeKind: "run",
+          startClient: { x: e.clientX, y: e.clientY },
+          startPos: { ...pos },
+          startSize: size,
+          axisX,
+          axisY,
+        };
+        resizeRun.classList.add("is-resizing");
+        resizeRun.setPointerCapture(e.pointerId);
+        return;
+      }
+
+      // Shift+drag on storm node = move
+      const node = target.closest<HTMLElement>(".storm-node");
+      const runId = node?.dataset.runId;
+      if (!node || !runId) return;
+      const pt = state.positions.get(runId);
+      if (!pt) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      state.pointerState = {
-        mode: "resize",
-        pointerId: e.pointerId,
-        nodeId: runId,
-        nodeKind: "run",
-        startClient: { x: e.clientX, y: e.clientY },
-        startPos: { ...pos },
-        startSize: size,
-        axisX,
-        axisY,
-      };
-      resizeRun.classList.add("is-resizing");
-      resizeRun.setPointerCapture(e.pointerId);
+      state.pointerState = { mode: "drag", pointerId: e.pointerId, runId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
+      node.setPointerCapture(e.pointerId);
       return;
     }
 
@@ -2103,42 +2185,42 @@ function bindNodeInteractions(): void {
       return;
     }
 
-    // Edge proximity wire initiation: pointerdown near node edge
+    // Default (no shift): enter wire-pending (promotes to wire on drag)
     {
-      const world = clientToWorld(e.clientX, e.clientY);
-      // Check all nodes for edge proximity
-      const allNodeIds = [...state.runs.map((r) => r.id), ...state.boardNodes.map((n) => n.id)];
-      for (const nid of allNodeIds) {
-        const anchor = getEdgeProximity(nid, world);
-        if (anchor) {
-          const nodeEl = container.querySelector<HTMLElement>(`.storm-node[data-run-id="${nid}"]`)
-            ?? container.querySelector<HTMLElement>(`.board-node[data-node-id="${nid}"]`);
-          if (!nodeEl) continue;
-          e.preventDefault();
-          e.stopPropagation();
-          const srcType = getNodeType(nid);
-          state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nid, sourceType: srcType, sourceAnchor: anchor, startWorld: { x: anchor.worldX, y: anchor.worldY }, currentWorld: { x: anchor.worldX, y: anchor.worldY }, targetRunId: null, targetType: null, targetAnchor: null };
-          nodeEl.classList.add("is-wire-source");
-          document.body.classList.add("is-wiring");
-          nodeEl.setPointerCapture(e.pointerId);
-          return;
-        }
-      }
-    }
+      const stormNode = target.closest<HTMLElement>(".storm-node");
+      const boardNode = target.closest<HTMLElement>(".board-node");
+      const nodeEl = stormNode ?? boardNode;
+      const nodeId = stormNode?.dataset.runId ?? boardNode?.dataset.nodeId;
+      if (!nodeEl || !nodeId) return;
 
-    const node = target.closest<HTMLElement>(".storm-node");
-    const runId = node?.dataset.runId;
-      if (!node || !runId) return;
-      const pt = state.positions.get(runId);
-      if (!pt) return;
+      const world = clientToWorld(e.clientX, e.clientY);
+      const anchor = computeNearestAnchor(nodeId, world);
+      if (!anchor) return;
+
       e.preventDefault();
-      e.stopImmediatePropagation();
-      state.pointerState = { mode: "drag", pointerId: e.pointerId, runId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
-      node.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+      state.pointerState = { mode: "wire-pending", pointerId: e.pointerId, nodeId, nodeEl, startClient: { x: e.clientX, y: e.clientY }, sourceAnchor: anchor };
+      nodeEl.setPointerCapture(e.pointerId);
+    }
   });
 
   window.addEventListener("pointermove", (e) => {
     if (!state.pointerState || state.pointerState.pointerId !== e.pointerId) return;
+
+    // Promote wire-pending to wire after drag threshold
+    if (state.pointerState.mode === "wire-pending") {
+      const dx = e.clientX - state.pointerState.startClient.x;
+      const dy = e.clientY - state.pointerState.startClient.y;
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return;
+      const { nodeId, nodeEl, sourceAnchor } = state.pointerState;
+      const srcType = getNodeType(nodeId);
+      const world = clientToWorld(e.clientX, e.clientY);
+      state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nodeId, sourceType: srcType, sourceAnchor, startWorld: { x: sourceAnchor.worldX, y: sourceAnchor.worldY }, currentWorld: world, targetRunId: null, targetType: null, targetAnchor: null };
+      nodeEl.classList.add("is-wire-source");
+      document.body.classList.add("is-wiring");
+      renderWire();
+      return;
+    }
 
     if (state.pointerState.mode === "resize") {
       e.preventDefault();
@@ -2233,6 +2315,14 @@ function bindNodeInteractions(): void {
 
   window.addEventListener("pointerup", (e) => {
     if (!state.pointerState || state.pointerState.pointerId !== e.pointerId) return;
+
+    // Wire-pending released without drag: cancel and let click handler fire
+    if (state.pointerState.mode === "wire-pending") {
+      const { nodeEl } = state.pointerState;
+      if (nodeEl.hasPointerCapture(e.pointerId)) nodeEl.releasePointerCapture(e.pointerId);
+      state.pointerState = null;
+      return;
+    }
 
     if (state.pointerState.mode === "resize") {
       const { nodeId, nodeKind } = state.pointerState;
@@ -3487,37 +3577,50 @@ function bindBoardNodeInteractions(): void {
     const nodeId = boardNode.dataset.nodeId;
     if (!nodeId) return;
 
-    if (target.closest("[data-node-resize-handle]")) {
-      const size = getRenderedNodeSize(boardNode);
-      const pos = state.positions.get(nodeId);
-      if (!pos) return;
-      const resizeHandle = target.closest<HTMLElement>("[data-node-resize-handle]");
-      if (!resizeHandle) return;
-      const axisX = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeX ?? "0", 10))) as -1 | 0 | 1;
-      const axisY = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeY ?? "0", 10))) as -1 | 0 | 1;
+    // Shift held: resize or drag
+    if (e.shiftKey) {
+      if (target.closest("[data-node-resize-handle]")) {
+        const size = getRenderedNodeSize(boardNode);
+        const pos = state.positions.get(nodeId);
+        if (!pos) return;
+        const resizeHandle = target.closest<HTMLElement>("[data-node-resize-handle]");
+        if (!resizeHandle) return;
+        const axisX = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeX ?? "0", 10))) as -1 | 0 | 1;
+        const axisY = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeY ?? "0", 10))) as -1 | 0 | 1;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        state.pointerState = {
+          mode: "resize",
+          pointerId: e.pointerId,
+          nodeId,
+          nodeKind: "board",
+          startClient: { x: e.clientX, y: e.clientY },
+          startPos: { ...pos },
+          startSize: size,
+          axisX,
+          axisY,
+        };
+        boardNode.classList.add("is-resizing");
+        boardNode.setPointerCapture(e.pointerId);
+        return;
+      }
+
+      const pt = state.positions.get(nodeId);
+      if (!pt) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      state.pointerState = {
-        mode: "resize",
-        pointerId: e.pointerId,
-        nodeId,
-        nodeKind: "board",
-        startClient: { x: e.clientX, y: e.clientY },
-        startPos: { ...pos },
-        startSize: size,
-        axisX,
-        axisY,
-      };
-      boardNode.classList.add("is-resizing");
+      state.pointerState = { mode: "drag-board-node", pointerId: e.pointerId, nodeId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
       boardNode.setPointerCapture(e.pointerId);
       return;
     }
 
-    const pt = state.positions.get(nodeId);
-    if (!pt) return;
+    // Default (no shift): enter wire-pending (promotes to wire on drag)
+    const world = clientToWorld(e.clientX, e.clientY);
+    const anchor = computeNearestAnchor(nodeId, world);
+    if (!anchor) return;
     e.preventDefault();
-    e.stopImmediatePropagation();
-    state.pointerState = { mode: "drag-board-node", pointerId: e.pointerId, nodeId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
+    e.stopPropagation();
+    state.pointerState = { mode: "wire-pending", pointerId: e.pointerId, nodeId, nodeEl: boardNode, startClient: { x: e.clientX, y: e.clientY }, sourceAnchor: anchor };
     boardNode.setPointerCapture(e.pointerId);
   });
 }

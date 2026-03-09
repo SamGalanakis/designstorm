@@ -814,7 +814,7 @@ h1, h2, h3 {
 .storm-node {
   position: absolute;
   width: 310px;
-  cursor: grab;
+  cursor: crosshair;
   user-select: none;
   touch-action: none;
 }
@@ -1007,6 +1007,27 @@ h1, h2, h3 {
   pointer-events: none;
 }
 
+.storm-wire-snap {
+  fill: var(--accent-strong);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+.storm-wire-snap.is-snapped {
+  opacity: 1;
+}
+.storm-wire-snap-ring {
+  fill: none;
+  stroke: var(--accent-strong);
+  stroke-width: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+.storm-wire-snap-ring.is-snapped {
+  opacity: 0.5;
+}
+
 /* ─── Wire drop target ─── */
 
 .storm-node.is-wire-target .storm-node-shell {
@@ -1021,11 +1042,14 @@ body.is-wiring .storm-node { cursor: crosshair; }
 body.is-wiring .board-node { cursor: crosshair; }
 body.is-wiring .canvas { cursor: crosshair; }
 
+body.is-shift-held .storm-node { cursor: grab; }
+body.is-shift-held .board-node { cursor: grab; }
+
 /* ─── Board nodes (entropy, user_input, generate) ─── */
 
 .board-node {
   position: absolute;
-  cursor: grab;
+  cursor: crosshair;
   user-select: none;
   touch-action: none;
 }
@@ -2195,10 +2219,10 @@ body.is-wiring .canvas { cursor: crosshair; }
   border-radius: calc(var(--radius) + 2px);
 }
 
-.storm-node:hover .node-selection-chrome,
+body.is-shift-held .storm-node:hover .node-selection-chrome,
 .storm-node.is-active .node-selection-chrome,
 .storm-node.is-resizing .node-selection-chrome,
-.board-node:hover .node-selection-chrome,
+body.is-shift-held .board-node:hover .node-selection-chrome,
 .board-node.is-active .node-selection-chrome,
 .board-node.is-resizing .node-selection-chrome {
   opacity: 1;
