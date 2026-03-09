@@ -17,7 +17,6 @@
       data-height="{% match run.height %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
     >
       <div class="storm-node-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="storm-node-meta">
           <div class="storm-node-meta-left">
             <span class="meta-dot{% if run.submitted %} is-submitted{% endif %}"></span>
@@ -45,7 +44,6 @@
         <div class="storm-node-copy">
           <h3>{{ run.title }}</h3>
         </div>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
       <div class="node-selection-chrome" aria-hidden="true">
         <div class="node-selection-border"></div>
@@ -75,7 +73,6 @@
     >
       {% if node.node_type == "entropy" %}
       <div class="entropy-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="entropy-header">
           <span class="eyebrow entropy-eyebrow">Entropy</span>
           <div class="entropy-actions">
@@ -96,11 +93,9 @@
           ></iframe>
         </div>
         <div class="entropy-label">{{ node.entropy_title() }}</div>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
       {% else if node.node_type == "generate" %}
       <div class="generate-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="generate-header">
           <span class="eyebrow generate-eyebrow">Generate</span>
         </div>
@@ -111,21 +106,17 @@
           data-on:click__prevent="@post('/nodes/{{ node.id }}/run')">
           <span class="generate-run-icon">&#x25B6;</span>
         </button>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
       {% else if node.node_type == "user_input" %}
       <div class="input-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="input-header">
           <span class="eyebrow input-eyebrow">Input</span>
         </div>
         <div class="input-body" contenteditable="true" data-placeholder="Type here...">{{ node.input_text() }}{% for img in node.input_images() %}<img src="{{ img }}" class="input-image-thumb" title="Double-click to enlarge" />{% endfor %}</div>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
 
       {% else if node.node_type == "color_palette" %}
       <div class="palette-node-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="palette-node-header">
           <span class="eyebrow palette-node-eyebrow">Palette</span>
         </div>
@@ -137,12 +128,10 @@
           {% endfor %}
         </div>
         <button class="palette-add-btn" data-action="add-color" title="Add color">+ Color</button>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
 
       {% else if node.node_type == "pick_k" %}
       <div class="pickk-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="pickk-header">
           <span class="eyebrow pickk-eyebrow">Pick K</span>
         </div>
@@ -156,24 +145,20 @@
           <span class="pickk-replace-text">replace</span>
         </label>
         <div class="pickk-info" id="pickk-info-{{ node.id }}">Pick {{ node.pick_k_value() }} from sources</div>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
 
       {% else if node.node_type == "set" %}
       <div class="set-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="set-header">
           <span class="eyebrow set-eyebrow">Set</span>
         </div>
         <div class="set-title" contenteditable="true" data-placeholder="Set title...">{{ node.set_title() }}</div>
         <div class="set-description" contenteditable="true" data-placeholder="Description...">{{ node.set_description() }}</div>
         <div class="set-members" id="set-members-{{ node.id }}"></div>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
 
       {% else if node.node_type == "image" %}
       <div class="image-node-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         {% if node.image_url() != "" %}
         <img src="{{ node.image_url() }}" alt="{{ node.image_alt() }}" class="image-node-preview" />
         {% else %}
@@ -182,35 +167,29 @@
           <span class="image-node-drop-label">Drop image</span>
         </div>
         {% endif %}
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
 
       {% else if node.node_type == "int_value" %}
       <div class="value-shell value-int-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="value-header">
           <span class="eyebrow value-eyebrow value-int-eyebrow">Int</span>
         </div>
         <input type="number" class="value-input" data-action="set-value" value="{{ node.int_value() }}" min="{{ node.int_min() }}" max="{{ node.int_max() }}" step="1" />
         <label class="value-random-label"><input type="checkbox" class="value-random" data-action="toggle-random" {% if node.random_enabled() %}checked{% endif %} /> Random</label>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
 
       {% else if node.node_type == "float_value" %}
       <div class="value-shell value-float-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="value-header">
           <span class="eyebrow value-eyebrow value-float-eyebrow">Float</span>
         </div>
         <input type="number" class="value-input" data-action="set-value" value="{{ node.float_value() }}" min="{{ node.float_min() }}" max="{{ node.float_max() }}" step="{{ node.float_step() }}" />
         <label class="value-random-label"><input type="checkbox" class="value-random" data-action="toggle-random" {% if node.random_enabled() %}checked{% endif %} /> Random</label>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
 
       {% else if node.node_type == "string_value" %}
       {% if node.has_preset() %}
       <div class="entropy-shell preset-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="entropy-header">
           <span class="eyebrow entropy-eyebrow">{{ node.preset_label() }}</span>
           <div class="entropy-actions">
@@ -221,22 +200,18 @@
           </div>
         </div>
         <div class="entropy-label">{{ node.string_value() }}</div>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
       {% else %}
       <div class="value-shell value-string-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="value-header">
           <span class="eyebrow value-eyebrow value-string-eyebrow">String</span>
         </div>
         <input type="text" class="value-input value-text-input" data-action="set-value" value="{{ node.string_value() }}" placeholder="Value..." />
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
       {% endif %}
 
       {% else if node.node_type == "bool_value" %}
       <div class="value-shell value-bool-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="value-header">
           <span class="eyebrow value-eyebrow value-bool-eyebrow">Bool</span>
         </div>
@@ -245,12 +220,10 @@
           <span class="bool-toggle-track"><span class="bool-toggle-thumb"></span></span>
           <span class="bool-toggle-text">{% if node.bool_value() %}true{% else %}false{% endif %}</span>
         </label>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
 
       {% else if node.node_type == "font" %}
       <div class="font-shell">
-        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="font-header">
           <span class="eyebrow font-eyebrow">Font</span>
         </div>
@@ -271,7 +244,6 @@
         </div>
         <button class="font-upload-btn" data-action="upload-font">{% if node.font_file_name() != "" %}{{ node.font_file_name() }}{% else %}Upload font{% endif %}</button>
         <div class="font-preview" id="font-preview-{{ node.id }}" style="font-family: '{{ node.font_family() }}', sans-serif; font-weight: {{ node.font_weight() }}; font-size: {{ node.font_size() }}px; line-height: {{ node.font_line_height() }};">Aa</div>
-        <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
 
       {% endif %}

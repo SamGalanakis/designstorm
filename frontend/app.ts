@@ -134,7 +134,7 @@ type PointerState =
   | { mode: "drag"; pointerId: number; runId: string; startClient: Point; startPos: Point; moved: boolean }
   | { mode: "drag-board-node"; pointerId: number; nodeId: string; startClient: Point; startPos: Point; moved: boolean }
   | { mode: "wire"; pointerId: number; sourceRunId: string; sourceType: string; sourceAnchor: AnchorPoint; startWorld: Point; currentWorld: Point; targetRunId: string | null; targetType: string | null; targetAnchor: AnchorPoint | null }
-  | { mode: "resize"; pointerId: number; nodeId: string; nodeKind: "run" | "board"; startClient: Point; startPos: Point; startSize: { w: number; h: number }; axisX: -1 | 0 | 1; axisY: -1 | 0 | 1; startAspect: number }
+  | { mode: "resize"; pointerId: number; nodeId: string; nodeKind: "run" | "board"; startClient: Point; startPos: Point; startSize: { w: number; h: number }; axisX: -1 | 0 | 1; axisY: -1 | 0 | 1 }
   | null;
 
 type RadialItem = {
@@ -2065,7 +2065,6 @@ function bindNodeInteractions(): void {
         startSize: size,
         axisX,
         axisY,
-        startAspect: size.w / Math.max(size.h, 1),
       };
       resizeRun.classList.add("is-resizing");
       resizeRun.setPointerCapture(e.pointerId);
@@ -3494,7 +3493,6 @@ function bindBoardNodeInteractions(): void {
         startSize: size,
         axisX,
         axisY,
-        startAspect: size.w / Math.max(size.h, 1),
       };
       boardNode.classList.add("is-resizing");
       boardNode.setPointerCapture(e.pointerId);
@@ -3568,17 +3566,9 @@ function bindAppChrome(): void {
   window.addEventListener("popstate", () => { applyUrlState(); renderRuns(); renderInspector(); renderFocus(); });
 }
 
-function closeAllSubMenus(): void {
-  document.querySelectorAll(".tool-dock-sub-menu").forEach((m) => m.setAttribute("hidden", ""));
-  document.querySelectorAll(".tool-dock-sub-trigger").forEach((t) => t.classList.remove("is-open"));
-}
-
 function bindToolDock(): void {
   const select = $("tool-select");
   const pan = $("tool-pan");
-  const addGenerate = $("tool-add-generate");
-  const addEntropy = $("tool-add-entropy");
-  const addInput = $("tool-add-input");
 
   select?.addEventListener("click", () => {
     state.boardTool = "select";
@@ -3588,50 +3578,6 @@ function bindToolDock(): void {
     state.boardTool = "pan";
     renderToolDock();
   });
-
-  addGenerate?.addEventListener("click", () => createBoardNode("generate", getViewportCenterWorld(), { placement: "center" }));
-  addEntropy?.addEventListener("click", () => createBoardNode("entropy", getViewportCenterWorld(), { placement: "center" }));
-  addInput?.addEventListener("click", () => createBoardNode("user_input", getViewportCenterWorld(), { placement: "center" }));
-
-  // Subcategory triggers
-  document.querySelectorAll<HTMLElement>(".tool-dock-sub-trigger").forEach((trigger) => {
-    trigger.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const sub = trigger.closest(".tool-dock-sub");
-      const menu = sub?.querySelector(".tool-dock-sub-menu");
-      if (!menu) return;
-      const wasOpen = !menu.hasAttribute("hidden");
-      closeAllSubMenus();
-      if (!wasOpen) {
-        menu.removeAttribute("hidden");
-        trigger.classList.add("is-open");
-      }
-    });
-  });
-
-  // Sub-menu item clicks: create node and close menu
-  document.querySelectorAll<HTMLElement>(".tool-dock-sub-item").forEach((item) => {
-    item.addEventListener("click", () => {
-      closeAllSubMenus();
-    });
-  });
-
-  // Close sub-menus when clicking outside
-  document.addEventListener("click", (e) => {
-    if (!(e.target as HTMLElement).closest(".tool-dock-sub")) {
-      closeAllSubMenus();
-    }
-  });
-
-  $("tool-add-image")?.addEventListener("click", () => createBoardNode("image", getViewportCenterWorld(), { placement: "center" }));
-  $("tool-add-palette")?.addEventListener("click", () => createBoardNode("color_palette", getViewportCenterWorld(), { placement: "center" }));
-  $("tool-add-font")?.addEventListener("click", () => createBoardNode("font", getViewportCenterWorld(), { placement: "center" }));
-  $("tool-add-set")?.addEventListener("click", () => createBoardNode("set", getViewportCenterWorld(), { placement: "center" }));
-  $("tool-add-pickk")?.addEventListener("click", () => createBoardNode("pick_k", getViewportCenterWorld(), { placement: "center" }));
-  $("tool-add-int")?.addEventListener("click", () => createBoardNode("int_value", getViewportCenterWorld(), { placement: "center" }));
-  $("tool-add-float")?.addEventListener("click", () => createBoardNode("float_value", getViewportCenterWorld(), { placement: "center" }));
-  $("tool-add-string")?.addEventListener("click", () => createBoardNode("string_value", getViewportCenterWorld(), { placement: "center" }));
-  $("tool-add-bool")?.addEventListener("click", () => createBoardNode("bool_value", getViewportCenterWorld(), { placement: "center" }));
 
   window.addEventListener("keydown", (e) => {
     if (isEditableTarget(e.target)) return;
