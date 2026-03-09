@@ -4578,7 +4578,7 @@ function renderRadialMenu(items: RadialItem[]): void {
     centerLabel.textContent = state.radialMenu.subMenuLabel ?? "";
   }
 
-  // Build items on first render, update classes in-place on subsequent renders
+  // Build items on first render, update position + classes in-place on subsequent renders
   const existing = itemsContainer.children;
   const needsRebuild = existing.length !== items.length;
   if (needsRebuild) itemsContainer.innerHTML = "";
@@ -4591,8 +4591,6 @@ function renderRadialMenu(items: RadialItem[]): void {
       div = document.createElement("div");
       div.className = "radial-item";
       div.style.animationDelay = `${i * 20}ms`;
-      div.style.left = `${x}px`;
-      div.style.top = `${y}px`;
       if (item.variant && item.variant !== "default") div.dataset.variant = item.variant;
       const iconSpan = document.createElement("span");
       iconSpan.textContent = item.icon;
@@ -4610,18 +4608,21 @@ function renderRadialMenu(items: RadialItem[]): void {
     } else {
       div = existing[i] as HTMLElement;
     }
+    div.style.left = `${x}px`;
+    div.style.top = `${y}px`;
     div.classList.toggle("is-selected", state.radialMenu.selectedIndex === i);
     div.classList.toggle("is-disabled", !!item.disabled);
   });
 
-  // Update SVG — divider lines are static, only rebuild on item count change
+  // Update SVG — rebuild dividers when position or item count changes
   const sliceAngle = 360 / items.length;
+  const posKey = `${items.length}:${pos.x}:${pos.y}`;
   let dividersGroup = svg.querySelector(".radial-dividers") as SVGGElement | null;
-  if (!dividersGroup || Number(dividersGroup.dataset.count) !== items.length) {
+  if (!dividersGroup || dividersGroup.dataset.key !== posKey) {
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     dividersGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
     dividersGroup.classList.add("radial-dividers");
-    dividersGroup.dataset.count = String(items.length);
+    dividersGroup.dataset.key = posKey;
     if (items.length > 1) {
       items.forEach((item) => {
         const dividerAngle = item.angle - sliceAngle / 2;
@@ -4633,7 +4634,7 @@ function renderRadialMenu(items: RadialItem[]): void {
         line.setAttribute("y2", String(pos.y + Math.sin(rads) * (RADIAL_RADIUS - 10)));
         line.setAttribute("stroke", "rgba(255, 255, 255, 0.08)");
         line.setAttribute("stroke-width", "1");
-        svg.appendChild(line);
+        dividersGroup!.appendChild(line);
       });
     }
     svg.appendChild(dividersGroup);
@@ -4716,6 +4717,11 @@ function closeRadialMenu(): void {
   if (menu) { menu.hidden = true; menu.setAttribute("aria-hidden", "true"); }
   const backdrop = $("radial-backdrop");
   if (backdrop) { backdrop.hidden = true; }
+  // Clear items and SVG so next open replays entry animation at new position
+  const itemsContainer = $("radial-items");
+  if (itemsContainer) itemsContainer.innerHTML = "";
+  const svg = $("radial-svg");
+  if (svg) { while (svg.firstChild) svg.removeChild(svg.firstChild); }
   if (radialCleanup) { radialCleanup(); radialCleanup = null; }
 }
 
