@@ -2431,30 +2431,56 @@ async fn run_generate_node_inner(
                 .execute(&state.db)
                 .await;
 
-                match render_storm_board_html(&state, viewer.id).await {
-                    Ok(board_html) => {
-                        yield Ok::<_, Infallible>(
-                            PatchElements::new(board_html)
-                                .selector("#storm-runs")
-                                .mode(ElementPatchMode::Outer)
-                                .write_as_axum_sse_event(),
-                        );
-                        yield Ok::<_, Infallible>(patch_signals(json!({
-                            "_generating": false,
-                            "_status": "Storm generated.",
-                            "_latestRunId": new_run_id.to_string(),
-                        }).to_string()));
-                    }
-                    Err(error) => {
-                        yield Ok::<_, Infallible>(patch_signals(json!({
-                            "_generating": false,
-                            "_latestRunId": "",
-                            "_status": error.to_string(),
-                        }).to_string()));
-                    }
-                }
+                let run = &response.run;
+                let placeholder_sel = format!(
+                    r#".storm-node[data-run-id="generating-placeholder-{}"]"#,
+                    gen_node_id,
+                );
+
+                // Remove placeholder, then append the real node (two ops to trigger MutationObserver)
+                yield Ok::<_, Infallible>(
+                    PatchElements::new_remove(&placeholder_sel)
+                        .write_as_axum_sse_event(),
+                );
+
+                let node_html = render_storm_node_html(run, placeholder_x, placeholder_y);
+                yield Ok::<_, Infallible>(
+                    PatchElements::new(node_html)
+                        .selector("#storm-runs")
+                        .mode(ElementPatchMode::Append)
+                        .write_as_axum_sse_event(),
+                );
+
+                // Update edges JSON
+                let edges = load_board_edges(&state, viewer.id).await;
+                let edges_json = serde_json::to_string(&edges).unwrap_or_else(|_| "[]".to_string());
+                let edges_script = format!(
+                    r#"<script id="board-edges-data" type="application/json">{}</script>"#,
+                    edges_json,
+                );
+                yield Ok::<_, Infallible>(
+                    PatchElements::new(edges_script)
+                        .selector("#board-edges-data")
+                        .mode(ElementPatchMode::Outer)
+                        .write_as_axum_sse_event(),
+                );
+
+                yield Ok::<_, Infallible>(patch_signals(json!({
+                    "_generating": false,
+                    "_status": "Storm generated.",
+                    "_latestRunId": new_run_id.to_string(),
+                }).to_string()));
             }
             Err(error) => {
+                // Remove the placeholder on error
+                let placeholder_sel = format!(
+                    r#".storm-node[data-run-id="generating-placeholder-{}"]"#,
+                    gen_node_id,
+                );
+                yield Ok::<_, Infallible>(
+                    PatchElements::new_remove(&placeholder_sel)
+                        .write_as_axum_sse_event(),
+                );
                 yield Ok::<_, Infallible>(patch_signals(json!({
                     "_generating": false,
                     "_latestRunId": "",
@@ -3132,6 +3158,69 @@ impl From<UserRow> for Viewer {
 async fn render_provider_panel_html(state: &AppState, viewer: &Viewer) -> Result<String, AppError> {
     let status = provider_status_view(state, viewer.id).await?;
     Ok(ProviderPanelTemplate { status: &status }.render()?)
+}
+
+fn render_storm_node_html(run: &StormRunSummary, position_x: f64, position_y: f64) -> String {
+    let e = |s: &str| html_escape(s);
+    let parent_ids_csv = run.parent_ids.iter().map(Uuid::to_string).collect::<Vec<_>>().join(",");
+    let submitted = if run.submitted { "true" } else { "false" };
+    let submitted_class = if run.submitted { " is-submitted" } else { "" };
+    format!(
+        r#"<article class="storm-node"
+          data-run-id="{id}" data-run-prompt="{prompt}" data-run-title="{title}"
+          data-run-summary="{summary}" data-run-assistant-summary="{asummary}"
+          data-run-preview-url="{preview}" data-run-created-at="{created}"
+          data-run-submitted="{submitted}" data-run-parent-ids="{parents}"
+          data-position-x="{px}" data-position-y="{py}">
+        <div class="storm-node-shell">
+          <div class="storm-node-meta">
+            <div class="storm-node-meta-left">
+              <span class="meta-dot{submitted_class}"></span>
+              <span class="meta-note">{label}</span>
+            </div>
+            <details class="storm-node-menu" data-node-menu>
+              <summary class="storm-node-menu-trigger" aria-label="Node actions">
+                <span aria-hidden="true">&hellip;</span>
+              </summary>
+              <div class="storm-node-menu-panel">
+                <a class="storm-node-menu-item" href="/storms/{id}/download">Download ZIP</a>
+              </div>
+            </details>
+          </div>
+          <div class="storm-node-preview">
+            <iframe src="{preview}" loading="lazy"
+              sandbox="allow-scripts allow-forms allow-modals"
+              referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true"></iframe>
+          </div>
+          <div class="storm-node-copy"><h3>{title_raw}</h3></div>
+        </div>
+        <div class="node-selection-chrome" aria-hidden="true">
+          <div class="node-selection-border"></div>
+          <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="-1"></div>
+          <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="-1"></div>
+          <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="-1"></div>
+          <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="0"></div>
+          <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="0"></div>
+          <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="1"></div>
+          <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="1"></div>
+          <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="1"></div>
+        </div>
+      </article>"#,
+        id = run.id,
+        prompt = e(&run.prompt),
+        title = e(&run.title),
+        summary = e(&run.summary),
+        asummary = e(&run.assistant_summary),
+        preview = e(&run.preview_url),
+        created = run.created_iso(),
+        submitted = submitted,
+        submitted_class = submitted_class,
+        parents = parent_ids_csv,
+        px = position_x,
+        py = position_y,
+        label = run.created_label(),
+        title_raw = e(&run.title),
+    )
 }
 
 async fn render_storm_board_html(state: &AppState, user_id: Uuid) -> Result<String, AppError> {
