@@ -17,6 +17,7 @@
       data-height="{% match run.height %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
     >
       <div class="storm-node-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="storm-node-meta">
           <div class="storm-node-meta-left">
             <span class="meta-dot{% if run.submitted %} is-submitted{% endif %}"></span>
@@ -46,6 +47,17 @@
         </div>
         <div class="node-resize-handle" data-node-resize-handle aria-hidden="true"></div>
       </div>
+      <div class="node-selection-chrome" aria-hidden="true">
+        <div class="node-selection-border"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="-1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="-1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="-1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="0"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="0"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="1"></div>
+      </div>
     </article>
   {% endfor %}
 
@@ -63,6 +75,7 @@
     >
       {% if node.node_type == "entropy" %}
       <div class="entropy-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="entropy-header">
           <span class="eyebrow entropy-eyebrow">Entropy</span>
           <div class="entropy-actions">
@@ -87,6 +100,7 @@
       </div>
       {% else if node.node_type == "generate" %}
       <div class="generate-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="generate-header">
           <span class="eyebrow generate-eyebrow">Generate</span>
         </div>
@@ -101,6 +115,7 @@
       </div>
       {% else if node.node_type == "user_input" %}
       <div class="input-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="input-header">
           <span class="eyebrow input-eyebrow">Input</span>
         </div>
@@ -110,6 +125,7 @@
 
       {% else if node.node_type == "color_palette" %}
       <div class="palette-node-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="palette-node-header">
           <span class="eyebrow palette-node-eyebrow">Palette</span>
         </div>
@@ -126,6 +142,7 @@
 
       {% else if node.node_type == "pick_k" %}
       <div class="pickk-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="pickk-header">
           <span class="eyebrow pickk-eyebrow">Pick K</span>
         </div>
@@ -144,6 +161,7 @@
 
       {% else if node.node_type == "set" %}
       <div class="set-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="set-header">
           <span class="eyebrow set-eyebrow">Set</span>
         </div>
@@ -155,6 +173,7 @@
 
       {% else if node.node_type == "image" %}
       <div class="image-node-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         {% if node.image_url() != "" %}
         <img src="{{ node.image_url() }}" alt="{{ node.image_alt() }}" class="image-node-preview" />
         {% else %}
@@ -168,6 +187,7 @@
 
       {% else if node.node_type == "int_value" %}
       <div class="value-shell value-int-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="value-header">
           <span class="eyebrow value-eyebrow value-int-eyebrow">Int</span>
         </div>
@@ -178,6 +198,7 @@
 
       {% else if node.node_type == "float_value" %}
       <div class="value-shell value-float-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="value-header">
           <span class="eyebrow value-eyebrow value-float-eyebrow">Float</span>
         </div>
@@ -189,6 +210,7 @@
       {% else if node.node_type == "string_value" %}
       {% if node.has_preset() %}
       <div class="entropy-shell preset-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="entropy-header">
           <span class="eyebrow entropy-eyebrow">{{ node.preset_label() }}</span>
           <div class="entropy-actions">
@@ -203,6 +225,7 @@
       </div>
       {% else %}
       <div class="value-shell value-string-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="value-header">
           <span class="eyebrow value-eyebrow value-string-eyebrow">String</span>
         </div>
@@ -213,6 +236,7 @@
 
       {% else if node.node_type == "bool_value" %}
       <div class="value-shell value-bool-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="value-header">
           <span class="eyebrow value-eyebrow value-bool-eyebrow">Bool</span>
         </div>
@@ -226,6 +250,7 @@
 
       {% else if node.node_type == "font" %}
       <div class="font-shell">
+        <button class="node-drag-handle" data-node-drag-handle type="button" aria-label="Drag node" title="Drag node"><span aria-hidden="true">::</span></button>
         <div class="font-header">
           <span class="eyebrow font-eyebrow">Font</span>
         </div>
@@ -250,6 +275,17 @@
       </div>
 
       {% endif %}
+      <div class="node-selection-chrome" aria-hidden="true">
+        <div class="node-selection-border"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="-1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="-1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="-1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="0"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="0"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="1"></div>
+      </div>
     </article>
   {% endfor %}
 

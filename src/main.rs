@@ -2024,6 +2024,45 @@ async fn run_generate_node(
                     }
                 }
             }
+            "string_value" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                    if !val.is_empty() {
+                        let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
+                            let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
+                            format!("{}: \"{}\"", plabel, val)
+                        } else {
+                            format!("String parameter: \"{}\"", val)
+                        };
+                        user_parts.push(label);
+                    }
+                }
+            }
+            "int_value" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) {
+                        user_parts.push(format!("Integer parameter: {}", val));
+                    }
+                }
+            }
+            "float_value" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) {
+                        user_parts.push(format!("Float parameter: {}", val));
+                    }
+                }
+            }
+            "bool_value" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) {
+                        user_parts.push(format!("Boolean parameter: {}", val));
+                    }
+                }
+            }
             "set" => {
                 // Expand set: resolve all members recursively
                 let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
@@ -2095,6 +2134,33 @@ async fn run_generate_node(
                                     }
                                 }
                             }
+                            "string_value" => {
+                                let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                if !val.is_empty() {
+                                    let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
+                                        let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
+                                        format!("{}: \"{}\"", plabel, val)
+                                    } else {
+                                        format!("String parameter: \"{}\"", val)
+                                    };
+                                    user_parts.push(label);
+                                }
+                            }
+                            "int_value" => {
+                                if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) {
+                                    user_parts.push(format!("Integer parameter: {}", val));
+                                }
+                            }
+                            "float_value" => {
+                                if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) {
+                                    user_parts.push(format!("Float parameter: {}", val));
+                                }
+                            }
+                            "bool_value" => {
+                                if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) {
+                                    user_parts.push(format!("Boolean parameter: {}", val));
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -2147,6 +2213,37 @@ async fn run_generate_node(
                                         count += 1;
                                     }
                                 }
+                                "string_value" => {
+                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !val.is_empty() {
+                                        let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
+                                            let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
+                                            format!("{}: \"{}\"", plabel, val)
+                                        } else {
+                                            format!("String parameter: \"{}\"", val)
+                                        };
+                                        user_parts.push(label);
+                                    }
+                                    count += 1;
+                                }
+                                "int_value" => {
+                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) {
+                                        user_parts.push(format!("Integer parameter: {}", val));
+                                    }
+                                    count += 1;
+                                }
+                                "float_value" => {
+                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) {
+                                        user_parts.push(format!("Float parameter: {}", val));
+                                    }
+                                    count += 1;
+                                }
+                                "bool_value" => {
+                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) {
+                                        user_parts.push(format!("Boolean parameter: {}", val));
+                                    }
+                                    count += 1;
+                                }
                                 _ => { count += 1; }
                             }
                             idx += 1;
@@ -2171,6 +2268,37 @@ async fn run_generate_node(
                                         user_parts.push(format!("User direction: \"{}\"", text));
                                         count += 1;
                                     }
+                                }
+                                "string_value" => {
+                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !val.is_empty() {
+                                        let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
+                                            let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
+                                            format!("{}: \"{}\"", plabel, val)
+                                        } else {
+                                            format!("String parameter: \"{}\"", val)
+                                        };
+                                        user_parts.push(label);
+                                    }
+                                    count += 1;
+                                }
+                                "int_value" => {
+                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) {
+                                        user_parts.push(format!("Integer parameter: {}", val));
+                                    }
+                                    count += 1;
+                                }
+                                "float_value" => {
+                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) {
+                                        user_parts.push(format!("Float parameter: {}", val));
+                                    }
+                                    count += 1;
+                                }
+                                "bool_value" => {
+                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) {
+                                        user_parts.push(format!("Boolean parameter: {}", val));
+                                    }
+                                    count += 1;
                                 }
                                 _ => { count += 1; }
                             }

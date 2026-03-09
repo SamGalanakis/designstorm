@@ -134,7 +134,7 @@ type PointerState =
   | { mode: "drag"; pointerId: number; runId: string; startClient: Point; startPos: Point; moved: boolean }
   | { mode: "drag-board-node"; pointerId: number; nodeId: string; startClient: Point; startPos: Point; moved: boolean }
   | { mode: "wire"; pointerId: number; sourceRunId: string; sourceType: string; sourceAnchor: AnchorPoint; startWorld: Point; currentWorld: Point; targetRunId: string | null; targetType: string | null; targetAnchor: AnchorPoint | null }
-  | { mode: "resize"; pointerId: number; nodeId: string; nodeKind: "run" | "board"; startClient: Point; startSize: { w: number; h: number } }
+  | { mode: "resize"; pointerId: number; nodeId: string; nodeKind: "run" | "board"; startClient: Point; startPos: Point; startSize: { w: number; h: number }; axisX: -1 | 0 | 1; axisY: -1 | 0 | 1; startAspect: number }
   | null;
 
 type RadialItem = {
@@ -456,6 +456,65 @@ function setNodeDimensions(nodeId: string, next: { w: number; h: number }, nodeK
     return;
   }
   state.boardNodes = state.boardNodes.map((node) => (node.id === nodeId ? { ...node, width: next.w, height: next.h } : node));
+}
+
+function getRenderedNodeSize(nodeEl: HTMLElement): { w: number; h: number } {
+  const rect = nodeEl.getBoundingClientRect();
+  return {
+    w: rect.width / state.scale,
+    h: rect.height / state.scale,
+  };
+}
+
+function computeResizedFrame(
+  startPos: Point,
+  startSize: { w: number; h: number },
+  minSize: { w: number; h: number },
+  axisX: -1 | 0 | 1,
+  axisY: -1 | 0 | 1,
+  dx: number,
+  dy: number,
+  fromCenter: boolean,
+  lockAspect: boolean,
+): { x: number; y: number; w: number; h: number } {
+  const centerX = startPos.x + startSize.w * 0.5;
+  const centerY = startPos.y + startSize.h * 0.5;
+  let w = startSize.w;
+  let h = startSize.h;
+
+  if (axisX !== 0) {
+    w = fromCenter ? startSize.w + axisX * dx * 2 : startSize.w + axisX * dx;
+  }
+  if (axisY !== 0) {
+    h = fromCenter ? startSize.h + axisY * dy * 2 : startSize.h + axisY * dy;
+  }
+
+  if (lockAspect && axisX !== 0 && axisY !== 0) {
+    const scaleX = w / startSize.w;
+    const scaleY = h / startSize.h;
+    const scale = Math.max(
+      Math.abs(scaleX - 1) >= Math.abs(scaleY - 1) ? scaleX : scaleY,
+      minSize.w / startSize.w,
+      minSize.h / startSize.h,
+    );
+    w = startSize.w * scale;
+    h = startSize.h * scale;
+  } else {
+    w = Math.max(minSize.w, w);
+    h = Math.max(minSize.h, h);
+  }
+
+  let x = startPos.x;
+  let y = startPos.y;
+  if (fromCenter) {
+    if (axisX !== 0) x = centerX - w * 0.5;
+    if (axisY !== 0) y = centerY - h * 0.5;
+  } else {
+    if (axisX < 0) x = startPos.x + (startSize.w - w);
+    if (axisY < 0) y = startPos.y + (startSize.h - h);
+  }
+
+  return { x, y, w, h };
 }
 
 function getViewportCenterWorld(): Point {
@@ -1989,7 +2048,11 @@ function bindNodeInteractions(): void {
     const resizeRun = target.closest<HTMLElement>(".storm-node");
     if (resizeHandle && resizeRun?.dataset.runId) {
       const runId = resizeRun.dataset.runId;
-      const size = getNodeDimensions(runId);
+      const size = getRenderedNodeSize(resizeRun);
+      const pos = state.positions.get(runId);
+      if (!pos) return;
+      const axisX = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeX ?? "0", 10))) as -1 | 0 | 1;
+      const axisY = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeY ?? "0", 10))) as -1 | 0 | 1;
       e.preventDefault();
       e.stopPropagation();
       state.pointerState = {
@@ -1998,7 +2061,11 @@ function bindNodeInteractions(): void {
         nodeId: runId,
         nodeKind: "run",
         startClient: { x: e.clientX, y: e.clientY },
+        startPos: { ...pos },
         startSize: size,
+        axisX,
+        axisY,
+        startAspect: size.w / Math.max(size.h, 1),
       };
       resizeRun.classList.add("is-resizing");
       resizeRun.setPointerCapture(e.pointerId);
@@ -2068,16 +2135,25 @@ function bindNodeInteractions(): void {
       const dx = (e.clientX - state.pointerState.startClient.x) / state.scale;
       const dy = (e.clientY - state.pointerState.startClient.y) / state.scale;
       const defaults = getDefaultNodeDimensions(state.pointerState.nodeId);
-      const next = {
-        w: Math.max(defaults.w, state.pointerState.startSize.w + dx),
-        h: Math.max(defaults.h, state.pointerState.startSize.h + dy),
-      };
+      const next = computeResizedFrame(
+        state.pointerState.startPos,
+        state.pointerState.startSize,
+        defaults,
+        state.pointerState.axisX,
+        state.pointerState.axisY,
+        dx,
+        dy,
+        e.altKey,
+        e.shiftKey,
+      );
       setNodeDimensions(state.pointerState.nodeId, next, state.pointerState.nodeKind);
+      state.positions.set(state.pointerState.nodeId, { x: next.x, y: next.y });
       const selector = state.pointerState.nodeKind === "run"
         ? `.storm-node[data-run-id="${state.pointerState.nodeId}"]`
         : `.board-node[data-node-id="${state.pointerState.nodeId}"]`;
       const el = container.querySelector<HTMLElement>(selector);
       if (el) {
+        el.style.transform = `translate(${next.x}px, ${next.y}px)`;
         el.style.width = `${next.w}px`;
         el.style.height = `${next.h}px`;
       }
@@ -2417,8 +2493,9 @@ function canConnect(sourceType: string, targetType: string): boolean {
 function findOverlappingSet(draggedNodeId: string, pos: Point): BoardNode | null {
   const draggedNode = state.boardNodes.find((n) => n.id === draggedNodeId);
   if (!draggedNode) return null;
-  // Don't allow dropping a set into itself or a non-droppable type
-  if (draggedNode.nodeType === "generate") return null;
+  // Only allow specific node types as set members
+  const VALID_SET_MEMBERS = new Set(["entropy", "user_input", "color_palette", "image", "font"]);
+  if (!VALID_SET_MEMBERS.has(draggedNode.nodeType)) return null;
   const dragDims = getNodeDimensions(draggedNodeId);
   const dragCx = pos.x + dragDims.w / 2;
   const dragCy = pos.y + dragDims.h / 2;
@@ -2602,6 +2679,14 @@ function getSourceLabel(edge: BoardEdge): string {
       case "set": return (srcNode.content.title as string) ?? "Set";
       case "pick_k": return `Pick ${srcNode.content.k ?? 1}`;
       case "font": return (srcNode.content.family as string) || "Font";
+      case "int_value": return `${srcNode.content.value ?? 0}`;
+      case "float_value": return `${srcNode.content.value ?? 0}`;
+      case "string_value": {
+        if (srcNode.content.preset) return String(srcNode.content.value ?? "Preset");
+        const val = (srcNode.content.value as string) ?? "";
+        return val ? `"${val.slice(0, 20)}"` : "String";
+      }
+      case "bool_value": return srcNode.content.value ? "true" : "false";
       default: return srcNode.nodeType;
     }
   }
@@ -2627,6 +2712,39 @@ function updateGenerateInputs(): void {
   }
 }
 
+function getSetMemberChipHtml(edge: BoardEdge): string {
+  const srcNode = state.boardNodes.find((n) => n.id === edge.sourceId);
+  if (!srcNode) return `<span class="set-member-chip">${escapeHtml(edge.sourceType)}</span>`;
+  switch (srcNode.nodeType) {
+    case "entropy": {
+      const title = (srcNode.content.title as string) ?? "Entropy";
+      return `<span class="set-member-chip"><span class="set-member-dot" style="background:var(--warm)"></span>${escapeHtml(title)}</span>`;
+    }
+    case "user_input":
+      return `<span class="set-member-chip"><span class="set-member-dot" style="background:#a78bfa"></span>Input</span>`;
+    case "color_palette": {
+      const colors = (srcNode.content.colors as string[]) ?? [];
+      const dots = colors.slice(0, 4).map((c) =>
+        `<span class="set-member-color-dot" style="background:${escapeHtml(c)}"></span>`
+      ).join("");
+      return `<span class="set-member-chip">${dots || "Palette"}</span>`;
+    }
+    case "image": {
+      const url = (srcNode.content.url as string) ?? "";
+      if (url) {
+        return `<span class="set-member-chip"><img class="set-member-thumb" src="${escapeHtml(url)}" alt="" />Image</span>`;
+      }
+      return `<span class="set-member-chip">Image</span>`;
+    }
+    case "font": {
+      const family = (srcNode.content.family as string) || "Font";
+      return `<span class="set-member-chip"><span class="set-member-dot" style="background:#c4b5fd"></span>${escapeHtml(family)}</span>`;
+    }
+    default:
+      return `<span class="set-member-chip">${escapeHtml(getSourceLabel(edge))}</span>`;
+  }
+}
+
 function updateSetMembers(): void {
   for (const node of state.boardNodes) {
     if (node.nodeType !== "set") continue;
@@ -2639,9 +2757,7 @@ function updateSetMembers(): void {
       continue;
     }
 
-    membersEl.innerHTML = memberEdges.map((edge) =>
-      `<span class="set-member-chip">${escapeHtml(getSourceLabel(edge))}</span>`
-    ).join("");
+    membersEl.innerHTML = memberEdges.map((edge) => getSetMemberChipHtml(edge)).join("");
   }
 }
 
@@ -3361,14 +3477,24 @@ function bindBoardNodeInteractions(): void {
     if (!nodeId) return;
 
     if (target.closest("[data-node-resize-handle]")) {
-      const size = getNodeDimensions(nodeId);
+      const size = getRenderedNodeSize(boardNode);
+      const pos = state.positions.get(nodeId);
+      if (!pos) return;
+      const resizeHandle = target.closest<HTMLElement>("[data-node-resize-handle]");
+      if (!resizeHandle) return;
+      const axisX = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeX ?? "0", 10))) as -1 | 0 | 1;
+      const axisY = Math.max(-1, Math.min(1, parseInt(resizeHandle.dataset.resizeY ?? "0", 10))) as -1 | 0 | 1;
       state.pointerState = {
         mode: "resize",
         pointerId: e.pointerId,
         nodeId,
         nodeKind: "board",
         startClient: { x: e.clientX, y: e.clientY },
+        startPos: { ...pos },
         startSize: size,
+        axisX,
+        axisY,
+        startAspect: size.w / Math.max(size.h, 1),
       };
       boardNode.classList.add("is-resizing");
       boardNode.setPointerCapture(e.pointerId);
@@ -3787,14 +3913,15 @@ function getRadialItems(): RadialItem[] {
   }
   if (!state.activeRunId && !state.activeNodeId) {
     const worldPos = clientToWorld(state.radialMenu.position.x, state.radialMenu.position.y);
+    const centered = { placement: "center" as const };
     const entropyChildren: RadialItem[] = [
-      { id: "wikipedia", angle: 0, label: "Wikipedia", icon: "🌐", action: () => { createBoardNode("entropy", worldPos); } },
+      { id: "wikipedia", angle: 0, label: "Wikipedia", icon: "🌐", action: () => { createBoardNode("entropy", worldPos, centered); } },
       ...presetList.map((p, i) => ({
         id: p.id,
         angle: ((i + 1) * 360) / (presetList.length + 1),
         label: p.label,
         icon: p.icon,
-        action: () => { createBoardNode("string_value", worldPos, { preset: p.id }); },
+        action: () => { createBoardNode("string_value", worldPos, { preset: p.id, placement: "center" }); },
       })),
     ];
     // Recompute angles evenly
@@ -3802,11 +3929,11 @@ function getRadialItems(): RadialItem[] {
     entropyChildren.forEach((c, i) => { c.angle = (i * 360) / totalChildren; });
 
     return [
-      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary" as const, action: () => { createBoardNode("generate", worldPos); } },
-      { id: "entropy", angle: 72, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos); }, children: entropyChildren },
-      { id: "input", angle: 144, label: "Input", icon: "✎", action: () => { createBoardNode("user_input", worldPos); } },
-      { id: "image", angle: 216, label: "Image", icon: "🖼", action: () => { createBoardNode("image", worldPos); } },
-      { id: "palette", angle: 288, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos); } },
+      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary" as const, action: () => { createBoardNode("generate", worldPos, centered); } },
+      { id: "entropy", angle: 72, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos, centered); }, children: entropyChildren },
+      { id: "input", angle: 144, label: "Input", icon: "✎", action: () => { createBoardNode("user_input", worldPos, centered); } },
+      { id: "image", angle: 216, label: "Image", icon: "🖼", action: () => { createBoardNode("image", worldPos, centered); } },
+      { id: "palette", angle: 288, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos, centered); } },
     ];
   }
   if (state.activeRunId) {
