@@ -60,6 +60,12 @@
         <div class="input-body" contenteditable="true" data-placeholder="Type here..." data-ignore>{{ node.input_text() }}{% for img in node.input_images() %}<img src="{{ img }}" class="input-image-thumb" title="Double-click to enlarge" />{% endfor %}</div>
       </div>
 
+      {% else if node.node_type == "color" %}
+      <div class="color-node-shell" style="--node-color: {{ node.color_value() }};">
+        <div class="color-node-swatch" data-action="edit-color" style="background: {{ node.color_value() }};"></div>
+        <span class="color-node-hex">{{ node.color_value() }}</span>
+      </div>
+
       {% else if node.node_type == "color_palette" %}
       <div class="palette-node-shell">
         <div class="palette-node-header">

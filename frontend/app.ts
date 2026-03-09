@@ -59,7 +59,7 @@ type DraftContext = {
   label: string;
 };
 
-type BoardNodeType = "entropy" | "user_input" | "generate" | "color_palette" | "pick_k" | "set" | "image" | "int_value" | "float_value" | "string_value" | "bool_value" | "font";
+type BoardNodeType = "entropy" | "user_input" | "generate" | "color" | "color_palette" | "pick_k" | "set" | "image" | "int_value" | "float_value" | "string_value" | "bool_value" | "font";
 
 type BoardNode = {
   id: string;
@@ -96,7 +96,11 @@ const NODE_SLOTS: Record<string, SlotDef[]> = {
     { name: "sources", direction: "in", valueType: "node_ref", multiple: true },
     { name: "out", direction: "out", valueType: "node_ref", multiple: false },
   ],
-  color_palette: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  color: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  color_palette: [
+    { name: "members", direction: "in", valueType: "node_ref", multiple: true },
+    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+  ],
   image: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
   set: [
     { name: "members", direction: "in", valueType: "node_ref", multiple: true },
@@ -3069,16 +3073,37 @@ function hexToOklch(hex: string): { lightness: number; chroma: number; hue: numb
 const OKLCH_MAX_CHROMA = 0.4;
 const LC_W = 220, LC_H = 180, HUE_W = 20, HUE_H = 180;
 
-function showColorPicker(nodeId: string, swatchIndex?: number): void {
-  hideColorPicker();
+function showColorNodePicker(nodeId: string): void {
   const node = state.boardNodes.find((n) => n.id === nodeId);
   if (!node) return;
+  const currentHex = (node.content.value as string) ?? "#5b9cb8";
 
-  const colors = (node.content.colors as string[]) ?? [];
-  const isEdit = swatchIndex !== undefined && swatchIndex >= 0 && swatchIndex < colors.length;
-  const existing = isEdit ? hexToOklch(colors[swatchIndex!]) : { lightness: 0.7, chroma: 0.15, hue: 0 };
+  // Reuse the palette color picker with a custom confirm callback
+  hideColorPicker();
+  const existing = hexToOklch(currentHex);
+  colorPickerState = { nodeId, swatchIndex: -1, ...existing };
 
-  colorPickerState = { nodeId, swatchIndex: isEdit ? swatchIndex! : colors.length, ...existing };
+  // Build the picker the same way but with a different confirm action
+  showColorPickerUI(nodeId, existing, (hex: string) => {
+    const n = state.boardNodes.find((bn) => bn.id === nodeId);
+    if (n) {
+      n.content.value = hex;
+      persistNodeContent(nodeId, { value: hex });
+      // Update the visual swatch and hex label
+      const nodeEl = document.querySelector<HTMLElement>(`.board-node[data-node-id="${nodeId}"]`);
+      if (nodeEl) {
+        const swatch = nodeEl.querySelector<HTMLElement>(".color-node-swatch");
+        const hexLabel = nodeEl.querySelector<HTMLElement>(".color-node-hex");
+        if (swatch) swatch.style.background = hex;
+        if (hexLabel) hexLabel.textContent = hex;
+      }
+    }
+  });
+}
+
+function showColorPickerUI(nodeId: string, existing: { lightness: number; chroma: number; hue: number }, onConfirm: (hex: string) => void): void {
+  hideColorPicker();
+  colorPickerState = { nodeId, swatchIndex: -1, ...existing };
 
   const el = document.createElement("div");
   el.className = "color-picker-popover";
@@ -3105,7 +3130,6 @@ function showColorPicker(nodeId: string, swatchIndex?: number): void {
     </div>
   `;
 
-  // Position in board space, anchored to the node
   const nodeEl = document.querySelector<HTMLElement>(`.board-node[data-node-id="${nodeId}"]`);
   const board = document.getElementById("storm-board");
   if (nodeEl && board) {
@@ -3124,7 +3148,10 @@ function showColorPicker(nodeId: string, swatchIndex?: number): void {
   }
 
   colorPickerEl = el;
+  setupColorPickerInteractions(el, onConfirm);
+}
 
+function setupColorPickerInteractions(el: HTMLElement, onConfirm: (hex: string) => void): void {
   const hueCanvas = el.querySelector<HTMLCanvasElement>(".color-picker-hue-bar")!;
   const lcCanvas = el.querySelector<HTMLCanvasElement>(".color-picker-lc-plane")!;
   const hexInput = el.querySelector<HTMLInputElement>(".color-picker-hex")!;
@@ -3143,14 +3170,13 @@ function showColorPicker(nodeId: string, swatchIndex?: number): void {
     valL.textContent = colorPickerState.lightness.toFixed(2);
     valC.textContent = colorPickerState.chroma.toFixed(2);
     valH.textContent = `${Math.round(colorPickerState.hue)}°`;
-    // Position thumbs
     lcThumb.style.left = `${(colorPickerState.chroma / OKLCH_MAX_CHROMA) * LC_W}px`;
     lcThumb.style.top = `${(1 - colorPickerState.lightness) * LC_H}px`;
     hueThumb.style.top = `${(colorPickerState.hue / 360) * HUE_H}px`;
   }
 
   drawOklchHueStrip(hueCanvas);
-  drawOklchLCPlane(lcCanvas, colorPickerState.hue);
+  drawOklchLCPlane(lcCanvas, colorPickerState!.hue);
   syncUI();
 
   hueCanvas.addEventListener("pointerdown", (ev) => {
@@ -3200,25 +3226,37 @@ function showColorPicker(nodeId: string, swatchIndex?: number): void {
   el.querySelector(".color-picker-confirm")!.addEventListener("click", () => {
     if (!colorPickerState) return;
     const hex = oklchToHex(colorPickerState.lightness, colorPickerState.chroma, colorPickerState.hue);
-    const n = state.boardNodes.find((bn) => bn.id === colorPickerState!.nodeId);
-    if (n) {
-      const colors = [...((n.content.colors as string[]) ?? [])];
-      if (colorPickerState.swatchIndex < colors.length) {
-        colors[colorPickerState.swatchIndex] = hex;
-      } else {
-        colors.push(hex);
-      }
-      n.content.colors = colors;
-      persistNodeContent(colorPickerState.nodeId, { colors });
-      renderSwatches(colorPickerState.nodeId, colors);
-    }
+    onConfirm(hex);
     hideColorPicker();
   });
 
   el.querySelector(".color-picker-cancel")!.addEventListener("click", () => hideColorPicker());
-
-  // Stop board interactions from leaking through
   el.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+}
+
+function showColorPicker(nodeId: string, swatchIndex?: number): void {
+  const node = state.boardNodes.find((n) => n.id === nodeId);
+  if (!node) return;
+
+  const colors = (node.content.colors as string[]) ?? [];
+  const isEdit = swatchIndex !== undefined && swatchIndex >= 0 && swatchIndex < colors.length;
+  const existing = isEdit ? hexToOklch(colors[swatchIndex!]) : { lightness: 0.7, chroma: 0.15, hue: 0 };
+  const editIndex = isEdit ? swatchIndex! : colors.length;
+
+  showColorPickerUI(nodeId, existing, (hex: string) => {
+    const n = state.boardNodes.find((bn) => bn.id === nodeId);
+    if (n) {
+      const cols = [...((n.content.colors as string[]) ?? [])];
+      if (editIndex < cols.length) {
+        cols[editIndex] = hex;
+      } else {
+        cols.push(hex);
+      }
+      n.content.colors = cols;
+      persistNodeContent(nodeId, { colors: cols });
+      renderSwatches(nodeId, cols);
+    }
+  });
 }
 
 function hideColorPicker(): void {
@@ -3501,6 +3539,11 @@ function bindBoardNodeInteractions(): void {
     if (target.closest(".font-weight-select")) return;
     if (target.closest(".font-size-input")) return;
 
+    // Color node: click swatch to edit
+    if (target.closest("[data-action='edit-color']")) {
+      showColorNodePicker(nodeId);
+      return;
+    }
     // Color palette: add color button
     if (target.closest("[data-action='add-color']")) {
       showColorPicker(nodeId);
@@ -4123,8 +4166,9 @@ function getRadialItems(): RadialItem[] {
     };
     const mediaChildren: RadialItem[] = [
       { id: "image", angle: 0, label: "Image", icon: "🖼", disabled: !canConnect(wire.type, "image"), action: () => { makeAndConnect("image"); } },
-      { id: "palette", angle: 120, label: "Palette", icon: "🎨", disabled: !canConnect(wire.type, "color_palette"), action: () => { makeAndConnect("color_palette"); } },
-      { id: "font", angle: 240, label: "Font", icon: "🔤", disabled: !canConnect(wire.type, "font"), action: () => { makeAndConnect("font"); } },
+      { id: "color", angle: 90, label: "Color", icon: "◆", disabled: !canConnect(wire.type, "color"), action: () => { makeAndConnect("color"); } },
+      { id: "palette", angle: 180, label: "Palette", icon: "🎨", disabled: !canConnect(wire.type, "color_palette"), action: () => { makeAndConnect("color_palette"); } },
+      { id: "font", angle: 270, label: "Font", icon: "🔤", disabled: !canConnect(wire.type, "font"), action: () => { makeAndConnect("font"); } },
     ];
     const logicChildren: RadialItem[] = [
       { id: "set", angle: 0, label: "Set", icon: "⊞", disabled: !canConnect(wire.type, "set"), action: () => { makeAndConnect("set"); } },
@@ -4163,8 +4207,9 @@ function getRadialItems(): RadialItem[] {
 
     const mediaChildren: RadialItem[] = [
       { id: "image", angle: 0, label: "Image", icon: "🖼", action: () => { createBoardNode("image", worldPos, centered); } },
-      { id: "palette", angle: 120, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos, centered); } },
-      { id: "font", angle: 240, label: "Font", icon: "🔤", action: () => { createBoardNode("font", worldPos, centered); } },
+      { id: "color", angle: 90, label: "Color", icon: "◆", action: () => { createBoardNode("color", worldPos, centered); } },
+      { id: "palette", angle: 180, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos, centered); } },
+      { id: "font", angle: 270, label: "Font", icon: "🔤", action: () => { createBoardNode("font", worldPos, centered); } },
     ];
     const logicChildren: RadialItem[] = [
       { id: "set", angle: 0, label: "Set", icon: "⊞", action: () => { createBoardNode("set", worldPos, centered); } },

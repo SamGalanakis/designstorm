@@ -1094,6 +1094,13 @@ impl BoardNodeSummary {
             .unwrap_or_default()
     }
 
+    fn color_value(&self) -> &str {
+        self.content
+            .get("value")
+            .and_then(|v| v.as_str())
+            .unwrap_or("#5b9cb8")
+    }
+
     fn palette_colors(&self) -> Vec<&str> {
         self.content
             .get("colors")
@@ -1991,13 +1998,45 @@ async fn run_generate_node_inner(
                     ));
                 }
             }
+            "color" => {
+                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                    if !val.is_empty() {
+                        user_parts.push(format!("Color constraint: {}", val));
+                    }
+                }
+            }
             "color_palette" => {
                 if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
                     .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let colors: Vec<&str> = src.content.get("colors")
+                    // Collect manually-added colors from palette content
+                    let mut colors: Vec<String> = src.content.get("colors")
                         .and_then(|v| v.as_array())
-                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect())
                         .unwrap_or_default();
+                    // Also collect wired color members
+                    let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
+                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                                  source_slot, target_slot
+                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'members'"#,
+                    )
+                    .bind(edge.source_id)
+                    .bind(viewer.id)
+                    .fetch_all(&state.db)
+                    .await
+                    .unwrap_or_default();
+                    for member_edge in &member_edges {
+                        if member_edge.source_type == "color" {
+                            if let Ok(Some(color_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
+                                .bind(member_edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
+                                if let Some(val) = color_node.content.get("value").and_then(|v| v.as_str()) {
+                                    if !val.is_empty() { colors.push(val.to_string()); }
+                                }
+                            }
+                        }
+                    }
                     if !colors.is_empty() {
                         user_parts.push(format!("Color palette constraint: use these colors: {}", colors.join(", ")));
                     }
@@ -2108,6 +2147,12 @@ async fn run_generate_node_inner(
                                 let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
                                 if !text.is_empty() {
                                     user_parts.push(format!("User direction: \"{}\"", text));
+                                }
+                            }
+                            "color" => {
+                                let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                if !val.is_empty() {
+                                    user_parts.push(format!("Color constraint: {}", val));
                                 }
                             }
                             "color_palette" => {
@@ -2232,6 +2277,13 @@ async fn run_generate_node_inner(
                                         count += 1;
                                     }
                                 }
+                                "color" => {
+                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !val.is_empty() {
+                                        user_parts.push(format!("Color constraint: {}", val));
+                                    }
+                                    count += 1;
+                                }
                                 "string_value" => {
                                     let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
                                     if !val.is_empty() {
@@ -2287,6 +2339,13 @@ async fn run_generate_node_inner(
                                         user_parts.push(format!("User direction: \"{}\"", text));
                                         count += 1;
                                     }
+                                }
+                                "color" => {
+                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                    if !val.is_empty() {
+                                        user_parts.push(format!("Color constraint: {}", val));
+                                    }
+                                    count += 1;
                                 }
                                 "string_value" => {
                                     let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
@@ -4261,7 +4320,11 @@ fn node_slots(node_type: &str) -> &'static [SlotDef] {
             SlotDef { name: "sources", direction: "in", value_type: "node_ref", multiple: true },
             SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
         ],
-        "color_palette" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
+        "color" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
+        "color_palette" => &[
+            SlotDef { name: "members", direction: "in", value_type: "node_ref", multiple: true },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+        ],
         "image" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
         "set" => &[
             SlotDef { name: "members", direction: "in", value_type: "node_ref", multiple: true },
@@ -4338,6 +4401,7 @@ async fn default_board_node_content(
 ) -> Result<serde_json::Value, AppError> {
     match node_type {
         "entropy" => fetch_wikipedia_random(&state.http).await,
+        "color" => Ok(json!({"value": "#5b9cb8"})),
         "color_palette" => Ok(json!({"colors": []})),
         "pick_k" => Ok(json!({"k": 1, "replace": false})),
         "set" => Ok(json!({"title": "Set", "description": ""})),

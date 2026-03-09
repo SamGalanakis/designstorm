@@ -1386,6 +1386,54 @@ body.is-shift-held .board-node { cursor: grab; }
 
 /* ─── Color Palette node ─── */
 
+/* ─── Color node ─── */
+
+.board-node-color { width: 100px; }
+
+.color-node-shell {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  border: 1px solid rgba(120, 190, 140, 0.2);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.25);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  justify-items: center;
+}
+
+.board-node-color:hover .color-node-shell {
+  transform: translateY(-2px);
+  border-color: rgba(120, 190, 140, 0.35);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.35), 0 0 12px rgba(120, 190, 140, 0.12);
+}
+
+.color-node-swatch {
+  width: 48px;
+  height: 48px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid rgba(255,255,255,0.08);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.color-node-swatch:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+
+.color-node-hex {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+}
+
+/* ─── Color palette node ─── */
+
 .board-node-color_palette { width: 200px; }
 
 .palette-node-shell {
@@ -1473,6 +1521,7 @@ body.is-shift-held .board-node { cursor: grab; }
   border-color: rgba(120, 190, 140, 0.4);
 }
 
+.board-node-color.is-wire-target .color-node-shell,
 .board-node-color_palette.is-wire-target .palette-node-shell {
   border-color: var(--accent-strong);
   box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
@@ -2207,6 +2256,7 @@ body.is-shift-held .board-node { cursor: grab; }
 .is-wire-invalid .entropy-shell,
 .is-wire-invalid .generate-shell,
 .is-wire-invalid .input-shell,
+.is-wire-invalid .color-node-shell,
 .is-wire-invalid .palette-node-shell,
 .is-wire-invalid .pickk-shell,
 .is-wire-invalid .set-shell,
