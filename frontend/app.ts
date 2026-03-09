@@ -2964,6 +2964,7 @@ function hexToOklch(hex: string): { lightness: number; chroma: number; hue: numb
 }
 
 const OKLCH_MAX_CHROMA = 0.4;
+const LC_W = 220, LC_H = 180, HUE_W = 20, HUE_H = 180;
 
 function showColorPicker(nodeId: string, swatchIndex?: number): void {
   hideColorPicker();
@@ -2978,59 +2979,100 @@ function showColorPicker(nodeId: string, swatchIndex?: number): void {
 
   const el = document.createElement("div");
   el.className = "color-picker-popover";
+  const hexVal = oklchToHex(existing.lightness, existing.chroma, existing.hue);
   el.innerHTML = `
-    <canvas class="color-picker-hue-bar" width="200" height="20"></canvas>
-    <canvas class="color-picker-lc-plane" width="200" height="150"></canvas>
-    <input type="text" class="color-picker-hex" value="${oklchToHex(existing.lightness, existing.chroma, existing.hue)}" maxlength="7" />
+    <div class="cp-canvas-row">
+      <div class="cp-lc-wrap">
+        <canvas class="color-picker-lc-plane" width="${LC_W}" height="${LC_H}"></canvas>
+        <div class="cp-lc-thumb"></div>
+      </div>
+      <div class="cp-hue-wrap">
+        <canvas class="color-picker-hue-bar" width="${HUE_W}" height="${HUE_H}"></canvas>
+        <div class="cp-hue-thumb"></div>
+      </div>
+    </div>
+    <div class="cp-info-row">
+      <div class="cp-preview-swatch" style="background:${hexVal}"></div>
+      <input type="text" class="color-picker-hex" value="${hexVal}" maxlength="7" spellcheck="false" />
+      <span class="cp-oklch-label">L <span class="cp-val-l">${existing.lightness.toFixed(2)}</span> C <span class="cp-val-c">${existing.chroma.toFixed(2)}</span> H <span class="cp-val-h">${Math.round(existing.hue)}°</span></span>
+    </div>
     <div class="color-picker-actions">
       <button class="color-picker-btn color-picker-cancel" type="button">Cancel</button>
       <button class="color-picker-btn color-picker-confirm" type="button">OK</button>
     </div>
   `;
 
-  // Position near the node
+  // Position in board space, anchored to the node
   const nodeEl = document.querySelector<HTMLElement>(`.board-node[data-node-id="${nodeId}"]`);
-  if (nodeEl) {
-    const rect = nodeEl.getBoundingClientRect();
-    el.style.left = `${rect.right + 8}px`;
-    el.style.top = `${rect.top}px`;
+  const board = document.getElementById("storm-board");
+  if (nodeEl && board) {
+    const nx = parseFloat(nodeEl.style.left) || parseFloat(nodeEl.dataset.positionX || "0");
+    const ny = parseFloat(nodeEl.style.top) || parseFloat(nodeEl.dataset.positionY || "0");
+    const nw = nodeEl.offsetWidth / state.scale;
+    el.style.left = `${nx + nw + 16}px`;
+    el.style.top = `${ny}px`;
+    board.appendChild(el);
   } else {
+    document.body.appendChild(el);
+    el.style.position = "fixed";
     el.style.left = "50%";
     el.style.top = "50%";
+    el.style.transform = "translate(-50%,-50%)";
   }
 
-  document.body.appendChild(el);
   colorPickerEl = el;
 
   const hueCanvas = el.querySelector<HTMLCanvasElement>(".color-picker-hue-bar")!;
   const lcCanvas = el.querySelector<HTMLCanvasElement>(".color-picker-lc-plane")!;
   const hexInput = el.querySelector<HTMLInputElement>(".color-picker-hex")!;
+  const previewSwatch = el.querySelector<HTMLElement>(".cp-preview-swatch")!;
+  const lcThumb = el.querySelector<HTMLElement>(".cp-lc-thumb")!;
+  const hueThumb = el.querySelector<HTMLElement>(".cp-hue-thumb")!;
+  const valL = el.querySelector<HTMLElement>(".cp-val-l")!;
+  const valC = el.querySelector<HTMLElement>(".cp-val-c")!;
+  const valH = el.querySelector<HTMLElement>(".cp-val-h")!;
 
-  drawOklchHueBar(hueCanvas);
+  function syncUI(): void {
+    if (!colorPickerState) return;
+    const hex = oklchToHex(colorPickerState.lightness, colorPickerState.chroma, colorPickerState.hue);
+    hexInput.value = hex;
+    previewSwatch.style.background = hex;
+    valL.textContent = colorPickerState.lightness.toFixed(2);
+    valC.textContent = colorPickerState.chroma.toFixed(2);
+    valH.textContent = `${Math.round(colorPickerState.hue)}°`;
+    // Position thumbs
+    lcThumb.style.left = `${(colorPickerState.chroma / OKLCH_MAX_CHROMA) * LC_W}px`;
+    lcThumb.style.top = `${(1 - colorPickerState.lightness) * LC_H}px`;
+    hueThumb.style.top = `${(colorPickerState.hue / 360) * HUE_H}px`;
+  }
+
+  drawOklchHueStrip(hueCanvas);
   drawOklchLCPlane(lcCanvas, colorPickerState.hue);
+  syncUI();
 
   hueCanvas.addEventListener("pointerdown", (ev) => {
-    const pick = (x: number) => {
+    ev.stopPropagation();
+    const pick = (y: number) => {
       if (!colorPickerState) return;
-      colorPickerState.hue = (Math.max(0, Math.min(200, x)) / 200) * 360;
+      colorPickerState.hue = (Math.max(0, Math.min(HUE_H, y)) / HUE_H) * 360;
       drawOklchLCPlane(lcCanvas, colorPickerState.hue);
-      hexInput.value = oklchToHex(colorPickerState.lightness, colorPickerState.chroma, colorPickerState.hue);
+      syncUI();
     };
-    pick(ev.offsetX);
+    pick(ev.offsetY);
     hueCanvas.setPointerCapture(ev.pointerId);
-    const onMove = (me: PointerEvent) => pick(me.offsetX);
+    const onMove = (me: PointerEvent) => pick(me.offsetY);
     const onUp = () => { hueCanvas.removeEventListener("pointermove", onMove); };
     hueCanvas.addEventListener("pointermove", onMove);
     hueCanvas.addEventListener("pointerup", onUp, { once: true });
   });
 
   lcCanvas.addEventListener("pointerdown", (ev) => {
+    ev.stopPropagation();
     const pick = (x: number, y: number) => {
       if (!colorPickerState) return;
-      // x-axis = chroma (0 → OKLCH_MAX_CHROMA), y-axis = lightness (1 at top → 0 at bottom)
-      colorPickerState.chroma = (Math.max(0, Math.min(200, x)) / 200) * OKLCH_MAX_CHROMA;
-      colorPickerState.lightness = 1 - Math.max(0, Math.min(150, y)) / 150;
-      hexInput.value = oklchToHex(colorPickerState.lightness, colorPickerState.chroma, colorPickerState.hue);
+      colorPickerState.chroma = (Math.max(0, Math.min(LC_W, x)) / LC_W) * OKLCH_MAX_CHROMA;
+      colorPickerState.lightness = 1 - Math.max(0, Math.min(LC_H, y)) / LC_H;
+      syncUI();
     };
     pick(ev.offsetX, ev.offsetY);
     lcCanvas.setPointerCapture(ev.pointerId);
@@ -3042,11 +3084,14 @@ function showColorPicker(nodeId: string, swatchIndex?: number): void {
 
   hexInput.addEventListener("change", () => {
     if (!colorPickerState) return;
-    const oklch = hexToOklch(hexInput.value);
+    const val = hexInput.value.trim();
+    if (!/^#?[0-9a-fA-F]{6}$/.test(val)) return;
+    const oklch = hexToOklch(val.startsWith("#") ? val : `#${val}`);
     colorPickerState.hue = oklch.hue;
     colorPickerState.chroma = oklch.chroma;
     colorPickerState.lightness = oklch.lightness;
     drawOklchLCPlane(lcCanvas, colorPickerState.hue);
+    syncUI();
   });
 
   el.querySelector(".color-picker-confirm")!.addEventListener("click", () => {
@@ -3068,6 +3113,9 @@ function showColorPicker(nodeId: string, swatchIndex?: number): void {
   });
 
   el.querySelector(".color-picker-cancel")!.addEventListener("click", () => hideColorPicker());
+
+  // Stop board interactions from leaking through
+  el.addEventListener("pointerdown", (ev) => ev.stopPropagation());
 }
 
 function hideColorPicker(): void {
@@ -3075,17 +3123,17 @@ function hideColorPicker(): void {
   colorPickerState = null;
 }
 
-function drawOklchHueBar(canvas: HTMLCanvasElement): void {
+function drawOklchHueStrip(canvas: HTMLCanvasElement): void {
   const ctx = canvas.getContext("2d")!;
-  const w = 200, h = 20;
+  const w = HUE_W, h = HUE_H;
   const imgData = ctx.createImageData(w, h);
-  for (let x = 0; x < w; x++) {
-    const hue = (x / w) * 360;
+  for (let y = 0; y < h; y++) {
+    const hue = (y / h) * 360;
     const [lr, lg, lb] = oklchToLinearRgb(0.7, 0.15, hue);
     const r = Math.round(Math.max(0, Math.min(1, linearToSrgb(lr))) * 255);
     const g = Math.round(Math.max(0, Math.min(1, linearToSrgb(lg))) * 255);
     const b = Math.round(Math.max(0, Math.min(1, linearToSrgb(lb))) * 255);
-    for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
       const idx = (y * w + x) * 4;
       imgData.data[idx] = r;
       imgData.data[idx + 1] = g;
@@ -3098,7 +3146,7 @@ function drawOklchHueBar(canvas: HTMLCanvasElement): void {
 
 function drawOklchLCPlane(canvas: HTMLCanvasElement, hue: number): void {
   const ctx = canvas.getContext("2d")!;
-  const w = 200, h = 150;
+  const w = LC_W, h = LC_H;
   const imgData = ctx.createImageData(w, h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -3110,14 +3158,21 @@ function drawOklchLCPlane(canvas: HTMLCanvasElement, hue: number): void {
         imgData.data[idx] = Math.round(Math.max(0, Math.min(1, linearToSrgb(lr))) * 255);
         imgData.data[idx + 1] = Math.round(Math.max(0, Math.min(1, linearToSrgb(lg))) * 255);
         imgData.data[idx + 2] = Math.round(Math.max(0, Math.min(1, linearToSrgb(lb))) * 255);
+        imgData.data[idx + 3] = 255;
       } else {
-        // Out-of-gamut: dark checkerboard hint
-        const checker = ((Math.floor(x / 4) + Math.floor(y / 4)) % 2 === 0) ? 28 : 22;
-        imgData.data[idx] = checker;
-        imgData.data[idx + 1] = checker;
-        imgData.data[idx + 2] = checker;
+        // Out-of-gamut: soft transparent fade
+        const [lr, lg, lb] = oklchToLinearRgb(L, C, hue);
+        const rr = Math.round(Math.max(0, Math.min(1, linearToSrgb(Math.max(0, Math.min(1, lr))))) * 255);
+        const gg = Math.round(Math.max(0, Math.min(1, linearToSrgb(Math.max(0, Math.min(1, lg))))) * 255);
+        const bb = Math.round(Math.max(0, Math.min(1, linearToSrgb(Math.max(0, Math.min(1, lb))))) * 255);
+        // Blend with background
+        const bg = 18;
+        const alpha = 0.2;
+        imgData.data[idx] = Math.round(rr * alpha + bg * (1 - alpha));
+        imgData.data[idx + 1] = Math.round(gg * alpha + bg * (1 - alpha));
+        imgData.data[idx + 2] = Math.round(bb * alpha + bg * (1 - alpha));
+        imgData.data[idx + 3] = 255;
       }
-      imgData.data[idx + 3] = 255;
     }
   }
   ctx.putImageData(imgData, 0, 0);
