@@ -1999,7 +1999,7 @@ function bindCanvasInteractions(): void {
 let pendingWireSource: { id: string; type: string; anchor: AnchorPoint; dropWorld: Point } | null = null;
 
 function bindNodeInteractions(): void {
-  const container = $("storm-runs");
+  const container = $("storm-board");
   if (!container) return;
 
   let wireJustCompleted = false;
@@ -2393,6 +2393,7 @@ function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNo
 
   const placement = opts?.placement ?? "anchor";
   const originWorldPos = getNodeOriginForPlacement(nodeType, worldPos, placement);
+  console.log("[createBoardNode]", { nodeType, worldPos, originWorldPos, placement, pan: { ...state.pan }, scale: state.scale, radialPos: { ...state.radialMenu.position } });
   const hasSource = Boolean(opts?.sourceId && opts?.sourceType);
   typeInput.value = nodeType;
   xInput.value = String(originWorldPos.x);
@@ -3220,7 +3221,7 @@ function bindEdgeHover(): void {
 }
 
 function bindBoardNodeInteractions(): void {
-  const container = $("storm-runs");
+  const container = $("storm-board");
   if (!container) return;
 
   container.addEventListener("click", (e) => {
@@ -4022,6 +4023,9 @@ let radialCleanup: (() => void) | null = null;
 
 function openRadialMenu(x: number, y: number): void {
   state.radialMenu = { open: true, position: { x, y }, selectedIndex: null };
+  const rect = getCanvasRect();
+  const worldPos = clientToWorld(x, y);
+  console.log("[openRadialMenu]", { clientX: x, clientY: y, rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height }, pan: { ...state.pan }, scale: state.scale, worldPos });
   const menu = $("radial-menu");
   if (menu) { menu.hidden = false; menu.setAttribute("aria-hidden", "false"); }
   const items = getRadialItems();
@@ -4238,7 +4242,7 @@ function bindBoardObserver(): void {
       hydrateBoardFromDom();
     }
   });
-  observer.observe(board, { childList: true });
+  observer.observe(board, { childList: true, subtree: true });
 }
 
 function bindStormApp(): void {
