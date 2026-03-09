@@ -3838,24 +3838,29 @@ function getRadialItems(): RadialItem[] {
       });
       pendingWireSource = null;
     };
-    const items: RadialItem[] = [];
-    const candidates: Array<{ id: string; label: string; icon: string; nodeType: string; variant?: "default" | "primary" | "danger" }> = [
-      { id: "generate", label: "Generate", icon: "✦", nodeType: "generate", variant: "primary" },
-      { id: "entropy", label: "Entropy", icon: "🎲", nodeType: "entropy" },
-      { id: "input", label: "Input", icon: "✎", nodeType: "user_input" },
-      { id: "set", label: "Set", icon: "⊞", nodeType: "set" },
-      { id: "pickk", label: "Pick K", icon: "⊟", nodeType: "pick_k" },
+    const mediaChildren: RadialItem[] = [
+      { id: "image", angle: 0, label: "Image", icon: "🖼", disabled: !canConnect(wire.type, "image"), action: () => { makeAndConnect("image"); } },
+      { id: "palette", angle: 120, label: "Palette", icon: "🎨", disabled: !canConnect(wire.type, "color_palette"), action: () => { makeAndConnect("color_palette"); } },
+      { id: "font", angle: 240, label: "Font", icon: "🔤", disabled: !canConnect(wire.type, "font"), action: () => { makeAndConnect("font"); } },
     ];
-    const spacing = 360 / candidates.length;
-    candidates.forEach((c, i) => {
-      items.push({
-        id: c.id, angle: i * spacing, label: c.label, icon: c.icon,
-        variant: c.variant as "default" | "primary" | "danger",
-        disabled: !canConnect(wire.type, c.nodeType),
-        action: () => { makeAndConnect(c.nodeType); },
-      });
-    });
-    return items;
+    const logicChildren: RadialItem[] = [
+      { id: "set", angle: 0, label: "Set", icon: "⊞", disabled: !canConnect(wire.type, "set"), action: () => { makeAndConnect("set"); } },
+      { id: "pickk", angle: 180, label: "Pick K", icon: "⊟", disabled: !canConnect(wire.type, "pick_k"), action: () => { makeAndConnect("pick_k"); } },
+    ];
+    const valuesChildren: RadialItem[] = [
+      { id: "int", angle: 0, label: "Int", icon: "＃", disabled: !canConnect(wire.type, "int_value"), action: () => { makeAndConnect("int_value"); } },
+      { id: "float", angle: 90, label: "Float", icon: "％", disabled: !canConnect(wire.type, "float_value"), action: () => { makeAndConnect("float_value"); } },
+      { id: "string", angle: 180, label: "Str", icon: "𝐓", disabled: !canConnect(wire.type, "string_value"), action: () => { makeAndConnect("string_value"); } },
+      { id: "bool", angle: 270, label: "Bool", icon: "⊘", disabled: !canConnect(wire.type, "bool_value"), action: () => { makeAndConnect("bool_value"); } },
+    ];
+    return [
+      { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary" as const, disabled: !canConnect(wire.type, "generate"), action: () => { makeAndConnect("generate"); } },
+      { id: "entropy", angle: 60, label: "Entropy", icon: "🎲", disabled: !canConnect(wire.type, "entropy"), action: () => { makeAndConnect("entropy"); } },
+      { id: "input", angle: 120, label: "Input", icon: "✎", disabled: !canConnect(wire.type, "user_input"), action: () => { makeAndConnect("user_input"); } },
+      { id: "media", angle: 180, label: "Media", icon: "🖼", disabled: mediaChildren.every((c) => c.disabled), action: () => {}, children: mediaChildren },
+      { id: "logic", angle: 240, label: "Logic", icon: "⊞", disabled: logicChildren.every((c) => c.disabled), action: () => {}, children: logicChildren },
+      { id: "values", angle: 300, label: "Values", icon: "＃", disabled: valuesChildren.every((c) => c.disabled), action: () => {}, children: valuesChildren },
+    ];
   }
   if (!state.activeRunId && !state.activeNodeId) {
     const worldPos = clientToWorld(state.radialMenu.position.x, state.radialMenu.position.y);
@@ -3870,16 +3875,32 @@ function getRadialItems(): RadialItem[] {
         action: () => { createBoardNode("string_value", worldPos, { preset: p.id, placement: "center" }); },
       })),
     ];
-    // Recompute angles evenly
     const totalChildren = entropyChildren.length;
     entropyChildren.forEach((c, i) => { c.angle = (i * 360) / totalChildren; });
 
+    const mediaChildren: RadialItem[] = [
+      { id: "image", angle: 0, label: "Image", icon: "🖼", action: () => { createBoardNode("image", worldPos, centered); } },
+      { id: "palette", angle: 120, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos, centered); } },
+      { id: "font", angle: 240, label: "Font", icon: "🔤", action: () => { createBoardNode("font", worldPos, centered); } },
+    ];
+    const logicChildren: RadialItem[] = [
+      { id: "set", angle: 0, label: "Set", icon: "⊞", action: () => { createBoardNode("set", worldPos, centered); } },
+      { id: "pickk", angle: 180, label: "Pick K", icon: "⊟", action: () => { createBoardNode("pick_k", worldPos, centered); } },
+    ];
+    const valuesChildren: RadialItem[] = [
+      { id: "int", angle: 0, label: "Int", icon: "＃", action: () => { createBoardNode("int_value", worldPos, centered); } },
+      { id: "float", angle: 90, label: "Float", icon: "％", action: () => { createBoardNode("float_value", worldPos, centered); } },
+      { id: "string", angle: 180, label: "Str", icon: "𝐓", action: () => { createBoardNode("string_value", worldPos, centered); } },
+      { id: "bool", angle: 270, label: "Bool", icon: "⊘", action: () => { createBoardNode("bool_value", worldPos, centered); } },
+    ];
+
     return [
       { id: "generate", angle: 0, label: "Generate", icon: "✦", variant: "primary" as const, action: () => { createBoardNode("generate", worldPos, centered); } },
-      { id: "entropy", angle: 72, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos, centered); }, children: entropyChildren },
-      { id: "input", angle: 144, label: "Input", icon: "✎", action: () => { createBoardNode("user_input", worldPos, centered); } },
-      { id: "image", angle: 216, label: "Image", icon: "🖼", action: () => { createBoardNode("image", worldPos, centered); } },
-      { id: "palette", angle: 288, label: "Palette", icon: "🎨", action: () => { createBoardNode("color_palette", worldPos, centered); } },
+      { id: "entropy", angle: 60, label: "Entropy", icon: "🎲", action: () => { createBoardNode("entropy", worldPos, centered); }, children: entropyChildren },
+      { id: "input", angle: 120, label: "Input", icon: "✎", action: () => { createBoardNode("user_input", worldPos, centered); } },
+      { id: "media", angle: 180, label: "Media", icon: "🖼", action: () => {}, children: mediaChildren },
+      { id: "logic", angle: 240, label: "Logic", icon: "⊞", action: () => {}, children: logicChildren },
+      { id: "values", angle: 300, label: "Values", icon: "＃", action: () => {}, children: valuesChildren },
     ];
   }
   if (state.activeRunId) {
