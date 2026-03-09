@@ -1,0 +1,206 @@
+    <article
+      id="node-{{ node.id }}"
+      class="board-node board-node-{{ node.node_type }}"
+      data-node-id="{{ node.id }}"
+      data-node-type="{{ node.node_type }}"
+      data-position-x="{{ node.position_x }}"
+      data-position-y="{{ node.position_y }}"
+      data-content='{{ node.content_json() }}'
+      data-locked="{{ node.locked }}"
+      data-width="{% match node.width %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
+      data-height="{% match node.height %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
+    >
+      {% if node.node_type == "entropy" %}
+      <div class="entropy-shell">
+        <div class="entropy-header">
+          <span class="eyebrow entropy-eyebrow">Entropy</span>
+          <div class="entropy-actions">
+            <button class="entropy-btn" title="Re-roll"
+              data-on:click__prevent="@post('/nodes/{{ node.id }}/reroll')">&#x27F3;</button>
+            <button class="entropy-btn" title="Toggle lock"
+              data-on:click__prevent="@post('/nodes/{{ node.id }}/lock')">{% if node.locked %}&#x1F512;{% else %}&#x1F513;{% endif %}</button>
+          </div>
+        </div>
+        <div class="entropy-preview">
+          <iframe
+            src="{{ node.entropy_url() }}"
+            loading="lazy"
+            sandbox="allow-scripts allow-forms allow-modals"
+            referrerpolicy="no-referrer"
+            tabindex="-1"
+            aria-hidden="true"
+            data-ignore
+          ></iframe>
+        </div>
+        <div class="entropy-label">{{ node.entropy_title() }}</div>
+      </div>
+      {% else if node.node_type == "generate" %}
+      <div class="generate-shell">
+        <div class="generate-header">
+          <span class="eyebrow generate-eyebrow">Generate</span>
+          <span class="generate-status" data-show="$_status && $_status !== 'Seed a direction or select a card to branch from it.'" data-text="$_status"></span>
+        </div>
+        <div class="generate-inputs" id="gen-inputs-{{ node.id }}">
+          <span class="generate-placeholder">Wire inputs here</span>
+        </div>
+        <button class="generate-run-btn" data-node-action="run" title="Run generation"
+          data-indicator:_generating
+          data-attr:disabled="$_generating"
+          data-class:is-running="$_generating"
+          data-on:click__prevent="@post('/nodes/{{ node.id }}/run')">
+          <span class="generate-run-icon" data-show="!$_generating">&#x25B6;</span>
+          <span class="generate-run-label" data-show="$_generating">Generating&hellip;</span>
+        </button>
+      </div>
+      {% else if node.node_type == "user_input" %}
+      <div class="input-shell">
+        <div class="input-header">
+          <span class="eyebrow input-eyebrow">Input</span>
+        </div>
+        <div class="input-body" contenteditable="true" data-placeholder="Type here..." data-ignore>{{ node.input_text() }}{% for img in node.input_images() %}<img src="{{ img }}" class="input-image-thumb" title="Double-click to enlarge" />{% endfor %}</div>
+      </div>
+
+      {% else if node.node_type == "color_palette" %}
+      <div class="palette-node-shell">
+        <div class="palette-node-header">
+          <span class="eyebrow palette-node-eyebrow">Palette</span>
+        </div>
+        <div class="palette-swatches" id="swatches-{{ node.id }}">
+          {% for color in node.palette_colors() %}
+          <div class="palette-swatch" data-color="{{ color }}" style="background: {{ color }};">
+            <button class="palette-swatch-remove" data-action="remove-swatch" title="Remove">&times;</button>
+          </div>
+          {% endfor %}
+        </div>
+        <button class="palette-add-btn" data-action="add-color" title="Add color">+ Color</button>
+      </div>
+
+      {% else if node.node_type == "pick_k" %}
+      <div class="pickk-shell">
+        <div class="pickk-header">
+          <span class="eyebrow pickk-eyebrow">Pick K</span>
+        </div>
+        <div class="pickk-stepper">
+          <button class="pickk-btn" data-action="decrement-k" title="Decrease K">&minus;</button>
+          <span class="pickk-value" id="pickk-val-{{ node.id }}">{{ node.pick_k_value() }}</span>
+          <button class="pickk-btn" data-action="increment-k" title="Increase K">+</button>
+        </div>
+        <label class="pickk-replace-label" title="With replacement: sources can be picked more than once">
+          <input type="checkbox" class="pickk-replace-toggle" data-action="toggle-replace" {% if node.pick_k_replace() %}checked{% endif %} />
+          <span class="pickk-replace-text">replace</span>
+        </label>
+        <div class="pickk-info" id="pickk-info-{{ node.id }}">Pick {{ node.pick_k_value() }} from sources</div>
+      </div>
+
+      {% else if node.node_type == "set" %}
+      <div class="set-shell">
+        <div class="set-header">
+          <span class="eyebrow set-eyebrow">Set</span>
+        </div>
+        <div class="set-title" contenteditable="true" data-placeholder="Set title..." data-ignore>{{ node.set_title() }}</div>
+        <div class="set-description" contenteditable="true" data-placeholder="Description..." data-ignore>{{ node.set_description() }}</div>
+        <div class="set-members" id="set-members-{{ node.id }}"></div>
+      </div>
+
+      {% else if node.node_type == "image" %}
+      <div class="image-node-shell">
+        {% if node.image_url() != "" %}
+        <img src="{{ node.image_url() }}" alt="{{ node.image_alt() }}" class="image-node-preview" />
+        {% else %}
+        <div class="image-node-drop" data-action="upload-image" title="Click or drop image">
+          <span class="image-node-drop-icon">&#x1F5BC;</span>
+          <span class="image-node-drop-label">Drop image</span>
+        </div>
+        {% endif %}
+      </div>
+
+      {% else if node.node_type == "int_value" %}
+      <div class="value-shell value-int-shell">
+        <div class="value-header">
+          <span class="eyebrow value-eyebrow value-int-eyebrow">Int</span>
+        </div>
+        <input type="number" class="value-input" data-action="set-value" value="{{ node.int_value() }}" min="{{ node.int_min() }}" max="{{ node.int_max() }}" step="1" />
+        <label class="value-random-label"><input type="checkbox" class="value-random" data-action="toggle-random" {% if node.random_enabled() %}checked{% endif %} /> Random</label>
+      </div>
+
+      {% else if node.node_type == "float_value" %}
+      <div class="value-shell value-float-shell">
+        <div class="value-header">
+          <span class="eyebrow value-eyebrow value-float-eyebrow">Float</span>
+        </div>
+        <input type="number" class="value-input" data-action="set-value" value="{{ node.float_value() }}" min="{{ node.float_min() }}" max="{{ node.float_max() }}" step="{{ node.float_step() }}" />
+        <label class="value-random-label"><input type="checkbox" class="value-random" data-action="toggle-random" {% if node.random_enabled() %}checked{% endif %} /> Random</label>
+      </div>
+
+      {% else if node.node_type == "string_value" %}
+      {% if node.has_preset() %}
+      <div class="entropy-shell preset-shell">
+        <div class="entropy-header">
+          <span class="eyebrow entropy-eyebrow">{{ node.preset_label() }}</span>
+          <div class="entropy-actions">
+            <button class="entropy-btn" title="Re-roll"
+              data-on:click__prevent="@post('/nodes/{{ node.id }}/reroll')">&#x27F3;</button>
+            <button class="entropy-btn" title="Toggle lock"
+              data-on:click__prevent="@post('/nodes/{{ node.id }}/lock')">{% if node.locked %}&#x1F512;{% else %}&#x1F513;{% endif %}</button>
+          </div>
+        </div>
+        <div class="entropy-label">{{ node.string_value() }}</div>
+      </div>
+      {% else %}
+      <div class="value-shell value-string-shell">
+        <div class="value-header">
+          <span class="eyebrow value-eyebrow value-string-eyebrow">String</span>
+        </div>
+        <input type="text" class="value-input value-text-input" data-action="set-value" value="{{ node.string_value() }}" placeholder="Value..." />
+      </div>
+      {% endif %}
+
+      {% else if node.node_type == "bool_value" %}
+      <div class="value-shell value-bool-shell">
+        <div class="value-header">
+          <span class="eyebrow value-eyebrow value-bool-eyebrow">Bool</span>
+        </div>
+        <label class="bool-toggle-label">
+          <input type="checkbox" class="bool-toggle" data-action="set-value" {% if node.bool_value() %}checked{% endif %} />
+          <span class="bool-toggle-track"><span class="bool-toggle-thumb"></span></span>
+          <span class="bool-toggle-text">{% if node.bool_value() %}true{% else %}false{% endif %}</span>
+        </label>
+      </div>
+
+      {% else if node.node_type == "font" %}
+      <div class="font-shell">
+        <div class="font-header">
+          <span class="eyebrow font-eyebrow">Font</span>
+        </div>
+        <input type="text" class="font-family-input" data-field="family" value="{{ node.font_family() }}" placeholder="Family (e.g. Inter)" />
+        <div class="font-row">
+          <select class="font-weight-select" data-field="weight">
+            <option value="100" {% if node.font_weight() == "100" %}selected{% endif %}>Thin</option>
+            <option value="200" {% if node.font_weight() == "200" %}selected{% endif %}>ExtraLight</option>
+            <option value="300" {% if node.font_weight() == "300" %}selected{% endif %}>Light</option>
+            <option value="400" {% if node.font_weight() == "400" %}selected{% endif %}>Regular</option>
+            <option value="500" {% if node.font_weight() == "500" %}selected{% endif %}>Medium</option>
+            <option value="600" {% if node.font_weight() == "600" %}selected{% endif %}>SemiBold</option>
+            <option value="700" {% if node.font_weight() == "700" %}selected{% endif %}>Bold</option>
+            <option value="800" {% if node.font_weight() == "800" %}selected{% endif %}>ExtraBold</option>
+            <option value="900" {% if node.font_weight() == "900" %}selected{% endif %}>Black</option>
+          </select>
+          <input type="number" class="font-size-input" data-field="size" value="{{ node.font_size() }}" min="6" max="200" step="1" title="Size (px)" />
+        </div>
+        <button class="font-upload-btn" data-action="upload-font">{% if node.font_file_name() != "" %}{{ node.font_file_name() }}{% else %}Upload font{% endif %}</button>
+        <div class="font-preview" id="font-preview-{{ node.id }}" style="font-family: '{{ node.font_family() }}', sans-serif; font-weight: {{ node.font_weight() }}; font-size: {{ node.font_size() }}px; line-height: {{ node.font_line_height() }};">Aa</div>
+      </div>
+
+      {% endif %}
+      <div class="node-selection-chrome" aria-hidden="true">
+        <div class="node-selection-border"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="-1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="-1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="-1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="0"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="0"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="1"></div>
+        <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="1"></div>
+      </div>
+    </article>

@@ -1361,6 +1361,12 @@ struct StormBoardTemplate<'a> {
     edges_json: &'a str,
 }
 
+#[derive(Template)]
+#[template(path = "board_node.html")]
+struct BoardNodeTemplate<'a> {
+    node: &'a BoardNodeSummary,
+}
+
 
 #[derive(Debug, Deserialize)]
 struct StormRequest {
@@ -1859,31 +1865,24 @@ async fn generate_storm_datastar(
 
         match generate_storm_internal(&state, &viewer, input).await {
             Ok(response) => {
-                match render_storm_board_html(&state, viewer.id).await {
-                    Ok(board_html) => {
-                        yield Ok::<_, Infallible>(
-                            PatchElements::new(board_html)
-                                .selector("#storm-runs")
-                                .mode(ElementPatchMode::Outer)
-                                .write_as_axum_sse_event(),
-                        );
-                        yield Ok::<_, Infallible>(patch_signals(json!({
-                            "_generating": false,
-                            "_status": "Storm generated.",
-                            "prompt": "",
-                            "draftMode": "",
-                            "sourceIds": "",
-                            "_latestRunId": response.run.id.to_string(),
-                        }).to_string()));
-                    }
-                    Err(error) => {
-                        yield Ok::<_, Infallible>(patch_signals(json!({
-                            "_generating": false,
-                            "_latestRunId": "",
-                            "_status": error.to_string(),
-                        }).to_string()));
-                    }
-                }
+                let run = &response.run;
+                let px = run.position_x.unwrap_or(0.0) as f64;
+                let py = run.position_y.unwrap_or(0.0) as f64;
+                let node_html = render_storm_node_html(run, px, py);
+                yield Ok::<_, Infallible>(
+                    PatchElements::new(node_html)
+                        .selector("#storm-runs")
+                        .mode(ElementPatchMode::Append)
+                        .write_as_axum_sse_event(),
+                );
+                yield Ok::<_, Infallible>(patch_signals(json!({
+                    "_generating": false,
+                    "_status": "Storm generated.",
+                    "prompt": "",
+                    "draftMode": "",
+                    "sourceIds": "",
+                    "_latestRunId": response.run.id.to_string(),
+                }).to_string()));
             }
             Err(error) => {
                 yield Ok::<_, Infallible>(patch_signals(json!({
@@ -2452,18 +2451,7 @@ async fn run_generate_node_inner(
                 );
 
                 // Update edges JSON
-                let edges = load_board_edges(&state, viewer.id).await;
-                let edges_json = serde_json::to_string(&edges).unwrap_or_else(|_| "[]".to_string());
-                let edges_script = format!(
-                    r#"<script id="board-edges-data" type="application/json">{}</script>"#,
-                    edges_json,
-                );
-                yield Ok::<_, Infallible>(
-                    PatchElements::new(edges_script)
-                        .selector("#board-edges-data")
-                        .mode(ElementPatchMode::Outer)
-                        .write_as_axum_sse_event(),
-                );
+                yield Ok::<_, Infallible>(patch_edges_event(&state, viewer.id).await);
 
                 yield Ok::<_, Infallible>(patch_signals(json!({
                     "_generating": false,
@@ -3166,7 +3154,7 @@ fn render_storm_node_html(run: &StormRunSummary, position_x: f64, position_y: f6
     let submitted = if run.submitted { "true" } else { "false" };
     let submitted_class = if run.submitted { " is-submitted" } else { "" };
     format!(
-        r#"<article class="storm-node"
+        r#"<article id="run-{id}" class="storm-node"
           data-run-id="{id}" data-run-prompt="{prompt}" data-run-title="{title}"
           data-run-summary="{summary}" data-run-assistant-summary="{asummary}"
           data-run-preview-url="{preview}" data-run-created-at="{created}"
@@ -3190,7 +3178,7 @@ fn render_storm_node_html(run: &StormRunSummary, position_x: f64, position_y: f6
           <div class="storm-node-preview">
             <iframe src="{preview}" loading="lazy"
               sandbox="allow-scripts allow-forms allow-modals"
-              referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true"></iframe>
+              referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true" data-ignore></iframe>
           </div>
           <div class="storm-node-copy"><h3>{title_raw}</h3></div>
         </div>
@@ -3234,6 +3222,23 @@ async fn render_storm_board_html(state: &AppState, user_id: Uuid) -> Result<Stri
         edges_json: &edges_json,
     }
     .render()?)
+}
+
+fn render_board_node_html(node: &BoardNodeSummary) -> String {
+    BoardNodeTemplate { node }.render().unwrap_or_default()
+}
+
+async fn patch_edges_event(state: &AppState, user_id: Uuid) -> Event {
+    let edges = load_board_edges(state, user_id).await;
+    let edges_json = serde_json::to_string(&edges).unwrap_or_else(|_| "[]".to_string());
+    let script = format!(
+        r#"<script id="board-edges-data" type="application/json">{}</script>"#,
+        edges_json,
+    );
+    PatchElements::new(script)
+        .selector("#board-edges-data")
+        .mode(ElementPatchMode::Outer)
+        .write_as_axum_sse_event()
 }
 
 async fn viewer_run_summaries(state: &AppState, user_id: Uuid) -> Vec<StormRunSummary> {
@@ -4539,14 +4544,19 @@ async fn create_board_node_datastar(
         .await?;
     }
 
-    let board_html = render_storm_board_html(&state, viewer.id).await?;
+    let node_summary = BoardNodeSummary::from(row);
+    let node_html = render_board_node_html(&node_summary);
+    let has_edge = payload.source_id.is_some();
     Ok(datastar_event_stream(Box::pin(stream! {
         yield Ok::<_, Infallible>(
-            PatchElements::new(board_html)
+            PatchElements::new(node_html)
                 .selector("#storm-runs")
-                .mode(ElementPatchMode::Outer)
+                .mode(ElementPatchMode::Append)
                 .write_as_axum_sse_event(),
         );
+        if has_edge {
+            yield Ok::<_, Infallible>(patch_edges_event(&state, viewer.id).await);
+        }
     })))
 }
 
@@ -4594,11 +4604,20 @@ async fn reroll_board_node(
     .execute(&state.db)
     .await?;
 
-    let board_html = render_storm_board_html(&state, viewer.id).await?;
+    let updated = sqlx::query_as::<_, BoardNodeRow>(
+        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
+    )
+    .bind(id)
+    .bind(viewer.id)
+    .fetch_one(&state.db)
+    .await?;
+    let node_summary = BoardNodeSummary::from(updated);
+    let node_html = render_board_node_html(&node_summary);
+    let selector = format!("#node-{}", id);
     Ok(datastar_event_stream(Box::pin(stream! {
         yield Ok::<_, Infallible>(
-            PatchElements::new(board_html)
-                .selector("#storm-runs")
+            PatchElements::new(node_html)
+                .selector(&selector)
                 .mode(ElementPatchMode::Outer)
                 .write_as_axum_sse_event(),
         );
@@ -4620,11 +4639,20 @@ async fn toggle_board_node_lock(
     .execute(&state.db)
     .await?;
 
-    let board_html = render_storm_board_html(&state, viewer.id).await?;
+    let updated = sqlx::query_as::<_, BoardNodeRow>(
+        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
+    )
+    .bind(id)
+    .bind(viewer.id)
+    .fetch_one(&state.db)
+    .await?;
+    let node_summary = BoardNodeSummary::from(updated);
+    let node_html = render_board_node_html(&node_summary);
+    let selector = format!("#node-{}", id);
     Ok(datastar_event_stream(Box::pin(stream! {
         yield Ok::<_, Infallible>(
-            PatchElements::new(board_html)
-                .selector("#storm-runs")
+            PatchElements::new(node_html)
+                .selector(&selector)
                 .mode(ElementPatchMode::Outer)
                 .write_as_axum_sse_event(),
         );
@@ -4713,15 +4741,13 @@ async fn delete_board_node(
         .execute(&state.db)
         .await?;
 
-    let board_html = render_storm_board_html(&state, viewer.id).await?;
-
+    let selector = format!("#node-{}", id);
     Ok(datastar_event_stream(Box::pin(stream! {
         yield Ok::<_, Infallible>(
-            PatchElements::new(board_html)
-                .selector("#storm-runs")
-                .mode(ElementPatchMode::Outer)
+            PatchElements::new_remove(&selector)
                 .write_as_axum_sse_event(),
         );
+        yield Ok::<_, Infallible>(patch_edges_event(&state, viewer.id).await);
     })))
 }
 
