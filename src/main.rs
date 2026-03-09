@@ -1900,6 +1900,26 @@ async fn run_generate_node(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(node_id): Path<Uuid>,
+) -> Response {
+    match run_generate_node_inner(State(state), headers, Path(node_id)).await {
+        Ok(resp) => resp.into_response(),
+        Err(error) => {
+            let message = error.to_string();
+            datastar_event_stream(Box::pin(stream! {
+                yield Ok::<_, Infallible>(patch_signals(json!({
+                    "_generating": false,
+                    "_status": message,
+                }).to_string()));
+            }))
+            .into_response()
+        }
+    }
+}
+
+async fn run_generate_node_inner(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(node_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
 

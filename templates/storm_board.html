@@ -98,7 +98,7 @@
       <div class="generate-shell">
         <div class="generate-header">
           <span class="eyebrow generate-eyebrow">Generate</span>
-          <span class="generate-status" data-show="$_generating" data-text="$_status"></span>
+          <span class="generate-status" data-show="$_status && $_status !== 'Seed a direction or select a card to branch from it.'" data-text="$_status"></span>
         </div>
         <div class="generate-inputs" id="gen-inputs-{{ node.id }}">
           <span class="generate-placeholder">Wire inputs here</span>
