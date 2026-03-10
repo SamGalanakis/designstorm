@@ -3856,6 +3856,7 @@ function bindBoardNodeInteractions(): void {
       initDrawCanvas(nodeId);
       return;
     }
+    if (target.closest(".draw-out-port")) return; // let wire system handle it
     // Image: click drop zone
     if (target.closest("[data-action='upload-image']")) {
       triggerImageUpload(nodeId);
@@ -3985,6 +3986,8 @@ function bindBoardNodeInteractions(): void {
     } else if (target.classList.contains("draw-size-slider")) {
       const inst = drawInstances.get(nodeId);
       if (inst) inst.size = Number(target.value);
+      const label = boardNode?.querySelector(".draw-size-label");
+      if (label) label.textContent = target.value;
     }
   });
 
@@ -4049,6 +4052,7 @@ function bindBoardNodeInteractions(): void {
     if (target.closest(".set-description")) return;
     if (target.closest(".value-input")) return;
     if (target.closest(".bool-toggle-label")) return;
+    if (target.closest("[data-action='edit-color']")) return;
     if (target.closest(".palette-swatch")) return;
     if (target.closest(".palette-add-btn")) return;
     if (target.closest(".pickk-btn")) return;

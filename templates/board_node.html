@@ -131,17 +131,39 @@
         <div class="draw-node-header">
           <span class="eyebrow draw-eyebrow">Draw</span>
           <div class="draw-toolbar">
+            <div class="draw-tool-group">
+              <button class="draw-tool-btn draw-tool-active" data-draw-tool="draw" title="Brush">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></svg>
+              </button>
+              <button class="draw-tool-btn" data-draw-tool="erase" title="Eraser">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>
+              </button>
+            </div>
+            <div class="draw-tool-sep"></div>
             <input type="color" class="draw-color-picker" value="#ffffff" title="Brush color" />
-            <input type="range" class="draw-size-slider" min="1" max="30" value="4" title="Brush size" />
-            <button class="draw-tool-btn draw-tool-active" data-draw-tool="draw" title="Brush">&#x270E;</button>
-            <button class="draw-tool-btn" data-draw-tool="erase" title="Eraser">&#x2395;</button>
-            <button class="draw-tool-btn" data-draw-tool="clear" title="Clear">&#x2715;</button>
+            <div class="draw-size-wrap">
+              <input type="range" class="draw-size-slider" min="1" max="30" value="4" title="Brush size" />
+              <span class="draw-size-label">4</span>
+            </div>
+            <div class="draw-tool-sep"></div>
+            <button class="draw-tool-btn draw-tool-danger" data-draw-tool="clear" title="Clear canvas">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+            </button>
           </div>
         </div>
-        {% if node.image_url() != "" %}
-        <img src="{{ node.image_url() }}" class="draw-node-saved" />
-        {% endif %}
-        <canvas class="draw-node-canvas" width="400" height="300"></canvas>
+        <div class="draw-canvas-wrap">
+          {% if node.image_url() != "" %}
+          <img src="{{ node.image_url() }}" class="draw-node-saved" />
+          {% endif %}
+          <canvas class="draw-node-canvas" width="400" height="300"></canvas>
+        </div>
+        <div class="draw-node-footer">
+          <span class="draw-dimensions">400 × 300</span>
+          <div class="draw-out-port" data-slot="out" data-direction="out" title="Output">
+            <span class="draw-out-dot"></span>
+            <span class="draw-out-label">out</span>
+          </div>
+        </div>
       </div>
 
       {% else if node.node_type == "int_value" %}

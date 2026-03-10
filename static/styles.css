@@ -1794,9 +1794,11 @@ body.is-shift-held .board-node { cursor: grab; }
   height: 100%;
   box-sizing: border-box;
   border-radius: var(--radius);
-  background: var(--surface-raised);
+  background: #111827;
   border: 1px solid rgba(130, 180, 210, 0.2);
-  box-shadow: 0 8px 28px rgba(0,0,0,0.25);
+  box-shadow:
+    0 8px 28px rgba(0,0,0,0.3),
+    inset 0 1px 0 rgba(130, 180, 210, 0.06);
   overflow: hidden;
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
 }
@@ -1804,22 +1806,29 @@ body.is-shift-held .board-node { cursor: grab; }
 .board-node-draw:hover .draw-node-shell {
   transform: translateY(-2px);
   border-color: rgba(130, 180, 210, 0.35);
-  box-shadow: 0 14px 40px rgba(0,0,0,0.35), 0 0 12px rgba(130, 180, 210, 0.12);
+  box-shadow:
+    0 14px 40px rgba(0,0,0,0.4),
+    0 0 12px rgba(130, 180, 210, 0.1),
+    inset 0 1px 0 rgba(130, 180, 210, 0.08);
 }
 
 .board-node-draw.is-active .draw-node-shell {
   border-color: rgba(130, 180, 210, 0.5);
-  box-shadow: 0 16px 44px rgba(0,0,0,0.4), 0 0 16px rgba(130, 180, 210, 0.15);
+  box-shadow:
+    0 16px 44px rgba(0,0,0,0.45),
+    0 0 20px rgba(130, 180, 210, 0.12),
+    inset 0 1px 0 rgba(130, 180, 210, 0.1);
 }
 
 .draw-node-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
+  padding: 7px 10px;
   gap: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid rgba(130, 180, 210, 0.1);
   flex-shrink: 0;
+  background: rgba(130, 180, 210, 0.03);
 }
 
 .draw-eyebrow {
@@ -1829,38 +1838,74 @@ body.is-shift-held .board-node { cursor: grab; }
 .draw-toolbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
+}
+
+.draw-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 5px;
+  padding: 1px;
+}
+
+.draw-tool-group .draw-tool-btn { border-radius: 4px; }
+
+.draw-tool-sep {
+  width: 1px;
+  height: 16px;
+  background: rgba(130, 180, 210, 0.12);
+  margin: 0 4px;
 }
 
 .draw-color-picker {
   width: 22px;
   height: 22px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border: 1.5px solid rgba(255,255,255,0.12);
+  border-radius: 5px;
   cursor: pointer;
   background: none;
   -webkit-appearance: none;
   appearance: none;
+  transition: border-color 0.12s;
 }
 
+.draw-color-picker:hover { border-color: rgba(130, 180, 210, 0.4); }
+
 .draw-color-picker::-webkit-color-swatch-wrapper { padding: 1px; }
-.draw-color-picker::-webkit-color-swatch { border: none; border-radius: 2px; }
-.draw-color-picker::-moz-color-swatch { border: none; border-radius: 2px; }
+.draw-color-picker::-webkit-color-swatch { border: none; border-radius: 3px; }
+.draw-color-picker::-moz-color-swatch { border: none; border-radius: 3px; }
+
+.draw-size-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 
 .draw-size-slider {
-  width: 50px;
+  width: 48px;
   height: 18px;
   cursor: pointer;
-  accent-color: var(--accent);
+  accent-color: rgba(130, 180, 210, 0.8);
+}
+
+.draw-size-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  color: rgba(130, 180, 210, 0.5);
+  min-width: 14px;
+  text-align: right;
+  letter-spacing: 0.02em;
 }
 
 .draw-tool-btn {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 4px;
+  border-radius: 5px;
   background: none;
   color: var(--text-muted);
   cursor: pointer;
@@ -1868,33 +1913,100 @@ body.is-shift-held .board-node { cursor: grab; }
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
 }
 
 .draw-tool-btn:hover {
-  background: var(--surface-overlay);
+  background: rgba(130, 180, 210, 0.08);
   color: var(--text);
 }
 
 .draw-tool-btn.draw-tool-active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: rgba(var(--accent-rgb, 100, 100, 255), 0.1);
+  border-color: rgba(130, 180, 210, 0.4);
+  color: rgba(130, 180, 210, 0.9);
+  background: rgba(130, 180, 210, 0.1);
+}
+
+.draw-tool-btn.draw-tool-danger:hover {
+  color: rgba(220, 130, 120, 0.9);
+  background: rgba(220, 130, 120, 0.08);
+}
+
+.draw-canvas-wrap {
+  position: relative;
+  flex: 1;
 }
 
 .draw-node-canvas {
-  flex: 1;
   width: 100%;
+  height: 100%;
   min-height: 200px;
   cursor: crosshair;
   display: block;
   touch-action: none;
   background:
-    repeating-conic-gradient(rgba(255,255,255,0.04) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px;
+    repeating-conic-gradient(rgba(130, 180, 210, 0.04) 0% 25%, transparent 0% 50%) 0 0 / 14px 14px;
 }
 
 .draw-node-saved {
   display: none;
+}
+
+.draw-node-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  border-top: 1px solid rgba(130, 180, 210, 0.1);
+  background: rgba(130, 180, 210, 0.03);
+  flex-shrink: 0;
+}
+
+.draw-dimensions {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: rgba(130, 180, 210, 0.35);
+}
+
+.draw-out-port {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  cursor: crosshair;
+  padding: 2px 6px 2px 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(130, 180, 210, 0.15);
+  background: rgba(130, 180, 210, 0.04);
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.draw-out-port:hover {
+  border-color: rgba(130, 180, 210, 0.4);
+  background: rgba(130, 180, 210, 0.08);
+}
+
+.draw-out-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(130, 180, 210, 0.5);
+  border: 1.5px solid rgba(130, 180, 210, 0.7);
+  transition: background 0.12s, transform 0.12s;
+}
+
+.draw-out-port:hover .draw-out-dot {
+  background: rgba(130, 180, 210, 0.8);
+  transform: scale(1.2);
+}
+
+.draw-out-label {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 8px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(130, 180, 210, 0.5);
 }
 
 .board-node-draw.is-wire-target .draw-node-shell {
