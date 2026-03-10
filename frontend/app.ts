@@ -155,9 +155,11 @@ type PointerState =
   | { mode: "pan"; pointerId: number; startClient: Point; startPan: Point }
   | { mode: "drag"; pointerId: number; runId: string; startClient: Point; startPos: Point; moved: boolean }
   | { mode: "drag-board-node"; pointerId: number; nodeId: string; startClient: Point; startPos: Point; moved: boolean }
+  | { mode: "drag-selection"; pointerId: number; startClient: Point; startPositions: Map<string, Point>; moved: boolean }
   | { mode: "wire"; pointerId: number; sourceRunId: string; sourceType: string; sourceAnchor: AnchorPoint; startWorld: Point; currentWorld: Point; targetRunId: string | null; targetType: string | null; targetAnchor: AnchorPoint | null; sourceSlot?: string; targetSlot?: string }
   | { mode: "wire-pending"; pointerId: number; nodeId: string; nodeEl: HTMLElement; startClient: Point; sourceAnchor: AnchorPoint; sourceSlot?: string }
   | { mode: "resize"; pointerId: number; nodeId: string; nodeKind: "run" | "board"; startClient: Point; startPos: Point; startSize: { w: number; h: number }; axisX: -1 | 0 | 1; axisY: -1 | 0 | 1 }
+  | { mode: "marquee"; pointerId: number; startClient: Point; startWorld: Point; currentWorld: Point; additive: boolean }
   | null;
 
 type RadialItem = {
@@ -186,6 +188,8 @@ type StormState = {
   edges: BoardEdge[];
   positions: Map<string, Point>;
   lineage: Map<string, string[]>;
+  selectedIds: Set<string>;
+  activeEdgeId: string | null;
   activeRunId: string | null;
   activeNodeId: string | null;
   clipboardNodeId: string | null;
@@ -328,6 +332,8 @@ const state: StormState = {
   edges: [],
   positions: new Map(),
   lineage: new Map(),
+  selectedIds: new Set(),
+  activeEdgeId: null,
   activeRunId: null,
   activeNodeId: null,
   clipboardNodeId: null,
@@ -378,6 +384,103 @@ function isEditableTarget(target: EventTarget | null): boolean {
   if (target.isContentEditable) return true;
   const tag = target.tagName;
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+// ─── Selection helpers ───
+
+function isSelected(id: string): boolean {
+  return state.selectedIds.has(id);
+}
+
+function selectOnly(id: string): void {
+  state.selectedIds.clear();
+  state.selectedIds.add(id);
+  // Track which "kind" is primary for inspector/radial
+  const isRun = state.runs.some((r) => r.id === id);
+  state.activeRunId = isRun ? id : null;
+  state.activeNodeId = isRun ? null : id;
+  renderSelectionVisuals();
+}
+
+function toggleSelection(id: string): void {
+  if (state.selectedIds.has(id)) {
+    state.selectedIds.delete(id);
+    if (state.activeRunId === id) state.activeRunId = null;
+    if (state.activeNodeId === id) state.activeNodeId = null;
+    // Promote another selected item as active for inspector
+    if (state.selectedIds.size > 0) {
+      const next = state.selectedIds.values().next().value!;
+      const isRun = state.runs.some((r) => r.id === next);
+      if (isRun) state.activeRunId = next;
+      else state.activeNodeId = next;
+    }
+  } else {
+    state.selectedIds.add(id);
+    const isRun = state.runs.some((r) => r.id === id);
+    if (isRun) { state.activeRunId = id; state.activeNodeId = null; }
+    else { state.activeNodeId = id; state.activeRunId = null; }
+  }
+  renderSelectionVisuals();
+}
+
+function addToSelection(id: string): void {
+  state.selectedIds.add(id);
+  renderSelectionVisuals();
+}
+
+function deselectAll(): void {
+  if (state.selectedIds.size === 0 && !state.activeRunId && !state.activeNodeId) return;
+  state.selectedIds.clear();
+  state.activeRunId = null;
+  state.activeNodeId = null;
+  renderSelectionVisuals();
+}
+
+function selectAll(): void {
+  state.selectedIds.clear();
+  for (const run of state.runs) state.selectedIds.add(run.id);
+  for (const node of state.boardNodes) state.selectedIds.add(node.id);
+  renderSelectionVisuals();
+}
+
+function renderSelectionVisuals(): void {
+  renderRuns();
+  renderBoardNodes();
+  renderInspector();
+}
+
+function getSelectedPositionsSnapshot(): Map<string, Point> {
+  const snap = new Map<string, Point>();
+  for (const id of state.selectedIds) {
+    const pos = state.positions.get(id);
+    if (pos) snap.set(id, { ...pos });
+  }
+  return snap;
+}
+
+function hitTestNodesInRect(worldMin: Point, worldMax: Point): string[] {
+  const ids: string[] = [];
+  const minX = Math.min(worldMin.x, worldMax.x);
+  const minY = Math.min(worldMin.y, worldMax.y);
+  const maxX = Math.max(worldMin.x, worldMax.x);
+  const maxY = Math.max(worldMin.y, worldMax.y);
+  for (const run of state.runs) {
+    const pos = state.positions.get(run.id);
+    if (!pos) continue;
+    const dim = getNodeDimensions(run.id);
+    if (pos.x + dim.w >= minX && pos.x <= maxX && pos.y + dim.h >= minY && pos.y <= maxY) {
+      ids.push(run.id);
+    }
+  }
+  for (const node of state.boardNodes) {
+    const pos = state.positions.get(node.id);
+    if (!pos) continue;
+    const dim = getNodeDimensions(node.id);
+    if (pos.x + dim.w >= minX && pos.x <= maxX && pos.y + dim.h >= minY && pos.y <= maxY) {
+      ids.push(node.id);
+    }
+  }
+  return ids;
 }
 
 function normalizeWheelDelta(value: number, deltaMode: number): number {
@@ -1641,8 +1744,15 @@ function renderDraftContext(): void {
 
 function setActiveRun(id: string | null, opts?: { sync?: boolean }): void {
   state.activeRunId = id;
-  if (!id) state.focusedRunId = null;
+  state.activeNodeId = null;
+  if (id) {
+    state.selectedIds.clear();
+    state.selectedIds.add(id);
+  } else {
+    state.focusedRunId = null;
+  }
   renderRuns();
+  renderBoardNodes();
   renderFocus();
 
   if (opts?.sync) syncUrl(false);
@@ -1651,7 +1761,11 @@ function setActiveRun(id: string | null, opts?: { sync?: boolean }): void {
 function openFullscreen(id: string): void {
   state.activeRunId = id;
   state.focusedRunId = id;
+  state.selectedIds.clear();
+  state.selectedIds.add(id);
+  state.activeNodeId = null;
   renderRuns();
+  renderBoardNodes();
   renderFocus();
 
   syncUrl(false);
@@ -1786,6 +1900,7 @@ function renderConnections(): void {
     const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
     path.setAttribute("d", `M ${sx} ${sy} C ${sx + srcCtrl.x} ${sy + srcCtrl.y}, ${ex + tgtCtrl.x} ${ey + tgtCtrl.y}, ${ex} ${ey}`);
     path.setAttribute("class", "board-edge-line");
+    path.setAttribute("data-edge-id", edge.id);
     svg.appendChild(path);
   });
 }
@@ -2023,6 +2138,10 @@ function hydrateBoardFromDom(): void {
   if (state.activeRunId && !getRun(state.activeRunId)) state.activeRunId = null;
   if (state.activeNodeId && !state.boardNodes.find((n) => n.id === state.activeNodeId)) state.activeNodeId = null;
   if (state.focusedRunId && !getRun(state.focusedRunId)) state.focusedRunId = null;
+  // Prune selectedIds of nodes that no longer exist
+  for (const id of state.selectedIds) {
+    if (!getRun(id) && !state.boardNodes.find((n) => n.id === id)) state.selectedIds.delete(id);
+  }
 
   applyUrlState();
   renderRuns();
@@ -2070,7 +2189,7 @@ function renderRuns(): void {
     const card = nodesById.get(run.id);
     if (!card) return;
     const { w, h } = getNodeDimensions(run.id);
-    card.classList.toggle("is-active", run.id === state.activeRunId);
+    card.classList.toggle("is-active", state.selectedIds.has(run.id));
     card.classList.toggle("is-combine-source", run.id === state.combineSourceId);
     card.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
     card.style.width = `${w}px`;
@@ -2093,7 +2212,7 @@ function renderBoardNodes(): void {
     const el = nodesById.get(node.id);
     if (!el) return;
     const { w, h } = getNodeDimensions(node.id);
-    el.classList.toggle("is-active", node.id === state.activeNodeId);
+    el.classList.toggle("is-active", state.selectedIds.has(node.id));
     el.classList.toggle("is-locked", node.locked);
     el.style.transform = `translate(${pt.x}px, ${pt.y}px)`;
     el.style.width = `${w}px`;
@@ -2161,6 +2280,50 @@ function renderFocus(): void {
   title.textContent = run.title;
 }
 
+// ─── Marquee overlay ───
+
+function ensureMarqueeEl(): HTMLElement {
+  let el = $("marquee-selection");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "marquee-selection";
+    el.className = "marquee-selection";
+    $("storm-canvas")?.appendChild(el);
+  }
+  return el;
+}
+
+function renderMarquee(): void {
+  if (!state.pointerState || state.pointerState.mode !== "marquee") return;
+  const el = ensureMarqueeEl();
+  const { startWorld, currentWorld } = state.pointerState;
+  const x = Math.min(startWorld.x, currentWorld.x);
+  const y = Math.min(startWorld.y, currentWorld.y);
+  const w = Math.abs(currentWorld.x - startWorld.x);
+  const h = Math.abs(currentWorld.y - startWorld.y);
+  el.style.transform = `translate(${state.pan.x + x * state.scale}px, ${state.pan.y + y * state.scale}px)`;
+  el.style.width = `${w * state.scale}px`;
+  el.style.height = `${h * state.scale}px`;
+  el.hidden = false;
+
+  // Live preview: highlight nodes that would be selected
+  const ids = new Set(hitTestNodesInRect(startWorld, currentWorld));
+  const container = $("storm-board");
+  if (container) {
+    container.querySelectorAll<HTMLElement>(".storm-node, .board-node").forEach((node) => {
+      const id = node.dataset.runId ?? node.dataset.nodeId ?? "";
+      node.classList.toggle("is-marquee-hover", ids.has(id));
+    });
+  }
+}
+
+function hideMarquee(): void {
+  const el = $("marquee-selection");
+  if (el) el.hidden = true;
+  // Clear marquee hover highlights
+  document.querySelectorAll(".is-marquee-hover").forEach((node) => node.classList.remove("is-marquee-hover"));
+}
+
 // ─── Event bindings ───
 
 function bindCanvasInteractions(): void {
@@ -2194,23 +2357,123 @@ function bindCanvasInteractions(): void {
   canvas.addEventListener("pointerdown", (e) => {
     stopBoardViewAnimation();
     if (e.button === 2) return;
-    if (((e.target as HTMLElement).closest(".storm-node") || (e.target as HTMLElement).closest(".board-node")) && !state.spacePanHeld && state.boardTool !== "pan" && e.button !== 1) return;
+    const onNode = (e.target as HTMLElement).closest(".storm-node") || (e.target as HTMLElement).closest(".board-node");
+    if (onNode && !state.spacePanHeld && state.boardTool !== "pan" && e.button !== 1) return;
+
+    // Select tool + empty canvas + left button = marquee selection
+    if (state.boardTool === "select" && !state.spacePanHeld && e.button === 0 && !onNode) {
+      const startWorld = clientToWorld(e.clientX, e.clientY);
+      state.pointerState = { mode: "marquee", pointerId: e.pointerId, startClient: { x: e.clientX, y: e.clientY }, startWorld, currentWorld: { ...startWorld }, additive: e.shiftKey };
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+
     state.pointerState = { mode: "pan", pointerId: e.pointerId, startClient: { x: e.clientX, y: e.clientY }, startPan: { ...state.pan } };
     canvas.setPointerCapture(e.pointerId);
   });
 
   canvas.addEventListener("pointermove", (e) => {
-    if (!state.pointerState || state.pointerState.mode !== "pan" || state.pointerState.pointerId !== e.pointerId) return;
+    if (!state.pointerState || state.pointerState.pointerId !== e.pointerId) return;
+
+    if (state.pointerState.mode === "marquee") {
+      state.pointerState.currentWorld = clientToWorld(e.clientX, e.clientY);
+      renderMarquee();
+      return;
+    }
+
+    if (state.pointerState.mode === "drag-selection") {
+      e.preventDefault();
+      const dx = (e.clientX - state.pointerState.startClient.x) / state.scale;
+      const dy = (e.clientY - state.pointerState.startClient.y) / state.scale;
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) state.pointerState.moved = true;
+      const container = $("storm-board");
+      for (const [id, startPos] of state.pointerState.startPositions) {
+        const next = { x: startPos.x + dx, y: startPos.y + dy };
+        state.positions.set(id, next);
+        const runEl = container?.querySelector<HTMLElement>(`.storm-node[data-run-id="${id}"]`);
+        const boardEl = container?.querySelector<HTMLElement>(`.board-node[data-node-id="${id}"]`);
+        const el = runEl ?? boardEl;
+        if (el) el.style.transform = `translate(${next.x}px, ${next.y}px)`;
+      }
+      renderConnections();
+      return;
+    }
+
+    if (state.pointerState.mode !== "pan") return;
     state.pan = { x: state.pointerState.startPan.x + (e.clientX - state.pointerState.startClient.x), y: state.pointerState.startPan.y + (e.clientY - state.pointerState.startClient.y) };
     updateBoardTransform();
   });
 
   canvas.addEventListener("pointerup", (e) => {
-    if (state.pointerState?.mode === "pan" && state.pointerState.pointerId === e.pointerId) { state.pointerState = null; canvas.releasePointerCapture(e.pointerId); }
+    if (!state.pointerState || state.pointerState.pointerId !== e.pointerId) return;
+
+    if (state.pointerState.mode === "marquee") {
+      const { startWorld, currentWorld, additive, startClient } = state.pointerState;
+      const dx = e.clientX - startClient.x;
+      const dy = e.clientY - startClient.y;
+      canvas.releasePointerCapture(e.pointerId);
+      state.pointerState = null;
+      hideMarquee();
+
+      // If barely moved, treat as click on background = deselect
+      if (Math.abs(dx) < 5 && Math.abs(dy) < 5) {
+        deselectAll();
+        return;
+      }
+
+      const ids = hitTestNodesInRect(startWorld, currentWorld);
+      if (!additive) state.selectedIds.clear();
+      for (const id of ids) state.selectedIds.add(id);
+      // Set primary active to last hit
+      if (ids.length > 0) {
+        const last = ids[ids.length - 1];
+        const isRun = state.runs.some((r) => r.id === last);
+        state.activeRunId = isRun ? last : null;
+        state.activeNodeId = isRun ? null : last;
+      } else if (!additive) {
+        state.activeRunId = null;
+        state.activeNodeId = null;
+      }
+      renderSelectionVisuals();
+      return;
+    }
+
+    if (state.pointerState.mode === "drag-selection") {
+      const { moved, startPositions } = state.pointerState;
+      canvas.releasePointerCapture(e.pointerId);
+      state.pointerState = null;
+      updateBoardTransform();
+      if (moved) {
+        // Persist positions for all dragged nodes
+        for (const [id] of startPositions) {
+          const pos = state.positions.get(id);
+          if (!pos) continue;
+          const isRun = state.runs.some((r) => r.id === id);
+          const url = isRun ? `/storms/${id}/position` : `/nodes/${id}/position`;
+          if (!id.startsWith("generating-placeholder-")) {
+            const dim = getNodeDimensions(id);
+            fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ position_x: pos.x, position_y: pos.y, width: dim.w, height: dim.h }),
+            }).catch(() => {});
+          }
+        }
+      }
+      return;
+    }
+
+    if (state.pointerState.mode === "pan") {
+      canvas.releasePointerCapture(e.pointerId);
+      state.pointerState = null;
+    }
   });
 
   canvas.addEventListener("pointercancel", (e) => {
-    if (state.pointerState?.pointerId === e.pointerId) state.pointerState = null;
+    if (!state.pointerState || state.pointerState.pointerId !== e.pointerId) return;
+    if (state.pointerState.mode === "marquee") hideMarquee();
+    state.pointerState = null;
   });
 
   window.addEventListener("keydown", (e) => {
@@ -2260,6 +2523,9 @@ function bindNodeInteractions(): void {
         ? container.querySelector<HTMLElement>(`.storm-node[data-run-id="${state.pointerState.nodeId}"]`)
         : container.querySelector<HTMLElement>(`.board-node[data-node-id="${state.pointerState.nodeId}"]`);
     }
+    if (state.pointerState.mode === "drag-selection") {
+      return $("storm-canvas");
+    }
     return null;
   };
 
@@ -2270,13 +2536,35 @@ function bindNodeInteractions(): void {
     if (target.closest("[data-node-menu]")) return;
     if (target.closest(".edge-handle")) return;
     const action = target.closest<HTMLElement>("[data-run-action]")?.dataset.runAction;
-    const node = target.closest<HTMLElement>(".storm-node");
-    const runId = node?.dataset.runId;
-    if (!runId) return;
-    if (action) { handleRunAction(runId, action); return; }
-    if (state.pointerState?.mode === "drag" && state.pointerState.runId === runId && state.pointerState.moved) return;
-    if (maybeComposeCombine(runId)) return;
-    setActiveRun(runId, { sync: true });
+    const stormNode = target.closest<HTMLElement>(".storm-node");
+    const boardNode = target.closest<HTMLElement>(".board-node");
+    const runId = stormNode?.dataset.runId;
+    const nodeId = boardNode?.dataset.nodeId;
+
+    // Handle storm node click
+    if (runId) {
+      if (action) { handleRunAction(runId, action); return; }
+      if (state.pointerState?.mode === "drag" && state.pointerState.runId === runId && state.pointerState.moved) return;
+      if (maybeComposeCombine(runId)) return;
+      if (e.shiftKey) {
+        toggleSelection(runId);
+        syncUrl(false);
+      } else {
+        setActiveRun(runId, { sync: true });
+      }
+      return;
+    }
+
+    // Handle board node click (wire-pending cancelled = click)
+    if (nodeId) {
+      if (e.shiftKey) {
+        toggleSelection(nodeId);
+      } else {
+        selectOnly(nodeId);
+      }
+      renderInspector();
+      return;
+    }
   });
 
   container.addEventListener("dblclick", (e) => {
@@ -2322,7 +2610,7 @@ function bindNodeInteractions(): void {
         return;
       }
 
-      // Shift+drag on storm node = move
+      // Shift+drag on storm node = move (multi-select aware)
       const node = target.closest<HTMLElement>(".storm-node");
       const runId = node?.dataset.runId;
       if (!node || !runId) return;
@@ -2330,8 +2618,18 @@ function bindNodeInteractions(): void {
       if (!pt) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      state.pointerState = { mode: "drag", pointerId: e.pointerId, runId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
-      node.setPointerCapture(e.pointerId);
+
+      // If this node is part of a multi-selection, drag them all
+      if (state.selectedIds.has(runId) && state.selectedIds.size > 1) {
+        const canvasEl = $("storm-canvas");
+        state.pointerState = { mode: "drag-selection", pointerId: e.pointerId, startClient: { x: e.clientX, y: e.clientY }, startPositions: getSelectedPositionsSnapshot(), moved: false };
+        canvasEl?.setPointerCapture(e.pointerId);
+      } else {
+        // Select this node if not already selected
+        if (!state.selectedIds.has(runId)) selectOnly(runId);
+        state.pointerState = { mode: "drag", pointerId: e.pointerId, runId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
+        node.setPointerCapture(e.pointerId);
+      }
       return;
     }
 
@@ -2574,8 +2872,7 @@ function bindNodeInteractions(): void {
         // Dropped on empty canvas: open radial menu to pick node type, then auto-connect
         const dropWorld = clientToWorld(e.clientX, e.clientY);
         pendingWireSource = { id: sourceRunId, type: sourceType, anchor: sourceAnchor, dropWorld };
-        state.activeRunId = null;
-        state.activeNodeId = null;
+        deselectAll();
         openRadialMenu(e.clientX, e.clientY);
       }
       if (srcEl instanceof HTMLElement && srcEl.hasPointerCapture(e.pointerId)) srcEl.releasePointerCapture(e.pointerId);
@@ -2836,6 +3133,91 @@ async function dropNodeIntoSet(nodeId: string, setNode: BoardNode): Promise<void
   await createBoardEdge(nodeId, node.nodeType, setNode.id, "set", undefined, undefined, "out", "members");
 }
 
+// ─── Edge hit testing ───
+
+function hitTestEdge(worldPt: Point, maxDist: number = 12): string | null {
+  let bestId: string | null = null;
+  let bestDist = maxDist;
+
+  for (const edge of state.edges) {
+    const srcPos = state.positions.get(edge.sourceId);
+    const tgtPos = state.positions.get(edge.targetId);
+    if (!srcPos || !tgtPos) continue;
+    const srcDim = getNodeDimensions(edge.sourceId);
+    const tgtDim = getNodeDimensions(edge.targetId);
+
+    let sx: number, sy: number, ex: number, ey: number;
+
+    if (edge.sourceAnchorSide && edge.sourceAnchorT != null) {
+      const anchor = getAnchorWorldPos(edge.sourceId, edge.sourceAnchorSide as AnchorSide, edge.sourceAnchorT);
+      sx = anchor.x; sy = anchor.y;
+    } else {
+      sx = srcPos.x + srcDim.w * 0.5;
+      sy = srcPos.y + srcDim.h;
+    }
+
+    if (edge.targetAnchorSide && edge.targetAnchorT != null) {
+      const anchor = getAnchorWorldPos(edge.targetId, edge.targetAnchorSide as AnchorSide, edge.targetAnchorT);
+      ex = anchor.x; ey = anchor.y;
+    } else {
+      ex = tgtPos.x + tgtDim.w * 0.5;
+      ey = tgtPos.y;
+    }
+
+    // Sample the cubic bezier and find min distance
+    const srcSide = (edge.sourceAnchorSide ?? "bottom") as AnchorSide;
+    const tgtSide = (edge.targetAnchorSide ?? "top") as AnchorSide;
+    const dx = ex - sx;
+    const dy = ey - sy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const tension = Math.min(dist * 0.4, 80);
+    const srcCtrl = getControlOffset(srcSide, tension);
+    const tgtCtrl = getControlOffset(tgtSide, -tension);
+
+    const cx1 = sx + srcCtrl.x, cy1 = sy + srcCtrl.y;
+    const cx2 = ex + tgtCtrl.x, cy2 = ey + tgtCtrl.y;
+
+    // Sample 20 points along the bezier
+    for (let i = 0; i <= 20; i++) {
+      const t = i / 20;
+      const it = 1 - t;
+      const px = it * it * it * sx + 3 * it * it * t * cx1 + 3 * it * t * t * cx2 + t * t * t * ex;
+      const py = it * it * it * sy + 3 * it * it * t * cy1 + 3 * it * t * t * cy2 + t * t * t * ey;
+      const d = Math.sqrt((worldPt.x - px) ** 2 + (worldPt.y - py) ** 2);
+      if (d < bestDist) {
+        bestDist = d;
+        bestId = edge.id;
+      }
+    }
+  }
+  return bestId;
+}
+
+// ─── Delete edge ───
+
+async function deleteEdge(edgeId: string): Promise<void> {
+  try {
+    const resp = await fetch(`/edges/${edgeId}`, { method: "DELETE", credentials: "include" });
+    if (!resp.ok) {
+      console.error("Failed to delete edge:", resp.status, resp.statusText);
+      return;
+    }
+  } catch (err) {
+    console.error("Failed to delete edge:", err);
+    return;
+  }
+
+  state.edges = state.edges.filter((e) => e.id !== edgeId);
+  if (state.activeEdgeId === edgeId) state.activeEdgeId = null;
+  renderConnections();
+  updateGenerateInputs();
+  updateSetMembers();
+  updatePickKInfo();
+  updateColorFromHueInputs();
+  updateHarmonyPreviews();
+  updateConditionalPreviews();
+}
+
 // ─── Delete board node ───
 
 async function deleteBoardNode(nodeId: string): Promise<void> {
@@ -2853,6 +3235,7 @@ async function deleteBoardNode(nodeId: string): Promise<void> {
   state.boardNodes = state.boardNodes.filter((n) => n.id !== nodeId);
   state.edges = state.edges.filter((e) => e.sourceId !== nodeId && e.targetId !== nodeId);
   state.positions.delete(nodeId);
+  state.selectedIds.delete(nodeId);
   if (state.activeNodeId === nodeId) state.activeNodeId = null;
 
   const el = document.querySelector(`.board-node[data-node-id="${nodeId}"]`);
@@ -2888,7 +3271,7 @@ async function duplicateBoardNode(sourceNodeId: string): Promise<void> {
     const newNode: BoardNode = await resp.json();
     state.boardNodes.push(newNode);
     state.positions.set(newNode.id, { x: newNode.positionX, y: newNode.positionY });
-    state.activeNodeId = newNode.id;
+    selectOnly(newNode.id);
     renderBoardNodes();
     renderConnections();
   } catch (err) {
@@ -2911,6 +3294,7 @@ async function deleteRun(runId: string): Promise<void> {
   state.runs = state.runs.filter((run) => run.id !== runId);
   state.edges = state.edges.filter((edge) => edge.sourceId !== runId && edge.targetId !== runId);
   state.positions.delete(runId);
+  state.selectedIds.delete(runId);
   state.lineage.delete(runId);
   state.lineage.forEach((parents, childId) => {
     const nextParents = parents.filter((parentId) => parentId !== runId);
@@ -4051,10 +4435,7 @@ function bindBoardNodeInteractions(): void {
     }
 
     // Select the node
-    state.activeNodeId = nodeId;
-    state.activeRunId = null;
-    renderBoardNodes();
-    renderRuns();
+    selectOnly(nodeId);
   });
 
   // Save input node text on blur
@@ -4283,8 +4664,17 @@ function bindBoardNodeInteractions(): void {
       if (!pt) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      state.pointerState = { mode: "drag-board-node", pointerId: e.pointerId, nodeId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
-      boardNode.setPointerCapture(e.pointerId);
+
+      // If this node is part of a multi-selection, drag them all
+      if (state.selectedIds.has(nodeId) && state.selectedIds.size > 1) {
+        const canvas = $("storm-canvas");
+        state.pointerState = { mode: "drag-selection", pointerId: e.pointerId, startClient: { x: e.clientX, y: e.clientY }, startPositions: getSelectedPositionsSnapshot(), moved: false };
+        canvas?.setPointerCapture(e.pointerId);
+      } else {
+        if (!state.selectedIds.has(nodeId)) selectOnly(nodeId);
+        state.pointerState = { mode: "drag-board-node", pointerId: e.pointerId, nodeId, startClient: { x: e.clientX, y: e.clientY }, startPos: { ...pt }, moved: false };
+        boardNode.setPointerCapture(e.pointerId);
+      }
       return;
     }
 
@@ -4338,10 +4728,29 @@ function bindAppChrome(): void {
       if (form && !form.hidden) { hideComposer(); e.preventDefault(); return; }
       if (state.focusedRunId) closeFullscreen();
     }
-    // Delete/Backspace to remove selected board node
-    if ((e.key === "Delete" || e.key === "Backspace") && !isEditableTarget(e.target) && state.activeNodeId) {
+    // Delete/Backspace to remove all selected nodes
+    if ((e.key === "Delete" || e.key === "Backspace") && !isEditableTarget(e.target) && state.selectedIds.size > 0) {
       e.preventDefault();
-      deleteBoardNode(state.activeNodeId);
+      const idsToDelete = [...state.selectedIds];
+      state.selectedIds.clear();
+      state.activeRunId = null;
+      state.activeNodeId = null;
+      for (const id of idsToDelete) {
+        if (state.boardNodes.some((n) => n.id === id)) {
+          deleteBoardNode(id);
+        } else if (state.runs.some((r) => r.id === id)) {
+          void deleteRun(id);
+        }
+      }
+    }
+    // Ctrl+A / Cmd+A to select all
+    if ((e.key === "a" || e.key === "A") && (e.ctrlKey || e.metaKey) && !isEditableTarget(e.target)) {
+      e.preventDefault();
+      selectAll();
+    }
+    // Escape to deselect all (after other escape handlers)
+    if (e.key === "Escape" && !isEditableTarget(e.target) && state.selectedIds.size > 0 && !state.radialMenu.open && !state.focusedRunId) {
+      deselectAll();
     }
     // Ctrl+C / Cmd+C to copy selected board node
     if ((e.key === "c" || e.key === "C") && (e.ctrlKey || e.metaKey) && !isEditableTarget(e.target) && state.activeNodeId) {
@@ -4537,8 +4946,7 @@ function bindPalette(): void {
     if (nodeType === "design") {
       setActiveRun(nodeId, { sync: true });
     } else {
-      state.activeNodeId = nodeId;
-      state.activeRunId = null;
+      selectOnly(nodeId);
     }
     centerRunInView(nodeId);
     closePalette();
@@ -4631,6 +5039,14 @@ function renderSlicePath(cx: number, cy: number, startAngle: number, endAngle: n
 // ─── Radial menu items ───
 
 function getRadialItems(): RadialItem[] {
+  // Edge selected — show edge context menu
+  if (state.activeEdgeId) {
+    const edgeId = state.activeEdgeId;
+    return [
+      { id: "delete-edge", angle: 0, label: "Delete", icon: "✕", variant: "danger" as const, action: () => { void deleteEdge(edgeId); } },
+    ];
+  }
+
   if (pendingWireSource) {
     const wire = pendingWireSource;
     const worldPos = wire.dropWorld;
@@ -4899,6 +5315,12 @@ function closeRadialMenu(): void {
   state.radialMenu.subMenuItems = null;
   state.radialMenu.subMenuLabel = null;
   pendingWireSource = null;
+  // Clear edge highlight
+  if (state.activeEdgeId) {
+    const svg = $("storm-lines") as unknown as SVGSVGElement | null;
+    svg?.querySelectorAll(".board-edge-line.is-active").forEach((el) => el.classList.remove("is-active"));
+    state.activeEdgeId = null;
+  }
   const menu = $("radial-menu");
   if (menu) { menu.hidden = true; menu.setAttribute("aria-hidden", "true"); }
   const backdrop = $("radial-backdrop");
@@ -5058,20 +5480,46 @@ function bindRadialMenu(): void {
   canvas.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     if (state.radialMenu.open) return;
-    // If right-clicked on a node, select it first
-    const stormNode = (e.target as HTMLElement).closest<HTMLElement>(".storm-node");
-    const boardNode = (e.target as HTMLElement).closest<HTMLElement>(".board-node");
+
+    const target = e.target as Element;
+    state.activeEdgeId = null;
+
+    // If right-clicked on a node, select it first (unless already in selection)
+    const stormNode = target.closest<HTMLElement>(".storm-node");
+    const boardNode = target.closest<HTMLElement>(".board-node");
+
+    // If not on a node, check if right-clicked near an edge
+    if (!stormNode && !boardNode) {
+      const world = clientToWorld(e.clientX, e.clientY);
+      const edgeId = hitTestEdge(world);
+      if (edgeId) {
+        state.activeEdgeId = edgeId;
+        deselectAll();
+        // Highlight the clicked edge
+        const svg = $("storm-lines") as unknown as SVGSVGElement | null;
+        svg?.querySelectorAll(".board-edge-line.is-active").forEach((el) => el.classList.remove("is-active"));
+        const edgeLine = svg?.querySelector(`.board-edge-line[data-edge-id="${edgeId}"]`);
+        edgeLine?.classList.add("is-active");
+        openRadialMenu(e.clientX, e.clientY);
+        return;
+      }
+    }
     if (stormNode?.dataset.runId) {
-      state.activeNodeId = null;
-      setActiveRun(stormNode.dataset.runId);
+      if (!state.selectedIds.has(stormNode.dataset.runId)) {
+        selectOnly(stormNode.dataset.runId);
+      } else {
+        state.activeRunId = stormNode.dataset.runId;
+        state.activeNodeId = null;
+      }
     } else if (boardNode?.dataset.nodeId) {
-      state.activeRunId = null;
-      state.activeNodeId = boardNode.dataset.nodeId;
-      renderBoardNodes();
-      renderRuns();
+      if (!state.selectedIds.has(boardNode.dataset.nodeId)) {
+        selectOnly(boardNode.dataset.nodeId);
+      } else {
+        state.activeNodeId = boardNode.dataset.nodeId;
+        state.activeRunId = null;
+      }
     } else {
-      state.activeRunId = null;
-      state.activeNodeId = null;
+      deselectAll();
     }
     openRadialMenu(e.clientX, e.clientY);
   });

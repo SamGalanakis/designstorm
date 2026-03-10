@@ -3120,13 +3120,37 @@ body.is-shift-held .board-node { cursor: grab; }
   border-radius: calc(var(--radius) + 2px);
 }
 
-body.is-shift-held .storm-node:hover .node-selection-chrome,
-body.is-shift-held .storm-node.is-active .node-selection-chrome,
+/* Show selection chrome: always for active nodes, shift-held for hover */
+.storm-node.is-active .node-selection-chrome,
 .storm-node.is-resizing .node-selection-chrome,
+.board-node.is-active .node-selection-chrome,
+.board-node.is-resizing .node-selection-chrome,
+body.is-shift-held .storm-node:hover .node-selection-chrome,
 body.is-shift-held .board-node:hover .node-selection-chrome,
-body.is-shift-held .board-node.is-active .node-selection-chrome,
-.board-node.is-resizing .node-selection-chrome {
+.storm-node.is-marquee-hover .node-selection-chrome,
+.board-node.is-marquee-hover .node-selection-chrome {
   opacity: 1;
+}
+
+/* Marquee hover preview has a slightly different border style */
+.storm-node.is-marquee-hover .node-selection-border,
+.board-node.is-marquee-hover .node-selection-border {
+  border-color: rgba(143, 199, 229, 0.62);
+  border-style: dashed;
+}
+
+/* ─── Marquee selection rectangle ─── */
+
+.marquee-selection {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 1.5px solid rgba(143, 199, 229, 0.7);
+  background: rgba(91, 156, 184, 0.08);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 9999;
+  will-change: transform, width, height;
 }
 
 .node-resize-handle:not([data-resize-x]) {
@@ -3262,6 +3286,13 @@ body.is-shift-held .board-node.is-active .node-selection-chrome,
   stroke-width: 2;
   stroke-linecap: round;
   stroke-dasharray: 4 6;
+  transition: stroke 120ms ease, stroke-width 120ms ease;
+}
+
+.board-edge-line.is-active {
+  stroke: rgba(220, 100, 100, 0.7);
+  stroke-width: 2.5;
+  stroke-dasharray: none;
 }
 
 /* ─── Pills / Chips ─── */

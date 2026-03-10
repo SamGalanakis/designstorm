@@ -2069,6 +2069,270 @@ async fn run_generate_node(
     }
 }
 
+struct PromptParts {
+    entropy: Vec<String>,
+    user: Vec<String>,
+    design: Vec<String>,
+    asset_ids: Vec<(Uuid, String)>,
+}
+
+impl PromptParts {
+    fn new() -> Self {
+        Self { entropy: Vec::new(), user: Vec::new(), design: Vec::new(), asset_ids: Vec::new() }
+    }
+}
+
+const BOARD_NODE_SQL: &str = "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2";
+const BOARD_EDGE_SQL: &str = r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type, source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t, source_slot, target_slot FROM board_edges WHERE target_id = $1 AND owner_user_id = $2"#;
+
+fn resolve_node_to_prompt<'a>(
+    db: &'a PgPool, owner_id: Uuid, node: &'a BoardNodeRow,
+    parts: &'a mut PromptParts, depth: u8,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), AppError>> + Send + 'a>> {
+    Box::pin(async move {
+        if depth > 8 { return Ok(()); }
+        match node.node_type.as_str() {
+            "entropy" => {
+                let title = node.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
+                let url = node.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                parts.entropy.push(format!("Reference: \"{}\" — {}", title, url));
+            }
+            "user_input" => {
+                let text = node.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                if !text.is_empty() {
+                    parts.user.push(format!("User direction: \"{}\"", text));
+                }
+            }
+            "design" => {
+                if let Ok(Some(run)) = sqlx::query_as::<_, StormRunRow>(
+                    "SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url, submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height FROM storm_runs WHERE id = $1 AND owner_user_id = $2",
+                )
+                .bind(node.id)
+                .bind(owner_id)
+                .fetch_optional(db)
+                .await
+                {
+                    let record = StormRunRecord::from(run);
+                    parts.design.push(format!(
+                        "Build on: \"{}\" — {}\nOriginal seed: {}",
+                        record.title, record.summary, record.prompt
+                    ));
+                }
+            }
+            "color" => {
+                let val = node.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                if !val.is_empty() {
+                    parts.user.push(format!("Color constraint: {}", val));
+                }
+            }
+            "color_palette" => {
+                let mut colors: Vec<String> = node.content.get("colors")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect())
+                    .unwrap_or_default();
+                let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                    &format!("{} AND target_slot = 'members'", BOARD_EDGE_SQL),
+                )
+                .bind(node.id)
+                .bind(owner_id)
+                .fetch_all(db)
+                .await
+                .unwrap_or_default();
+                for me in &member_edges {
+                    if me.source_type == "color" {
+                        if let Ok(Some(cn)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
+                            .bind(me.source_id).bind(owner_id).fetch_optional(db).await {
+                            if let Some(val) = cn.content.get("value").and_then(|v| v.as_str()) {
+                                if !val.is_empty() { colors.push(val.to_string()); }
+                            }
+                        }
+                    }
+                }
+                if !colors.is_empty() {
+                    parts.user.push(format!("Color palette constraint: use these colors: {}", colors.join(", ")));
+                }
+            }
+            "color_harmony" => {
+                let mode = node.content.get("mode").and_then(|v| v.as_str()).unwrap_or("complementary");
+                let source_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                    &format!("{} AND target_slot = 'source'", BOARD_EDGE_SQL),
+                )
+                .bind(node.id)
+                .bind(owner_id)
+                .fetch_all(db)
+                .await
+                .unwrap_or_default();
+                if let Some(se) = source_edges.first() {
+                    if se.source_type == "color" {
+                        if let Ok(Some(cn)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
+                            .bind(se.source_id).bind(owner_id).fetch_optional(db).await {
+                            let base_hex = cn.content.get("value").and_then(|v| v.as_str()).unwrap_or("#5b9cb8");
+                            let colors = compute_harmony_colors(base_hex, mode);
+                            parts.user.push(format!("Color harmony ({}) constraint: use these colors: {}", mode.replace('_', "-"), colors.join(", ")));
+                        }
+                    }
+                }
+            }
+            "image" | "draw" => {
+                let alt = node.content.get("alt").and_then(|v| v.as_str()).unwrap_or("");
+                if let Some(aid) = node.content.get("asset_id").and_then(|v| v.as_str()) {
+                    if let Ok(asset_uuid) = Uuid::from_str(aid) {
+                        let desc = if alt.is_empty() { if node.node_type == "draw" { "drawing" } else { "image" }.to_string() } else { alt.to_string() };
+                        parts.asset_ids.push((asset_uuid, desc.clone()));
+                        parts.user.push(format!("Reference image available at: inputs/{} — use copy_input to include it in your output if needed", desc));
+                    }
+                } else {
+                    let url = node.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                    if !url.is_empty() {
+                        parts.user.push(format!("Reference image: {} ({})", url, alt));
+                    }
+                }
+            }
+            "font" => {
+                let family = node.content.get("family").and_then(|v| v.as_str()).unwrap_or("");
+                let weight = node.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400");
+                let size = node.content.get("size").and_then(|v| v.as_str()).unwrap_or("16");
+                let line_height = node.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5");
+                let mut font_parts = Vec::new();
+                if !family.is_empty() { font_parts.push(format!("font-family: {}", family)); }
+                font_parts.push(format!("font-weight: {}", weight));
+                font_parts.push(format!("font-size: {}px", size));
+                font_parts.push(format!("line-height: {}", line_height));
+                parts.user.push(format!("Typography constraint: {}", font_parts.join(", ")));
+                if let Some(aid) = node.content.get("asset_id").and_then(|v| v.as_str()) {
+                    if let Ok(asset_uuid) = Uuid::from_str(aid) {
+                        let file_name = node.content.get("file_name").and_then(|v| v.as_str()).unwrap_or("font.woff2");
+                        parts.asset_ids.push((asset_uuid, file_name.to_string()));
+                        parts.user.push(format!("Custom font file available at: inputs/{} — use copy_input to copy it into your workspace, then add a @font-face declaration pointing to it", file_name));
+                    }
+                }
+            }
+            "string_value" => {
+                let val = node.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                if !val.is_empty() {
+                    let label = if let Some(pid) = node.content.get("preset").and_then(|v| v.as_str()) {
+                        let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
+                        format!("{}: \"{}\"", plabel, val)
+                    } else {
+                        format!("String parameter: \"{}\"", val)
+                    };
+                    parts.user.push(label);
+                }
+            }
+            "int_value" => {
+                if let Some(val) = node.content.get("value").and_then(|v| v.as_i64()) {
+                    parts.user.push(format!("Integer parameter: {}", val));
+                }
+            }
+            "float_value" => {
+                if let Some(val) = node.content.get("value").and_then(|v| v.as_f64()) {
+                    parts.user.push(format!("Float parameter: {}", val));
+                }
+            }
+            "bool_value" => {
+                if let Some(val) = node.content.get("value").and_then(|v| v.as_bool()) {
+                    parts.user.push(format!("Boolean parameter: {}", val));
+                }
+            }
+            "conditional" => {
+                let cond_edges = sqlx::query_as::<_, BoardEdgeRow>(BOARD_EDGE_SQL)
+                    .bind(node.id)
+                    .bind(owner_id)
+                    .fetch_all(db)
+                    .await
+                    .unwrap_or_default();
+                let mut condition = false;
+                for ce in &cond_edges {
+                    if ce.target_slot == "condition" && ce.source_type == "bool_value" {
+                        if let Ok(Some(bool_node)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
+                            .bind(ce.source_id).bind(owner_id).fetch_optional(db).await {
+                            condition = bool_node.content.get("value").and_then(|v| v.as_bool()).unwrap_or(false);
+                        }
+                    }
+                }
+                let active_slot = if condition { "if_true" } else { "if_false" };
+                for ce in &cond_edges {
+                    if ce.target_slot != active_slot { continue; }
+                    if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
+                        .bind(ce.source_id).bind(owner_id).fetch_optional(db).await {
+                        resolve_node_to_prompt(db, owner_id, &src, parts, depth + 1).await?;
+                    }
+                }
+            }
+            "set" => {
+                let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                    &format!("{} AND target_slot = 'members'", BOARD_EDGE_SQL),
+                )
+                .bind(node.id)
+                .bind(owner_id)
+                .fetch_all(db)
+                .await
+                .unwrap_or_default();
+                for me in &member_edges {
+                    if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
+                        .bind(me.source_id).bind(owner_id).fetch_optional(db).await {
+                        resolve_node_to_prompt(db, owner_id, &src, parts, depth + 1).await?;
+                    }
+                }
+            }
+            "pick_k" => {
+                let k = node.content.get("k").and_then(|v| v.as_i64()).unwrap_or(1) as usize;
+                let with_replacement = node.content.get("replace").and_then(|v| v.as_bool()).unwrap_or(false);
+                let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
+                    &format!("{} AND target_slot = 'sources'", BOARD_EDGE_SQL),
+                )
+                .bind(node.id)
+                .bind(owner_id)
+                .fetch_all(db)
+                .await
+                .unwrap_or_default();
+
+                let mut resolved_sources = Vec::new();
+                for me in &member_edges {
+                    if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
+                        .bind(me.source_id).bind(owner_id).fetch_optional(db).await {
+                        resolved_sources.push(src);
+                    }
+                }
+
+                if resolved_sources.is_empty() { return Ok(()); }
+
+                if with_replacement {
+                    let mut count = 0usize;
+                    let mut idx = 0usize;
+                    while count < k {
+                        let src = &resolved_sources[idx % resolved_sources.len()];
+                        resolve_node_to_prompt(db, owner_id, src, parts, depth + 1).await?;
+                        count += 1;
+                        idx += 1;
+                        if idx >= k * resolved_sources.len() { break; }
+                    }
+                } else {
+                    let mut count = 0usize;
+                    for src in &resolved_sources {
+                        if count >= k { break; }
+                        resolve_node_to_prompt(db, owner_id, src, parts, depth + 1).await?;
+                        count += 1;
+                    }
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    })
+}
+
+async fn resolve_node_by_id(
+    db: &PgPool, owner_id: Uuid, node_id: Uuid,
+    parts: &mut PromptParts, depth: u8,
+) -> Result<(), AppError> {
+    if let Some(node) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
+        .bind(node_id).bind(owner_id).fetch_optional(db).await? {
+        resolve_node_to_prompt(db, owner_id, &node, parts, depth).await?;
+    }
+    Ok(())
+}
+
 async fn run_generate_node_inner(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2077,9 +2341,7 @@ async fn run_generate_node_inner(
     let viewer = require_viewer(&state, &headers).await?;
 
     // Load the generate node and verify ownership/type
-    let node = sqlx::query_as::<_, BoardNodeRow>(
-        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
-    )
+    let node = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
     .bind(node_id)
     .bind(viewer.id)
     .fetch_optional(&state.db)
@@ -2091,587 +2353,19 @@ async fn run_generate_node_inner(
     }
 
     // Collect all inputs wired into this generate node
-    let edges = sqlx::query_as::<_, BoardEdgeRow>(
-        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                  source_slot, target_slot
-           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2"#,
-    )
+    let edges = sqlx::query_as::<_, BoardEdgeRow>(BOARD_EDGE_SQL)
     .bind(node_id)
     .bind(viewer.id)
     .fetch_all(&state.db)
     .await?;
 
     // Build prompt from wired inputs
-    let mut entropy_parts = Vec::new();
-    let mut user_parts = Vec::new();
-    let mut design_parts = Vec::new();
-    let mut asset_ids: Vec<(Uuid, String)> = Vec::new();
-
-    let board_node_sql = "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2";
-
+    let mut parts = PromptParts::new();
     for edge in &edges {
-        match edge.source_type.as_str() {
-            "entropy" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
-                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                    entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
-                }
-            }
-            "user_input" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                    if !text.is_empty() {
-                        user_parts.push(format!("User direction: \"{}\"", text));
-                    }
-                }
-            }
-            "design" => {
-                if let Ok(Some(run)) = sqlx::query_as::<_, StormRunRow>(
-                    "SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url, submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height FROM storm_runs WHERE id = $1 AND owner_user_id = $2",
-                )
-                .bind(edge.source_id)
-                .bind(viewer.id)
-                .fetch_optional(&state.db)
-                .await
-                {
-                    let record = StormRunRecord::from(run);
-                    design_parts.push(format!(
-                        "Build on: \"{}\" — {}\nOriginal seed: {}",
-                        record.title, record.summary, record.prompt
-                    ));
-                }
-            }
-            "color" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                    if !val.is_empty() {
-                        user_parts.push(format!("Color constraint: {}", val));
-                    }
-                }
-            }
-            "color_palette" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    // Collect manually-added colors from palette content
-                    let mut colors: Vec<String> = src.content.get("colors")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect())
-                        .unwrap_or_default();
-                    // Also collect wired color members
-                    let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                                  source_slot, target_slot
-                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'members'"#,
-                    )
-                    .bind(edge.source_id)
-                    .bind(viewer.id)
-                    .fetch_all(&state.db)
-                    .await
-                    .unwrap_or_default();
-                    for member_edge in &member_edges {
-                        if member_edge.source_type == "color" {
-                            if let Ok(Some(color_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                                .bind(member_edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                                if let Some(val) = color_node.content.get("value").and_then(|v| v.as_str()) {
-                                    if !val.is_empty() { colors.push(val.to_string()); }
-                                }
-                            }
-                        }
-                    }
-                    if !colors.is_empty() {
-                        user_parts.push(format!("Color palette constraint: use these colors: {}", colors.join(", ")));
-                    }
-                }
-            }
-            "image" | "draw" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let alt = src.content.get("alt").and_then(|v| v.as_str()).unwrap_or("");
-                    if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
-                        if let Ok(asset_uuid) = Uuid::from_str(aid) {
-                            let desc = if alt.is_empty() { if edge.source_type == "draw" { "drawing" } else { "image" }.to_string() } else { alt.to_string() };
-                            asset_ids.push((asset_uuid, desc.clone()));
-                            user_parts.push(format!("Reference image available at: inputs/{} — use copy_input to include it in your output if needed", desc));
-                        }
-                    } else {
-                        let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                        if !url.is_empty() {
-                            user_parts.push(format!("Reference image: {} ({})", url, alt));
-                        }
-                    }
-                }
-            }
-            "font" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let family = src.content.get("family").and_then(|v| v.as_str()).unwrap_or("");
-                    let weight = src.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400");
-                    let size = src.content.get("size").and_then(|v| v.as_str()).unwrap_or("16");
-                    let line_height = src.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5");
-                    let mut parts = Vec::new();
-                    if !family.is_empty() { parts.push(format!("font-family: {}", family)); }
-                    parts.push(format!("font-weight: {}", weight));
-                    parts.push(format!("font-size: {}px", size));
-                    parts.push(format!("line-height: {}", line_height));
-                    user_parts.push(format!("Typography constraint: {}", parts.join(", ")));
-                    if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
-                        if let Ok(asset_uuid) = Uuid::from_str(aid) {
-                            let file_name = src.content.get("file_name").and_then(|v| v.as_str()).unwrap_or("font.woff2");
-                            asset_ids.push((asset_uuid, file_name.to_string()));
-                            user_parts.push(format!("Custom font file available at: inputs/{} — use copy_input to copy it into your workspace, then add a @font-face declaration pointing to it", file_name));
-                        }
-                    }
-                }
-            }
-            "string_value" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                    if !val.is_empty() {
-                        let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
-                            let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
-                            format!("{}: \"{}\"", plabel, val)
-                        } else {
-                            format!("String parameter: \"{}\"", val)
-                        };
-                        user_parts.push(label);
-                    }
-                }
-            }
-            "int_value" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) {
-                        user_parts.push(format!("Integer parameter: {}", val));
-                    }
-                }
-            }
-            "float_value" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) {
-                        user_parts.push(format!("Float parameter: {}", val));
-                    }
-                }
-            }
-            "bool_value" => {
-                if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) {
-                        user_parts.push(format!("Boolean parameter: {}", val));
-                    }
-                }
-            }
-            "color_harmony" => {
-                if let Ok(Some(harmony_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let mode = harmony_node.content.get("mode").and_then(|v| v.as_str()).unwrap_or("complementary");
-                    // Find the source color wired into this harmony node
-                    let source_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                                  source_slot, target_slot
-                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'source'"#,
-                    )
-                    .bind(edge.source_id)
-                    .bind(viewer.id)
-                    .fetch_all(&state.db)
-                    .await
-                    .unwrap_or_default();
-                    if let Some(source_edge) = source_edges.first() {
-                        if source_edge.source_type == "color" {
-                            if let Ok(Some(color_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                                .bind(source_edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                                let base_hex = color_node.content.get("value").and_then(|v| v.as_str()).unwrap_or("#5b9cb8");
-                                let colors = compute_harmony_colors(base_hex, mode);
-                                user_parts.push(format!("Color harmony ({}) constraint: use these colors: {}", mode.replace('_', "-"), colors.join(", ")));
-                            }
-                        }
-                    }
-                }
-            }
-            "conditional" => {
-                // Resolve the condition bool, then follow the appropriate branch
-                if let Ok(Some(cond_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let cond_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                                  source_slot, target_slot
-                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2"#,
-                    )
-                    .bind(edge.source_id)
-                    .bind(viewer.id)
-                    .fetch_all(&state.db)
-                    .await
-                    .unwrap_or_default();
-                    // Find the condition value
-                    let mut condition = false;
-                    for ce in &cond_edges {
-                        if ce.target_slot == "condition" && ce.source_type == "bool_value" {
-                            if let Ok(Some(bool_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                                .bind(ce.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                                condition = bool_node.content.get("value").and_then(|v| v.as_bool()).unwrap_or(false);
-                            }
-                        }
-                    }
-                    // Follow the active branch
-                    let active_slot = if condition { "if_true" } else { "if_false" };
-                    for ce in &cond_edges {
-                        if ce.target_slot != active_slot { continue; }
-                        if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                            .bind(ce.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                            match src.node_type.as_str() {
-                                "entropy" => {
-                                    let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
-                                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                                    entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
-                                }
-                                "user_input" => {
-                                    let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !text.is_empty() { user_parts.push(format!("User direction: \"{}\"", text)); }
-                                }
-                                "color" => {
-                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !val.is_empty() { user_parts.push(format!("Color constraint: {}", val)); }
-                                }
-                                "color_palette" => {
-                                    let colors: Vec<&str> = src.content.get("colors").and_then(|v| v.as_array())
-                                        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect()).unwrap_or_default();
-                                    if !colors.is_empty() { user_parts.push(format!("Color palette constraint: use these colors: {}", colors.join(", "))); }
-                                }
-                                "color_harmony" => {
-                                    // Recursively resolve the harmony's source color
-                                    let hmode = src.content.get("mode").and_then(|v| v.as_str()).unwrap_or("complementary");
-                                    let h_source_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-                                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                                                  source_slot, target_slot
-                                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'source'"#,
-                                    ).bind(src.id).bind(viewer.id).fetch_all(&state.db).await.unwrap_or_default();
-                                    if let Some(hse) = h_source_edges.first() {
-                                        if hse.source_type == "color" {
-                                            if let Ok(Some(cn)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                                                .bind(hse.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                                                let base = cn.content.get("value").and_then(|v| v.as_str()).unwrap_or("#5b9cb8");
-                                                let colors = compute_harmony_colors(base, hmode);
-                                                user_parts.push(format!("Color harmony ({}) constraint: use these colors: {}", hmode.replace('_', "-"), colors.join(", ")));
-                                            }
-                                        }
-                                    }
-                                }
-                                "string_value" => {
-                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !val.is_empty() {
-                                        let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
-                                            let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
-                                            format!("{}: \"{}\"", plabel, val)
-                                        } else { format!("String parameter: \"{}\"", val) };
-                                        user_parts.push(label);
-                                    }
-                                }
-                                "int_value" => {
-                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) { user_parts.push(format!("Integer parameter: {}", val)); }
-                                }
-                                "float_value" => {
-                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) { user_parts.push(format!("Float parameter: {}", val)); }
-                                }
-                                "bool_value" => {
-                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) { user_parts.push(format!("Boolean parameter: {}", val)); }
-                                }
-                                "font" => {
-                                    let family = src.content.get("family").and_then(|v| v.as_str()).unwrap_or("");
-                                    let weight = src.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400");
-                                    let size = src.content.get("size").and_then(|v| v.as_str()).unwrap_or("16");
-                                    let lh = src.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5");
-                                    let mut parts = Vec::new();
-                                    if !family.is_empty() { parts.push(format!("font-family: {}", family)); }
-                                    parts.push(format!("font-weight: {}", weight));
-                                    parts.push(format!("font-size: {}px", size));
-                                    parts.push(format!("line-height: {}", lh));
-                                    user_parts.push(format!("Typography constraint: {}", parts.join(", ")));
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    let _ = cond_node; // suppress unused warning
-                }
-            }
-            "set" => {
-                // Expand set: resolve all members recursively
-                let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                    r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-                              source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                              source_slot, target_slot
-                       FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'members'"#,
-                )
-                .bind(edge.source_id)
-                .bind(viewer.id)
-                .fetch_all(&state.db)
-                .await
-                .unwrap_or_default();
-                for member_edge in &member_edges {
-                    if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                            .bind(member_edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                        match src.node_type.as_str() {
-                            "entropy" => {
-                                let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
-                                let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                                entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
-                            }
-                            "user_input" => {
-                                let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                                if !text.is_empty() {
-                                    user_parts.push(format!("User direction: \"{}\"", text));
-                                }
-                            }
-                            "color" => {
-                                let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                if !val.is_empty() {
-                                    user_parts.push(format!("Color constraint: {}", val));
-                                }
-                            }
-                            "color_palette" => {
-                                let colors: Vec<&str> = src.content.get("colors")
-                                    .and_then(|v| v.as_array())
-                                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-                                    .unwrap_or_default();
-                                if !colors.is_empty() {
-                                    user_parts.push(format!("Color palette constraint: use these colors: {}", colors.join(", ")));
-                                }
-                            }
-                            "image" | "draw" => {
-                                let alt = src.content.get("alt").and_then(|v| v.as_str()).unwrap_or("");
-                                if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
-                                    if let Ok(asset_uuid) = Uuid::from_str(aid) {
-                                        let desc = if alt.is_empty() { if src.node_type == "draw" { "drawing" } else { "image" }.to_string() } else { alt.to_string() };
-                                        asset_ids.push((asset_uuid, desc.clone()));
-                                        user_parts.push(format!("Reference image available at: inputs/{} — use copy_input to include it in your output if needed", desc));
-                                    }
-                                } else {
-                                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !url.is_empty() {
-                                        user_parts.push(format!("Reference image: {} ({})", url, alt));
-                                    }
-                                }
-                            }
-                            "font" => {
-                                let family = src.content.get("family").and_then(|v| v.as_str()).unwrap_or("");
-                                let weight = src.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400");
-                                let size = src.content.get("size").and_then(|v| v.as_str()).unwrap_or("16");
-                                let line_height = src.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5");
-                                let mut parts = Vec::new();
-                                if !family.is_empty() { parts.push(format!("font-family: {}", family)); }
-                                parts.push(format!("font-weight: {}", weight));
-                                parts.push(format!("font-size: {}px", size));
-                                parts.push(format!("line-height: {}", line_height));
-                                user_parts.push(format!("Typography constraint: {}", parts.join(", ")));
-                                if let Some(aid) = src.content.get("asset_id").and_then(|v| v.as_str()) {
-                                    if let Ok(asset_uuid) = Uuid::from_str(aid) {
-                                        let file_name = src.content.get("file_name").and_then(|v| v.as_str()).unwrap_or("font.woff2");
-                                        asset_ids.push((asset_uuid, file_name.to_string()));
-                                        user_parts.push(format!("Custom font file available at: inputs/{} — use copy_input to copy it into your workspace, then add a @font-face declaration pointing to it", file_name));
-                                    }
-                                }
-                            }
-                            "string_value" => {
-                                let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                if !val.is_empty() {
-                                    let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
-                                        let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
-                                        format!("{}: \"{}\"", plabel, val)
-                                    } else {
-                                        format!("String parameter: \"{}\"", val)
-                                    };
-                                    user_parts.push(label);
-                                }
-                            }
-                            "int_value" => {
-                                if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) {
-                                    user_parts.push(format!("Integer parameter: {}", val));
-                                }
-                            }
-                            "float_value" => {
-                                if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) {
-                                    user_parts.push(format!("Float parameter: {}", val));
-                                }
-                            }
-                            "bool_value" => {
-                                if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) {
-                                    user_parts.push(format!("Boolean parameter: {}", val));
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-            "pick_k" => {
-                // Expand pick_k: resolve members, pick up to K (with or without replacement)
-                if let Ok(Some(pk_node)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                    .bind(edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                    let k = pk_node.content.get("k").and_then(|v| v.as_i64()).unwrap_or(1) as usize;
-                    let with_replacement = pk_node.content.get("replace").and_then(|v| v.as_bool()).unwrap_or(false);
-                    let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                        r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-                                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                                  source_slot, target_slot
-                           FROM board_edges WHERE target_id = $1 AND owner_user_id = $2 AND target_slot = 'sources'"#,
-                    )
-                    .bind(edge.source_id)
-                    .bind(viewer.id)
-                    .fetch_all(&state.db)
-                    .await
-                    .unwrap_or_default();
-
-                    // Resolve all source nodes once
-                    let mut resolved_sources = Vec::new();
-                    for member_edge in &member_edges {
-                        if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(board_node_sql)
-                            .bind(member_edge.source_id).bind(viewer.id).fetch_optional(&state.db).await {
-                            resolved_sources.push(src);
-                        }
-                    }
-
-                    if with_replacement && !resolved_sources.is_empty() {
-                        // With replacement: cycle through sources repeatedly up to K
-                        let mut count = 0usize;
-                        let mut idx = 0usize;
-                        while count < k {
-                            let src = &resolved_sources[idx % resolved_sources.len()];
-                            match src.node_type.as_str() {
-                                "entropy" => {
-                                    let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
-                                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                                    entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
-                                    count += 1;
-                                }
-                                "user_input" => {
-                                    let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !text.is_empty() {
-                                        user_parts.push(format!("User direction: \"{}\"", text));
-                                        count += 1;
-                                    }
-                                }
-                                "color" => {
-                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !val.is_empty() {
-                                        user_parts.push(format!("Color constraint: {}", val));
-                                    }
-                                    count += 1;
-                                }
-                                "string_value" => {
-                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !val.is_empty() {
-                                        let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
-                                            let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
-                                            format!("{}: \"{}\"", plabel, val)
-                                        } else {
-                                            format!("String parameter: \"{}\"", val)
-                                        };
-                                        user_parts.push(label);
-                                    }
-                                    count += 1;
-                                }
-                                "int_value" => {
-                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) {
-                                        user_parts.push(format!("Integer parameter: {}", val));
-                                    }
-                                    count += 1;
-                                }
-                                "float_value" => {
-                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) {
-                                        user_parts.push(format!("Float parameter: {}", val));
-                                    }
-                                    count += 1;
-                                }
-                                "bool_value" => {
-                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) {
-                                        user_parts.push(format!("Boolean parameter: {}", val));
-                                    }
-                                    count += 1;
-                                }
-                                _ => { count += 1; }
-                            }
-                            idx += 1;
-                            // Safety: if all sources are empty user_inputs, avoid infinite loop
-                            if idx >= k * resolved_sources.len() { break; }
-                        }
-                    } else {
-                        // Without replacement: take up to K unique sources
-                        let mut count = 0usize;
-                        for src in &resolved_sources {
-                            if count >= k { break; }
-                            match src.node_type.as_str() {
-                                "entropy" => {
-                                    let title = src.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
-                                    let url = src.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                                    entropy_parts.push(format!("Reference: \"{}\" — {}", title, url));
-                                    count += 1;
-                                }
-                                "user_input" => {
-                                    let text = src.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !text.is_empty() {
-                                        user_parts.push(format!("User direction: \"{}\"", text));
-                                        count += 1;
-                                    }
-                                }
-                                "color" => {
-                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !val.is_empty() {
-                                        user_parts.push(format!("Color constraint: {}", val));
-                                    }
-                                    count += 1;
-                                }
-                                "string_value" => {
-                                    let val = src.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                    if !val.is_empty() {
-                                        let label = if let Some(pid) = src.content.get("preset").and_then(|v| v.as_str()) {
-                                            let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
-                                            format!("{}: \"{}\"", plabel, val)
-                                        } else {
-                                            format!("String parameter: \"{}\"", val)
-                                        };
-                                        user_parts.push(label);
-                                    }
-                                    count += 1;
-                                }
-                                "int_value" => {
-                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_i64()) {
-                                        user_parts.push(format!("Integer parameter: {}", val));
-                                    }
-                                    count += 1;
-                                }
-                                "float_value" => {
-                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_f64()) {
-                                        user_parts.push(format!("Float parameter: {}", val));
-                                    }
-                                    count += 1;
-                                }
-                                "bool_value" => {
-                                    if let Some(val) = src.content.get("value").and_then(|v| v.as_bool()) {
-                                        user_parts.push(format!("Boolean parameter: {}", val));
-                                    }
-                                    count += 1;
-                                }
-                                _ => { count += 1; }
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
+        resolve_node_by_id(&state.db, viewer.id, edge.source_id, &mut parts, 0).await?;
     }
 
-    if entropy_parts.is_empty() && user_parts.is_empty() && design_parts.is_empty() {
+    if parts.entropy.is_empty() && parts.user.is_empty() && parts.design.is_empty() {
         return Ok(datastar_event_stream(Box::pin(stream! {
             yield Ok::<_, Infallible>(patch_signals(json!({
                 "_generating": false,
@@ -2681,18 +2375,18 @@ async fn run_generate_node_inner(
     }
 
     let mut prompt = String::from("Design Direction:\n\n");
-    if !entropy_parts.is_empty() {
-        prompt.push_str(&entropy_parts.join("\n"));
+    if !parts.entropy.is_empty() {
+        prompt.push_str(&parts.entropy.join("\n"));
         prompt.push('\n');
     }
-    if !user_parts.is_empty() {
-        if !entropy_parts.is_empty() { prompt.push('\n'); }
-        prompt.push_str(&user_parts.join("\n"));
+    if !parts.user.is_empty() {
+        if !parts.entropy.is_empty() { prompt.push('\n'); }
+        prompt.push_str(&parts.user.join("\n"));
         prompt.push('\n');
     }
-    if !design_parts.is_empty() {
-        if !entropy_parts.is_empty() || !user_parts.is_empty() { prompt.push('\n'); }
-        prompt.push_str(&design_parts.join("\n\n"));
+    if !parts.design.is_empty() {
+        if !parts.entropy.is_empty() || !parts.user.is_empty() { prompt.push('\n'); }
+        prompt.push_str(&parts.design.join("\n\n"));
         prompt.push('\n');
     }
     prompt.push_str("\n---\nCreate a bold design language artifact that synthesizes these inputs.");
@@ -2701,7 +2395,7 @@ async fn run_generate_node_inner(
         prompt,
         draft_mode: None,
         source_ids: vec![],
-        asset_ids,
+        asset_ids: parts.asset_ids,
     };
 
     let gen_node_id = node_id;
