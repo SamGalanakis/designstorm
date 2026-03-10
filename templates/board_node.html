@@ -108,7 +108,9 @@
         </div>
         <div class="set-title" contenteditable="true" data-placeholder="Set title..." data-ignore>{{ node.set_title() }}</div>
         <div class="set-description" contenteditable="true" data-placeholder="Description..." data-ignore>{{ node.set_description() }}</div>
-        <div class="set-members" id="set-members-{{ node.id }}"></div>
+        <div class="set-members" id="set-members-{{ node.id }}">
+          <div class="set-members-empty">Shift-drag supported nodes into this set</div>
+        </div>
       </div>
 
       {% else if node.node_type == "image" %}

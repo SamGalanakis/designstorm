@@ -2725,9 +2725,7 @@ function canConnect(sourceType: string, targetType: string): boolean {
 function findOverlappingSet(draggedNodeId: string, pos: Point): BoardNode | null {
   const draggedNode = state.boardNodes.find((n) => n.id === draggedNodeId);
   if (!draggedNode) return null;
-  // Only allow specific node types as set members
-  const VALID_SET_MEMBERS = new Set(["entropy", "user_input", "color_palette", "image", "font"]);
-  if (!VALID_SET_MEMBERS.has(draggedNode.nodeType)) return null;
+  if (!isSetMemberNodeType(draggedNode.nodeType)) return null;
   const dragDims = getNodeDimensions(draggedNodeId);
   const dragCx = pos.x + dragDims.w / 2;
   const dragCy = pos.y + dragDims.h / 2;
@@ -2947,37 +2945,140 @@ function updateGenerateInputs(): void {
   }
 }
 
-function getSetMemberChipHtml(edge: BoardEdge): string {
-  const srcNode = state.boardNodes.find((n) => n.id === edge.sourceId);
-  if (!srcNode) return `<span class="set-member-chip">${escapeHtml(edge.sourceType)}</span>`;
-  switch (srcNode.nodeType) {
-    case "entropy": {
-      const title = (srcNode.content.title as string) ?? "Entropy";
-      return `<span class="set-member-chip"><span class="set-member-dot" style="background:var(--warm)"></span>${escapeHtml(title)}</span>`;
-    }
-    case "user_input":
-      return `<span class="set-member-chip"><span class="set-member-dot" style="background:#a78bfa"></span>Input</span>`;
-    case "color_palette": {
-      const colors = (srcNode.content.colors as string[]) ?? [];
-      const dots = colors.slice(0, 4).map((c) =>
-        `<span class="set-member-color-dot" style="background:${escapeHtml(c)}"></span>`
-      ).join("");
-      return `<span class="set-member-chip">${dots || "Palette"}</span>`;
-    }
-    case "image": {
-      const url = (srcNode.content.url as string) ?? "";
-      if (url) {
-        return `<span class="set-member-chip"><img class="set-member-thumb" src="${escapeHtml(url)}" alt="" />Image</span>`;
-      }
-      return `<span class="set-member-chip">Image</span>`;
-    }
-    case "font": {
-      const family = (srcNode.content.family as string) || "Font";
-      return `<span class="set-member-chip"><span class="set-member-dot" style="background:#c4b5fd"></span>${escapeHtml(family)}</span>`;
-    }
-    default:
-      return `<span class="set-member-chip">${escapeHtml(getSourceLabel(edge))}</span>`;
+function isSetMemberNodeType(nodeType: string): boolean {
+  const slots = NODE_SLOTS[nodeType] ?? [];
+  return slots.some((slot) => slot.direction === "out" && slot.valueType === "node_ref");
+}
+
+function getSetMemberEntries(setNodeId: string): Array<{ sourceId: string; sourceType: string; node: BoardNode | null; run: StormRun | null }> {
+  return state.edges
+    .filter((edge) => edge.targetId === setNodeId && edge.targetSlot === "members")
+    .map((edge) => ({
+      sourceId: edge.sourceId,
+      sourceType: edge.sourceType,
+      node: state.boardNodes.find((node) => node.id === edge.sourceId) ?? null,
+      run: state.runs.find((run) => run.id === edge.sourceId) ?? null,
+    }));
+}
+
+function truncatePreview(text: string, maxLength = 56): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  return compact.length > maxLength ? `${compact.slice(0, maxLength - 1)}…` : compact;
+}
+
+function getSetMemberPreviewHtml(entry: { sourceId: string; sourceType: string; node: BoardNode | null; run: StormRun | null }): string {
+  const label = getSourceLabel({
+    id: "",
+    sourceId: entry.sourceId,
+    sourceType: entry.sourceType,
+    targetId: "",
+    targetType: "set",
+    sourceAnchorSide: null,
+    sourceAnchorT: null,
+    targetAnchorSide: null,
+    targetAnchorT: null,
+    sourceSlot: "out",
+    targetSlot: "members",
+  });
+  const node = entry.node;
+  const run = entry.run;
+
+  if (run) {
+    return `
+      <article class="set-member-card set-member-card-design" data-member-node-id="${run.id}">
+        <div class="set-member-preview set-member-preview-text">${escapeHtml(truncatePreview(run.title, 40) || "Design")}</div>
+        <div class="set-member-meta">
+          <span class="set-member-kind">design</span>
+          <span class="set-member-name">${escapeHtml(label)}</span>
+        </div>
+      </article>
+    `;
   }
+
+  if (!node) {
+    return `
+      <article class="set-member-card" data-member-node-id="${entry.sourceId}">
+        <div class="set-member-preview set-member-preview-text">${escapeHtml(entry.sourceType)}</div>
+        <div class="set-member-meta">
+          <span class="set-member-kind">${escapeHtml(entry.sourceType.replace(/_/g, " "))}</span>
+          <span class="set-member-name">${escapeHtml(label)}</span>
+        </div>
+      </article>
+    `;
+  }
+
+  const preview = (() => {
+    switch (node.nodeType) {
+      case "entropy": {
+        const title = truncatePreview((node.content.title as string) ?? "Entropy");
+        return `<div class="set-member-preview set-member-preview-text">${escapeHtml(title || "Entropy")}</div>`;
+      }
+      case "user_input": {
+        const text = truncatePreview((node.content.text as string) ?? "");
+        const images = (node.content.images as string[]) ?? [];
+        if (images[0]) {
+          return `<div class="set-member-preview set-member-preview-image"><img src="${escapeHtml(images[0])}" alt="" /></div>`;
+        }
+        return `<div class="set-member-preview set-member-preview-text">${escapeHtml(text || "Input")}</div>`;
+      }
+      case "generate": {
+        const inputCount = state.edges.filter((edge) => edge.targetId === node.id).length;
+        return `<div class="set-member-preview set-member-preview-stat">${inputCount}<span>input${inputCount === 1 ? "" : "s"}</span></div>`;
+      }
+      case "color": {
+        const hex = String(node.content.hex ?? "#000000");
+        return `<div class="set-member-preview set-member-preview-color" style="--set-member-color:${escapeHtml(hex)}"></div>`;
+      }
+      case "color_palette": {
+        const colors = (node.content.colors as string[]) ?? [];
+        const swatches = colors.slice(0, 6).map((color) =>
+          `<span class="set-member-palette-swatch" style="background:${escapeHtml(color)}"></span>`
+        ).join("");
+        return `<div class="set-member-preview set-member-preview-palette">${swatches || '<span class="set-member-empty-mark">No colors</span>'}</div>`;
+      }
+      case "image":
+      case "draw": {
+        const url = String(node.content.url ?? "");
+        if (url) {
+          return `<div class="set-member-preview set-member-preview-image"><img src="${escapeHtml(url)}" alt="" /></div>`;
+        }
+        return `<div class="set-member-preview set-member-preview-empty">No preview</div>`;
+      }
+      case "set": {
+        const memberCount = getSetMemberEntries(node.id).length;
+        return `<div class="set-member-preview set-member-preview-stat">${memberCount}<span>member${memberCount === 1 ? "" : "s"}</span></div>`;
+      }
+      case "pick_k": {
+        const k = Number(node.content.k ?? 1);
+        return `<div class="set-member-preview set-member-preview-stat">${k}<span>picked</span></div>`;
+      }
+      case "font": {
+        const family = truncatePreview((node.content.family as string) ?? "Font", 32);
+        return `<div class="set-member-preview set-member-preview-font" style="font-family:'${escapeHtml(family || "inherit")}','Manrope',sans-serif;">Ag</div>`;
+      }
+      case "color_harmony": {
+        const mode = String(node.content.mode ?? "complementary").replace(/_/g, " ");
+        return `<div class="set-member-preview set-member-preview-text">${escapeHtml(truncatePreview(mode, 24))}</div>`;
+      }
+      case "conditional": {
+        const conditionalLabel = truncatePreview((node.content.label as string) ?? "", 28);
+        return `<div class="set-member-preview set-member-preview-text">${escapeHtml(conditionalLabel || "If / Else")}</div>`;
+      }
+      default:
+        return `<div class="set-member-preview set-member-preview-text">${escapeHtml(node.nodeType)}</div>`;
+    }
+  })();
+
+  return `
+    <article class="set-member-card set-member-card-${escapeHtml(node.nodeType)}" data-member-node-id="${node.id}">
+      ${preview}
+      <div class="set-member-meta">
+        <span class="set-member-kind">${escapeHtml(node.nodeType.replace(/_/g, " "))}</span>
+        <span class="set-member-name">${escapeHtml(label)}</span>
+      </div>
+    </article>
+  `;
 }
 
 function updateSetMembers(): void {
@@ -2986,13 +3087,13 @@ function updateSetMembers(): void {
     const membersEl = document.getElementById(`set-members-${node.id}`);
     if (!membersEl) continue;
 
-    const memberEdges = state.edges.filter((e) => e.targetId === node.id && e.targetSlot === "members");
-    if (memberEdges.length === 0) {
-      membersEl.innerHTML = "";
+    const memberEntries = getSetMemberEntries(node.id);
+    if (memberEntries.length === 0) {
+      membersEl.innerHTML = '<div class="set-members-empty">Shift-drag supported nodes into this set</div>';
       continue;
     }
 
-    membersEl.innerHTML = memberEdges.map((edge) => getSetMemberChipHtml(edge)).join("");
+    membersEl.innerHTML = memberEntries.map((entry) => getSetMemberPreviewHtml(entry)).join("");
   }
 }
 
