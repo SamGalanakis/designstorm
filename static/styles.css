@@ -1979,10 +1979,6 @@ body.is-shift-held .board-node { cursor: grab; }
 .image-node-drop-icon { font-size: 28px; }
 .image-node-drop-label { font-size: 10px; font-family: "IBM Plex Mono", monospace; letter-spacing: 0.04em; }
 
-.image-node-ports {
-  padding: 6px 10px;
-}
-
 .board-node-image.is-wire-target .image-node-shell {
   border-color: var(--accent-strong);
   box-shadow: 0 0 24px var(--accent-glow), 0 16px 44px rgba(0,0,0,0.4);
@@ -2703,11 +2699,17 @@ body.is-shift-held .board-node { cursor: grab; }
 /* ─── Node ports (visible anchors) ─── */
 
 .node-ports {
+  position: absolute;
+  bottom: -20px;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding-top: 4px;
+  padding: 0 8px;
+  pointer-events: none;
+  z-index: 4;
 }
 
 .node-ports-end {
@@ -2717,18 +2719,19 @@ body.is-shift-held .board-node { cursor: grab; }
 .node-port {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
+  gap: 3px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: rgba(8, 12, 22, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   cursor: crosshair;
+  pointer-events: auto;
   transition: border-color 0.12s, background 0.12s;
 }
 
 .node-port:hover {
-  border-color: rgba(255, 255, 255, 0.15);
-  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(8, 12, 22, 0.95);
 }
 
 .node-port-dot {
@@ -2745,7 +2748,7 @@ body.is-shift-held .board-node { cursor: grab; }
 
 .node-port-label {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 8px;
+  font-size: 7px;
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2770,22 +2773,21 @@ body.is-shift-held .board-node { cursor: grab; }
 }
 
 /* Type-specific port dot colors */
-.entropy-shell .node-port-out .node-port-dot { background: rgba(184, 154, 120, 0.5); border-color: rgba(184, 154, 120, 0.7); }
-.input-shell .node-port-out .node-port-dot { background: rgba(160, 140, 200, 0.5); border-color: rgba(160, 140, 200, 0.7); }
-.generate-shell .node-port-in .node-port-dot { background: rgba(91, 156, 184, 0.4); border-color: rgba(91, 156, 184, 0.6); }
-.generate-shell .node-port-out .node-port-dot { background: rgba(91, 156, 184, 0.5); border-color: rgba(91, 156, 184, 0.7); }
-.color-node-shell .node-port-dot { background: rgba(120, 190, 140, 0.5); border-color: rgba(120, 190, 140, 0.7); }
-.palette-node-shell .node-port-dot { background: rgba(120, 190, 140, 0.5); border-color: rgba(120, 190, 140, 0.7); }
-.pickk-shell .node-port-dot { background: rgba(100, 200, 210, 0.5); border-color: rgba(100, 200, 210, 0.7); }
-.set-shell .node-port-dot { background: rgba(210, 170, 110, 0.5); border-color: rgba(210, 170, 110, 0.7); }
-.image-node-shell .node-port-out .node-port-dot { background: rgba(200, 160, 150, 0.5); border-color: rgba(200, 160, 150, 0.7); }
-.font-shell .node-port-out .node-port-dot { background: rgba(170, 150, 200, 0.5); border-color: rgba(170, 150, 200, 0.7); }
-.harmony-shell .node-port-dot { background: rgba(160, 130, 200, 0.5); border-color: rgba(160, 130, 200, 0.7); }
-.cond-shell .node-port-dot { background: rgba(200, 170, 100, 0.5); border-color: rgba(200, 170, 100, 0.7); }
-.value-int-shell .node-port-dot,
-.value-float-shell .node-port-dot { background: rgba(140, 210, 160, 0.5); border-color: rgba(140, 210, 160, 0.7); }
-.value-string-shell .node-port-dot { background: rgba(200, 180, 140, 0.5); border-color: rgba(200, 180, 140, 0.7); }
-.value-bool-shell .node-port-dot { background: rgba(180, 140, 200, 0.5); border-color: rgba(180, 140, 200, 0.7); }
+.board-node-entropy .node-port-dot { background: rgba(184, 154, 120, 0.5); border-color: rgba(184, 154, 120, 0.7); }
+.board-node-user_input .node-port-dot { background: rgba(160, 140, 200, 0.5); border-color: rgba(160, 140, 200, 0.7); }
+.board-node-generate .node-port-dot { background: rgba(91, 156, 184, 0.5); border-color: rgba(91, 156, 184, 0.7); }
+.board-node-color .node-port-dot { background: rgba(120, 190, 140, 0.5); border-color: rgba(120, 190, 140, 0.7); }
+.board-node-color_palette .node-port-dot { background: rgba(120, 190, 140, 0.5); border-color: rgba(120, 190, 140, 0.7); }
+.board-node-pick_k .node-port-dot { background: rgba(100, 200, 210, 0.5); border-color: rgba(100, 200, 210, 0.7); }
+.board-node-set .node-port-dot { background: rgba(210, 170, 110, 0.5); border-color: rgba(210, 170, 110, 0.7); }
+.board-node-image .node-port-dot { background: rgba(200, 160, 150, 0.5); border-color: rgba(200, 160, 150, 0.7); }
+.board-node-font .node-port-dot { background: rgba(170, 150, 200, 0.5); border-color: rgba(170, 150, 200, 0.7); }
+.board-node-color_harmony .node-port-dot { background: rgba(160, 130, 200, 0.5); border-color: rgba(160, 130, 200, 0.7); }
+.board-node-conditional .node-port-dot { background: rgba(200, 170, 100, 0.5); border-color: rgba(200, 170, 100, 0.7); }
+.board-node-int_value .node-port-dot,
+.board-node-float_value .node-port-dot { background: rgba(140, 210, 160, 0.5); border-color: rgba(140, 210, 160, 0.7); }
+.board-node-string_value .node-port-dot { background: rgba(200, 180, 140, 0.5); border-color: rgba(200, 180, 140, 0.7); }
+.board-node-bool_value .node-port-dot { background: rgba(180, 140, 200, 0.5); border-color: rgba(180, 140, 200, 0.7); }
 
 /* ─── Slot handles ─── */
 

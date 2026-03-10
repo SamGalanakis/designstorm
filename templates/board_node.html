@@ -33,13 +33,14 @@
           ></iframe>
         </div>
         <div class="entropy-label">{{ node.entropy_title() }}</div>
-        <div class="node-ports node-ports-end">
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports node-ports-end">
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
+
       {% else if node.node_type == "generate" %}
       <div class="generate-shell">
         <div class="generate-header">
@@ -57,28 +58,29 @@
           <span class="generate-run-icon" data-show="!$_generating">&#x25B6;</span>
           <span class="generate-run-label" data-show="$_generating">Generating&hellip;</span>
         </button>
-        <div class="node-ports">
-          <div class="node-port node-port-in" data-slot="sources" data-direction="in" title="Sources">
-            <span class="node-port-dot"></span>
-            <span class="node-port-label">sources</span>
-          </div>
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports">
+        <div class="node-port node-port-in" data-slot="sources" data-direction="in" title="Sources">
+          <span class="node-port-dot"></span>
+          <span class="node-port-label">sources</span>
+        </div>
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
+
       {% else if node.node_type == "user_input" %}
       <div class="input-shell">
         <div class="input-header">
           <span class="eyebrow input-eyebrow">Input</span>
         </div>
         <div class="input-body" contenteditable="true" data-placeholder="Type here..." data-ignore-morph>{{ node.input_text() }}{% for img in node.input_images() %}<img src="{{ img }}" class="input-image-thumb" title="Double-click to enlarge" />{% endfor %}</div>
-        <div class="node-ports node-ports-end">
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports node-ports-end">
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -89,15 +91,15 @@
         </div>
         <div class="color-node-swatch" data-action="edit-color" style="background: {{ node.color_value() }};"></div>
         <span class="color-node-hex">{{ node.color_value() }}</span>
-        <div class="node-ports">
-          <div class="node-port node-port-in" data-slot="hue" data-direction="in" title="Hue input">
-            <span class="node-port-dot"></span>
-            <span class="node-port-label">hue</span>
-          </div>
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports">
+        <div class="node-port node-port-in" data-slot="hue" data-direction="in" title="Hue input">
+          <span class="node-port-dot"></span>
+          <span class="node-port-label">hue</span>
+        </div>
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -114,15 +116,15 @@
           {% endfor %}
         </div>
         <button class="palette-add-btn" data-action="add-color" title="Add color">+ Color</button>
-        <div class="node-ports">
-          <div class="node-port node-port-in" data-slot="members" data-direction="in" title="Color members">
-            <span class="node-port-dot"></span>
-            <span class="node-port-label">in</span>
-          </div>
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports">
+        <div class="node-port node-port-in" data-slot="members" data-direction="in" title="Color members">
+          <span class="node-port-dot"></span>
+          <span class="node-port-label">in</span>
+        </div>
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -141,19 +143,19 @@
           <span class="pickk-replace-text">replace</span>
         </label>
         <div class="pickk-info" id="pickk-info-{{ node.id }}">Pick {{ node.pick_k_value() }} from sources</div>
-        <div class="node-ports">
-          <div class="node-port node-port-in" data-slot="sources" data-direction="in" title="Sources">
-            <span class="node-port-dot"></span>
-            <span class="node-port-label">src</span>
-          </div>
-          <div class="node-port node-port-in" data-slot="k" data-direction="in" title="K value">
-            <span class="node-port-dot"></span>
-            <span class="node-port-label">k</span>
-          </div>
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports">
+        <div class="node-port node-port-in" data-slot="sources" data-direction="in" title="Sources">
+          <span class="node-port-dot"></span>
+          <span class="node-port-label">src</span>
+        </div>
+        <div class="node-port node-port-in" data-slot="k" data-direction="in" title="K value">
+          <span class="node-port-dot"></span>
+          <span class="node-port-label">k</span>
+        </div>
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -167,15 +169,15 @@
         <div class="set-members" id="set-members-{{ node.id }}">
           <div class="set-members-empty">Shift-drag supported nodes into this set</div>
         </div>
-        <div class="node-ports">
-          <div class="node-port node-port-in" data-slot="members" data-direction="in" title="Members">
-            <span class="node-port-dot"></span>
-            <span class="node-port-label">in</span>
-          </div>
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports">
+        <div class="node-port node-port-in" data-slot="members" data-direction="in" title="Members">
+          <span class="node-port-dot"></span>
+          <span class="node-port-label">in</span>
+        </div>
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -192,11 +194,11 @@
           <span class="image-node-drop-label">Drop image</span>
         </div>
         {% endif %}
-        <div class="node-ports node-ports-end image-node-ports">
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports node-ports-end">
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -247,11 +249,11 @@
         </div>
         <input type="number" class="value-input" data-action="set-value" value="{{ node.int_value() }}" min="{{ node.int_min() }}" max="{{ node.int_max() }}" step="1" />
         <label class="value-random-label"><input type="checkbox" class="value-random" data-action="toggle-random" {% if node.random_enabled() %}checked{% endif %} /> Random</label>
-        <div class="node-ports node-ports-end">
-          <div class="node-port node-port-out" data-slot="value" data-direction="out" title="Value output">
-            <span class="node-port-label">value</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports node-ports-end">
+        <div class="node-port node-port-out" data-slot="value" data-direction="out" title="Value output">
+          <span class="node-port-label">value</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -262,11 +264,11 @@
         </div>
         <input type="number" class="value-input" data-action="set-value" value="{{ node.float_value() }}" min="{{ node.float_min() }}" max="{{ node.float_max() }}" step="{{ node.float_step() }}" />
         <label class="value-random-label"><input type="checkbox" class="value-random" data-action="toggle-random" {% if node.random_enabled() %}checked{% endif %} /> Random</label>
-        <div class="node-ports node-ports-end">
-          <div class="node-port node-port-out" data-slot="value" data-direction="out" title="Value output">
-            <span class="node-port-label">value</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports node-ports-end">
+        <div class="node-port node-port-out" data-slot="value" data-direction="out" title="Value output">
+          <span class="node-port-label">value</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -283,12 +285,6 @@
           </div>
         </div>
         <div class="entropy-label">{{ node.string_value() }}</div>
-        <div class="node-ports node-ports-end">
-          <div class="node-port node-port-out" data-slot="value" data-direction="out" title="Value output">
-            <span class="node-port-label">value</span>
-            <span class="node-port-dot"></span>
-          </div>
-        </div>
       </div>
       {% else %}
       <div class="value-shell value-string-shell">
@@ -296,14 +292,14 @@
           <span class="eyebrow value-eyebrow value-string-eyebrow">String</span>
         </div>
         <input type="text" class="value-input value-text-input" data-action="set-value" value="{{ node.string_value() }}" placeholder="Value..." />
-        <div class="node-ports node-ports-end">
-          <div class="node-port node-port-out" data-slot="value" data-direction="out" title="Value output">
-            <span class="node-port-label">value</span>
-            <span class="node-port-dot"></span>
-          </div>
-        </div>
       </div>
       {% endif %}
+      <div class="node-ports node-ports-end">
+        <div class="node-port node-port-out" data-slot="value" data-direction="out" title="Value output">
+          <span class="node-port-label">value</span>
+          <span class="node-port-dot"></span>
+        </div>
+      </div>
 
       {% else if node.node_type == "bool_value" %}
       <div class="value-shell value-bool-shell">
@@ -315,11 +311,11 @@
           <span class="bool-toggle-track"><span class="bool-toggle-thumb"></span></span>
           <span class="bool-toggle-text">{% if node.bool_value() %}true{% else %}false{% endif %}</span>
         </label>
-        <div class="node-ports node-ports-end">
-          <div class="node-port node-port-out" data-slot="value" data-direction="out" title="Value output">
-            <span class="node-port-label">value</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports node-ports-end">
+        <div class="node-port node-port-out" data-slot="value" data-direction="out" title="Value output">
+          <span class="node-port-label">value</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -337,15 +333,15 @@
         </select>
         <div class="harmony-swatches" id="harmony-swatches-{{ node.id }}"></div>
         <div class="harmony-info" id="harmony-info-{{ node.id }}">Wire a color source</div>
-        <div class="node-ports">
-          <div class="node-port node-port-in" data-slot="source" data-direction="in" title="Source color">
-            <span class="node-port-dot"></span>
-            <span class="node-port-label">source</span>
-          </div>
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports">
+        <div class="node-port node-port-in" data-slot="source" data-direction="in" title="Source color">
+          <span class="node-port-dot"></span>
+          <span class="node-port-label">source</span>
+        </div>
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -364,15 +360,15 @@
           </div>
         </div>
         <div class="cond-info" id="cond-info-{{ node.id }}">Wire a bool condition</div>
-        <div class="node-ports">
-          <div class="node-port node-port-in" data-slot="condition" data-direction="in" title="Condition (bool)">
-            <span class="node-port-dot"></span>
-            <span class="node-port-label">cond</span>
-          </div>
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports">
+        <div class="node-port node-port-in" data-slot="condition" data-direction="in" title="Condition (bool)">
+          <span class="node-port-dot"></span>
+          <span class="node-port-label">cond</span>
+        </div>
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
@@ -398,11 +394,11 @@
         </div>
         <button class="font-upload-btn" data-action="upload-font">{% if node.font_file_name() != "" %}{{ node.font_file_name() }}{% else %}Upload font{% endif %}</button>
         <div class="font-preview" id="font-preview-{{ node.id }}" style="font-family: '{{ node.font_family() }}', sans-serif; font-weight: {{ node.font_weight() }}; font-size: {{ node.font_size() }}px; line-height: {{ node.font_line_height() }};">Aa</div>
-        <div class="node-ports node-ports-end">
-          <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
-            <span class="node-port-label">out</span>
-            <span class="node-port-dot"></span>
-          </div>
+      </div>
+      <div class="node-ports node-ports-end">
+        <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
+          <span class="node-port-label">out</span>
+          <span class="node-port-dot"></span>
         </div>
       </div>
 
