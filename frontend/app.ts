@@ -277,8 +277,8 @@ const BOARD_WIDTH = 2600;
 const BOARD_HEIGHT = 1800;
 const CARD_WIDTH = 310;
 const CARD_HEIGHT = 332;
-const ENTROPY_NODE_WIDTH = 240;
-const ENTROPY_NODE_HEIGHT = 180;
+const ENTROPY_NODE_WIDTH = 210;
+const ENTROPY_NODE_HEIGHT = 120;
 const GENERATE_NODE_WIDTH = 200;
 const GENERATE_NODE_HEIGHT = 140;
 const INPUT_NODE_WIDTH = 220;
@@ -4610,6 +4610,7 @@ function bindBoardNodeInteractions(): void {
     const target = e.target as HTMLElement;
     if (target.closest("[data-node-action]")) return;
     if (target.closest(".edge-handle")) return;
+    if (target.closest(".entropy-btn")) return; // let Datastar handle reroll/lock clicks
     if (target.closest(".input-body")) return; // don't drag while editing text
     if (target.closest(".set-title")) return;
     if (target.closest(".set-description")) return;

@@ -1057,118 +1057,153 @@ body.is-shift-held .board-node { cursor: grab; }
 .board-node:active { cursor: grabbing; }
 
 .board-node-entropy {
-  width: 240px;
+  width: 210px;
 }
 
 .entropy-shell {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 8px;
-  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   box-sizing: border-box;
-  padding: 10px 12px;
   border-radius: var(--radius);
   background: var(--surface-raised);
-  border: 1px solid rgba(184, 154, 120, 0.2);
-  box-shadow: 0 12px 36px rgba(0,0,0,0.3);
+  border: 1px solid rgba(184, 154, 120, 0.15);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.28);
   transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
   position: relative;
+  overflow: hidden;
 }
 
-.board-node-entropy:hover .entropy-shell {
-  transform: translateY(-2px);
-  border-color: rgba(184, 154, 120, 0.35);
-  box-shadow: 0 14px 40px rgba(0,0,0,0.35), 0 0 12px var(--warm-glow);
-}
-
-.board-node-entropy.is-active .entropy-shell {
-  border-color: rgba(184, 154, 120, 0.45);
-  box-shadow: 0 16px 44px rgba(0,0,0,0.4), 0 0 16px var(--warm-glow);
-}
-
-.board-node-entropy.is-locked .entropy-shell {
-  border-color: rgba(184, 154, 120, 0.35);
-}
-
-/* ─── Preset (entropy-like string_value) ─── */
-.preset-shell {
-  grid-template-rows: auto auto;
-}
-.preset-shell .entropy-label {
-  font-size: 1rem;
-}
+.board-node-entropy:hover .entropy-shell,
 .board-node-string_value:hover .preset-shell {
-  transform: translateY(-2px);
-  border-color: rgba(184, 154, 120, 0.35);
-  box-shadow: 0 14px 40px rgba(0,0,0,0.35), 0 0 12px var(--warm-glow);
+  transform: translateY(-1px);
+  border-color: rgba(184, 154, 120, 0.3);
+  box-shadow: 0 10px 32px rgba(0,0,0,0.32), 0 0 10px var(--warm-glow);
 }
+
+.board-node-entropy.is-active .entropy-shell,
 .board-node-string_value.is-active .preset-shell {
   border-color: rgba(184, 154, 120, 0.45);
-  box-shadow: 0 16px 44px rgba(0,0,0,0.4), 0 0 16px var(--warm-glow);
+  box-shadow: 0 12px 36px rgba(0,0,0,0.36), 0 0 14px var(--warm-glow);
 }
-.board-node-string_value.is-locked .preset-shell {
-  border-color: rgba(184, 154, 120, 0.35);
+
+.entropy-shell.is-locked {
+  border-color: rgba(184, 154, 120, 0.3);
 }
+
+/* ─── Entropy header ─── */
 
 .entropy-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 12px 0;
+}
+
+.entropy-icon {
+  font-size: 11px;
+  color: var(--warm);
+  opacity: 0.7;
 }
 
 .entropy-eyebrow {
   color: var(--warm);
+  opacity: 0.85;
 }
 
-.entropy-actions {
+/* ─── Entropy body ─── */
+
+.entropy-body {
+  padding: 10px 12px 12px;
+}
+
+.entropy-title {
+  font-family: "Cormorant Garamond", serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ─── Entropy footer (actions) ─── */
+
+.entropy-footer {
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 1px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.12);
 }
 
 .entropy-btn {
-  width: 24px;
-  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  font-size: 13px;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   color: var(--text-dim);
-  transition: background 120ms, color 120ms;
+  transition: background 100ms, color 100ms;
+  cursor: pointer;
+}
+
+.entropy-btn svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: opacity 100ms;
 }
 
 .entropy-btn:hover {
-  background: var(--surface-overlay);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.entropy-btn:hover svg {
+  opacity: 1;
+}
+
+.entropy-btn:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.entropy-btn-reroll {
+  flex: 1;
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.entropy-btn-reroll:hover {
   color: var(--warm);
 }
 
-.entropy-preview {
-  position: relative;
-  min-height: 120px;
-  height: 100%;
-  border-radius: 10px;
-  overflow: hidden;
-  background: var(--bg);
-  border: 1px solid var(--border);
-}
-
-.entropy-preview iframe {
-  width: 100%;
-  height: 100%;
-  border: 0;
+.entropy-btn-reroll.is-disabled {
+  opacity: 0.35;
   pointer-events: none;
-  background: white;
 }
 
-.entropy-label {
-  font-family: "Cormorant Garamond", serif;
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.1;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.entropy-btn-lock {
+  width: 36px;
+  padding: 0;
+}
+
+.entropy-btn-lock.is-active {
+  color: var(--warm);
+}
+
+.entropy-btn-lock.is-active svg {
+  opacity: 1;
+}
+
+/* ─── Preset (entropy-like string_value) ─── */
+.preset-shell .entropy-title {
+  font-size: 1.1rem;
 }
 
 
@@ -3418,9 +3453,6 @@ body.is-shift-held .board-node:hover .node-selection-chrome,
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  max-width: 100px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
   font-family: "IBM Plex Mono", monospace;

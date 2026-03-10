@@ -11,28 +11,29 @@
       data-height="{% match node.height %}{% when Some with (value) %}{{ value }}{% when None %}{% endmatch %}"
     >
       {% if node.node_type == "entropy" %}
-      <div class="entropy-shell">
+      <div class="entropy-shell{% if node.locked %} is-locked{% endif %}">
         <div class="entropy-header">
+          <span class="entropy-icon" aria-hidden="true">&#x2740;</span>
           <span class="eyebrow entropy-eyebrow">Entropy</span>
-          <div class="entropy-actions">
-            <button class="entropy-btn" title="Re-roll"
-              data-on:click__prevent="@post('/nodes/{{ node.id }}/reroll')">&#x27F3;</button>
-            <button class="entropy-btn" title="Toggle lock"
-              data-on:click__prevent="@post('/nodes/{{ node.id }}/lock')">{% if node.locked %}&#x1F512;{% else %}&#x1F513;{% endif %}</button>
-          </div>
         </div>
-        <div class="entropy-preview">
-          <iframe
-            src="{{ node.entropy_url() }}"
-            loading="lazy"
-            sandbox="allow-scripts allow-forms allow-modals"
-            referrerpolicy="no-referrer"
-            tabindex="-1"
-            aria-hidden="true"
-            data-ignore
-          ></iframe>
+        <div class="entropy-body">
+          <span class="entropy-title">{{ node.entropy_title() }}</span>
         </div>
-        <div class="entropy-label">{{ node.entropy_title() }}</div>
+        <div class="entropy-footer">
+          <button class="entropy-btn entropy-btn-reroll{% if node.locked %} is-disabled{% endif %}" title="Re-roll"
+            data-on:click__prevent="@post('/nodes/{{ node.id }}/reroll')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            <span>Reroll</span>
+          </button>
+          <button class="entropy-btn entropy-btn-lock{% if node.locked %} is-active{% endif %}" title="Toggle lock"
+            data-on:click__prevent="@post('/nodes/{{ node.id }}/lock')">
+            {% if node.locked %}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            {% else %}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+            {% endif %}
+          </button>
+        </div>
       </div>
       <div class="node-ports node-ports-end">
         <div class="node-port node-port-out" data-slot="out" data-direction="out" title="Output">
@@ -274,17 +275,29 @@
 
       {% else if node.node_type == "string_value" %}
       {% if node.has_preset() %}
-      <div class="entropy-shell preset-shell">
+      <div class="entropy-shell preset-shell{% if node.locked %} is-locked{% endif %}">
         <div class="entropy-header">
+          <span class="entropy-icon" aria-hidden="true">&#x2740;</span>
           <span class="eyebrow entropy-eyebrow">{{ node.preset_label() }}</span>
-          <div class="entropy-actions">
-            <button class="entropy-btn" title="Re-roll"
-              data-on:click__prevent="@post('/nodes/{{ node.id }}/reroll')">&#x27F3;</button>
-            <button class="entropy-btn" title="Toggle lock"
-              data-on:click__prevent="@post('/nodes/{{ node.id }}/lock')">{% if node.locked %}&#x1F512;{% else %}&#x1F513;{% endif %}</button>
-          </div>
         </div>
-        <div class="entropy-label">{{ node.string_value() }}</div>
+        <div class="entropy-body">
+          <span class="entropy-title">{{ node.string_value() }}</span>
+        </div>
+        <div class="entropy-footer">
+          <button class="entropy-btn entropy-btn-reroll{% if node.locked %} is-disabled{% endif %}" title="Re-roll"
+            data-on:click__prevent="@post('/nodes/{{ node.id }}/reroll')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            <span>Reroll</span>
+          </button>
+          <button class="entropy-btn entropy-btn-lock{% if node.locked %} is-active{% endif %}" title="Toggle lock"
+            data-on:click__prevent="@post('/nodes/{{ node.id }}/lock')">
+            {% if node.locked %}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            {% else %}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+            {% endif %}
+          </button>
+        </div>
       </div>
       {% else %}
       <div class="value-shell value-string-shell">
