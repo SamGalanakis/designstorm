@@ -3,98 +3,46 @@
   class="provider-panel"
   data-signals:_provider-kind="'{{ status.selected_kind }}'"
 >
-  <header class="provider-header">
-    <div class="provider-header-text">
-      <h3>Runtime</h3>
-      <p>{{ status.detail }}</p>
+  <div class="pp-row pp-row-between">
+    <div class="pp-tabs" role="tablist" aria-label="Runtime provider">
+      <button class="pp-tab" type="button" role="tab"
+        data-class:is-on="$_providerKind === 'codex'"
+        data-on:click="$_providerKind = 'codex'"
+      >Codex{% if let Some(connected_kind) = status.connected_kind %}{% if connected_kind == "codex" %} <span class="pp-dot"></span>{% endif %}{% endif %}</button>
+      <button class="pp-tab" type="button" role="tab"
+        data-class:is-on="$_providerKind === 'claude'"
+        data-on:click="$_providerKind = 'claude'"
+      >Claude{% if let Some(connected_kind) = status.connected_kind %}{% if connected_kind == "claude" %} <span class="pp-dot"></span>{% endif %}{% endif %}</button>
     </div>
-    <div class="provider-header-status">
-      {% if status.connected %}
-        {% if status.using_fallback %}
-          <span class="provider-indicator provider-indicator-fallback">Fallback</span>
-        {% else %}
-          <span class="provider-indicator provider-indicator-live">Connected</span>
-        {% endif %}
-      {% else %}
-        <span class="provider-indicator">Disconnected</span>
-      {% endif %}
-    </div>
-  </header>
-
-  <div class="provider-cards" role="tablist" aria-label="Runtime provider">
-    <button
-      class="provider-card"
-      type="button"
-      role="tab"
-      data-class:is-selected="$_providerKind === 'codex'"
-      data-on:click="$_providerKind = 'codex'"
-      aria-selected="true"
-    >
-      <span class="provider-card-org">OpenAI</span>
-      <strong class="provider-card-name">Codex</strong>
-      {% if let Some(connected_kind) = status.connected_kind %}
-        {% if connected_kind == "codex" %}
-          <span class="provider-card-active">Active</span>
-        {% endif %}
-      {% endif %}
-    </button>
-    <button
-      class="provider-card"
-      type="button"
-      role="tab"
-      data-class:is-selected="$_providerKind === 'claude'"
-      data-on:click="$_providerKind = 'claude'"
-      aria-selected="false"
-    >
-      <span class="provider-card-org">Anthropic</span>
-      <strong class="provider-card-name">Claude</strong>
-      {% if let Some(connected_kind) = status.connected_kind %}
-        {% if connected_kind == "claude" %}
-          <span class="provider-card-active">Active</span>
-        {% endif %}
-      {% endif %}
-    </button>
-  </div>
-
-  {# ── Codex panel ── #}
-  <div class="provider-auth" style="display: none" data-show="$_providerKind === 'codex'">
-    {% if let Some(user_code) = status.codex_pending_user_code %}
-      <div class="provider-pending">
-        <span class="provider-pending-label">Waiting for approval</span>
-        <code class="provider-code">{{ user_code }}</code>
-        <p>Enter this code in the OpenAI window that opened, then approve access. This panel polls automatically.</p>
-      </div>
-    {% else %}
-      <p class="provider-auth-hint">Authenticate via OpenAI device code. A browser window will open for approval.</p>
-      <button class="btn btn-accent" type="button" data-on:click="window.designstormSettings.connectProvider('codex')">Connect Codex</button>
-    {% endif %}
-  </div>
-
-  {# ── Claude panel ── #}
-  <div class="provider-auth" style="display: none" data-show="$_providerKind === 'claude'">
-    {% if let Some(auth_url) = status.claude_pending_auth_url %}
-      <div class="provider-pending">
-        <span class="provider-pending-label">Finish authorization</span>
-        <p>Approve access in the Anthropic window, then paste the returned code below.</p>
-        <a class="btn btn-ghost btn-sm" href="{{ auth_url }}" target="_blank" rel="noopener noreferrer">Re-open Login Page</a>
-        <label class="provider-field">
-          <span class="provider-field-label">Authorization code</span>
-          <input id="provider-claude-code" class="provider-input" type="text" placeholder="Paste code or code#state" autocomplete="off" />
-        </label>
-        <button class="btn btn-accent btn-sm" type="button" data-on:click="window.designstormSettings.submitClaudeCode()">Submit Code</button>
-      </div>
-    {% else %}
-      <p class="provider-auth-hint">Authenticate via Anthropic browser OAuth. You'll paste a code back here after approval.</p>
-      <button class="btn btn-accent" type="button" data-on:click="window.designstormSettings.connectProvider('claude')">Connect Claude</button>
-    {% endif %}
-  </div>
-
-  <footer class="provider-footer">
-    <div id="provider-connect-status" class="provider-connect-status" role="status" aria-live="polite"></div>
     {% if status.connected && !status.using_fallback %}
-      <button class="btn btn-ghost btn-sm" type="button" data-on:click="@post('/settings/provider/logout')">Disconnect</button>
+      <button class="pp-link pp-link-dim" type="button" data-on:click="@post('/settings/provider/logout')">Disconnect</button>
     {% endif %}
-  </footer>
+  </div>
 
+  <div class="pp-body" style="display:none" data-show="$_providerKind === 'codex'">
+    {% if let Some(user_code) = status.codex_pending_user_code %}
+      <span class="pp-hint">Enter this code in the OpenAI window:</span>
+      <code class="pp-code">{{ user_code }}</code>
+    {% else %}
+      <button class="btn btn-accent btn-sm" type="button" data-on:click="window.designstormSettings.connectProvider('codex')">Connect Codex</button>
+    {% endif %}
+  </div>
+
+  <div class="pp-body" style="display:none" data-show="$_providerKind === 'claude'">
+    {% if let Some(auth_url) = status.claude_pending_auth_url %}
+      <label class="pp-field">
+        <span class="pp-hint">Paste the authorization code from Anthropic:</span>
+        <div class="pp-field-row">
+          <input id="provider-claude-code" class="pp-input" type="text" placeholder="code or code#state" autocomplete="off" />
+          <button class="btn btn-accent btn-sm" type="button" data-on:click="window.designstormSettings.submitClaudeCode()">Submit</button>
+        </div>
+      </label>
+      <a class="pp-link" href="{{ auth_url }}" target="_blank" rel="noopener noreferrer">Re-open login page</a>
+    {% else %}
+      <button class="btn btn-accent btn-sm" type="button" data-on:click="window.designstormSettings.connectProvider('claude')">Connect Claude</button>
+    {% endif %}
+  </div>
+
+  <div id="provider-connect-status" class="pp-status" role="status" aria-live="polite"></div>
   <button id="provider-refresh" type="button" hidden data-on:click="@get('/settings/provider')"></button>
 </section>
