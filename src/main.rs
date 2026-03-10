@@ -32,11 +32,11 @@ use datastar::{
 };
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use lash_core::{
-    AgentCapabilities, AgentStateEnvelope, HostProfile, InputItem, PromptOverrideMode,
-    PromptSectionName, PromptSectionOverride, Provider, RuntimeConfig, RuntimeEngine, ToolDefinition,
-    ToolParam, ToolProvider, ToolResult, TurnInput, oauth,
+    AgentCapabilities, AgentStateEnvelope, HostProfile, InputItem, LashRuntime, PromptOverrideMode,
+    PromptSectionName, PromptSectionOverride, Provider, RuntimeConfig, ToolDefinition, ToolParam,
+    ToolProvider, ToolResult, TurnInput, oauth,
     provider::OPENAI_GENERIC_DEFAULT_BASE_URL,
-    tools::{CompositeTools, FetchUrl, WebSearch},
+    tools::{FetchUrl, ToolSet, WebSearch},
 };
 use mime_guess::from_path;
 use reqwest::Client;
@@ -331,6 +331,12 @@ struct CodexDeviceAuthRow {
     user_code: String,
 }
 
+#[derive(Debug, FromRow)]
+struct ClaudeOAuthSessionRow {
+    verifier: String,
+    auth_url: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredProviderConfig {
     provider: Provider,
@@ -343,6 +349,10 @@ struct ProviderStatusView {
     label: String,
     detail: String,
     updated_label: String,
+    selected_kind: String,
+    connected_kind: Option<String>,
+    codex_pending_user_code: Option<String>,
+    claude_pending_auth_url: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1477,6 +1487,25 @@ struct CodexPollResponse {
     message: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeStartResponse {
+    auth_url: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ClaudeExchangePayload {
+    code: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeExchangeResponse {
+    status: &'static str,
+    message: Option<String>,
+    auth_url: Option<String>,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), AppError> {
     dotenvy::dotenv().ok();
@@ -1536,6 +1565,8 @@ async fn main() -> Result<(), AppError> {
         .route("/auth/logout", post(logout))
         .route("/partials/auth-panel", get(auth_panel))
         .route("/settings/provider", get(provider_panel))
+        .route("/settings/provider/claude/start", post(start_claude_auth))
+        .route("/settings/provider/claude/exchange", post(exchange_claude_auth))
         .route("/settings/provider/codex/start", post(start_codex_auth))
         .route("/settings/provider/codex/poll", post(poll_codex_auth))
         .route("/settings/provider/logout", post(disconnect_provider))
@@ -1730,6 +1761,112 @@ async fn logout() -> Result<Response, AppError> {
     Ok(response)
 }
 
+async fn start_claude_auth(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ClaudeStartResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    info!(user_id = %viewer.id, "starting claude oauth");
+    let (verifier, challenge) = oauth::generate_pkce();
+    let auth_url = oauth::authorize_url(&challenge, &verifier);
+
+    clear_codex_pending(&state.db, viewer.id).await?;
+    sqlx::query(
+        r#"
+        INSERT INTO claude_oauth_sessions (user_id, verifier, auth_url)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (user_id) DO UPDATE
+        SET verifier = EXCLUDED.verifier,
+            auth_url = EXCLUDED.auth_url,
+            updated_at = now()
+        "#,
+    )
+    .bind(viewer.id)
+    .bind(&verifier)
+    .bind(&auth_url)
+    .execute(&state.db)
+    .await?;
+
+    Ok(Json(ClaudeStartResponse { auth_url }))
+}
+
+async fn exchange_claude_auth(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ClaudeExchangePayload>,
+) -> Result<Json<ClaudeExchangeResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let code = payload.code.trim();
+    if code.is_empty() {
+        return Ok(Json(ClaudeExchangeResponse {
+            status: "error",
+            message: Some("Paste the Claude authorization code first.".to_string()),
+            auth_url: None,
+        }));
+    }
+
+    let pending = sqlx::query_as::<_, ClaudeOAuthSessionRow>(
+        r#"
+        SELECT verifier, auth_url
+        FROM claude_oauth_sessions
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(viewer.id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    let Some(pending) = pending else {
+        return Ok(Json(ClaudeExchangeResponse {
+            status: "error",
+            message: Some("Start Claude OAuth again to get a fresh login URL.".to_string()),
+            auth_url: None,
+        }));
+    };
+
+    match oauth::exchange_code(code, &pending.verifier).await {
+        Ok(tokens) => {
+            let provider = Provider::Claude {
+                access_token: tokens.access_token,
+                refresh_token: tokens.refresh_token,
+                expires_at: tokens.expires_at,
+            };
+            save_provider_credentials(&state, viewer.id, &provider).await?;
+            clear_provider_pending(&state.db, viewer.id).await?;
+            Ok(Json(ClaudeExchangeResponse {
+                status: "connected",
+                message: Some("Claude is connected.".to_string()),
+                auth_url: None,
+            }))
+        }
+        Err(error) => {
+            let (verifier, challenge) = oauth::generate_pkce();
+            let auth_url = oauth::authorize_url(&challenge, &verifier);
+            sqlx::query(
+                r#"
+                INSERT INTO claude_oauth_sessions (user_id, verifier, auth_url)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id) DO UPDATE
+                SET verifier = EXCLUDED.verifier,
+                    auth_url = EXCLUDED.auth_url,
+                    updated_at = now()
+                "#,
+            )
+            .bind(viewer.id)
+            .bind(&verifier)
+            .bind(&auth_url)
+            .execute(&state.db)
+            .await?;
+
+            Ok(Json(ClaudeExchangeResponse {
+                status: "error",
+                message: Some(error.to_string()),
+                auth_url: Some(auth_url),
+            }))
+        }
+    }
+}
+
 async fn start_codex_auth(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1739,6 +1876,8 @@ async fn start_codex_auth(
     let device = oauth::codex_request_device_code()
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;
+
+    clear_claude_pending(&state.db, viewer.id).await?;
 
     sqlx::query(
         r#"
@@ -1807,7 +1946,7 @@ async fn poll_codex_auth(
             };
 
             save_provider_credentials(&state, viewer.id, &provider).await?;
-            clear_codex_pending(&state.db, viewer.id).await?;
+            clear_provider_pending(&state.db, viewer.id).await?;
 
             Ok(Json(CodexPollResponse {
                 status: "connected",
@@ -1834,7 +1973,7 @@ async fn disconnect_provider(
         .bind(viewer.id)
         .execute(&state.db)
         .await?;
-    clear_codex_pending(&state.db, viewer.id).await?;
+    clear_provider_pending(&state.db, viewer.id).await?;
     Ok(Html(render_provider_panel_html(&state, &viewer).await?))
 }
 
@@ -3546,15 +3685,37 @@ async fn provider_status_view(
     state: &AppState,
     user_id: Uuid,
 ) -> Result<ProviderStatusView, AppError> {
+    let codex_pending = sqlx::query_as::<_, CodexDeviceAuthRow>(
+        r#"
+        SELECT device_auth_id, user_code
+        FROM codex_device_auth_sessions
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?;
+    let claude_pending = sqlx::query_as::<_, ClaudeOAuthSessionRow>(
+        r#"
+        SELECT verifier, auth_url
+        FROM claude_oauth_sessions
+        WHERE user_id = $1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?;
+
     match load_provider_for_user(state, user_id).await? {
         Some(provider) => {
-            let (label, detail) = match &provider.provider {
+            let (label, detail, connected_kind) = match &provider.provider {
                 Provider::Codex { account_id, .. } => (
                     "Codex OAuth".to_string(),
                     account_id
                         .as_ref()
                         .map(|account_id| format!("Connected via OpenAI account {account_id}."))
                         .unwrap_or_else(|| "Connected via OpenAI device OAuth.".to_string()),
+                    Some("codex".to_string()),
                 ),
                 Provider::OpenAiGeneric { base_url, .. } => (
                     if matches!(provider.source, ProviderSource::ServerFallback) {
@@ -3563,16 +3724,24 @@ async fn provider_status_view(
                         "OpenAI-Compatible".to_string()
                     },
                     format!("Requests route through {base_url}."),
+                    None,
                 ),
                 Provider::Claude { .. } => (
                     "Claude OAuth".to_string(),
                     "Anthropic OAuth tokens are stored for this account.".to_string(),
+                    Some("claude".to_string()),
                 ),
                 Provider::GoogleOAuth { .. } => (
                     "Google OAuth".to_string(),
                     "Google OAuth tokens are stored for this account.".to_string(),
+                    None,
                 ),
             };
+            let selected_kind = connected_kind
+                .clone()
+                .or_else(|| claude_pending.as_ref().map(|_| "claude".to_string()))
+                .or_else(|| codex_pending.as_ref().map(|_| "codex".to_string()))
+                .unwrap_or_else(|| "codex".to_string());
             Ok(ProviderStatusView {
                 connected: true,
                 using_fallback: matches!(provider.source, ProviderSource::ServerFallback),
@@ -3582,6 +3751,10 @@ async fn provider_status_view(
                     .updated_at
                     .map(|timestamp| format!("Updated {}", timestamp.format("%Y-%m-%d %H:%M UTC")))
                     .unwrap_or_else(|| "Server-scoped fallback".to_string()),
+                selected_kind,
+                connected_kind,
+                codex_pending_user_code: codex_pending.map(|pending| pending.user_code),
+                claude_pending_auth_url: claude_pending.map(|pending| pending.auth_url),
             })
         }
         None => Ok(ProviderStatusView {
@@ -3589,9 +3762,17 @@ async fn provider_status_view(
             using_fallback: false,
             label: "No provider connected".to_string(),
             detail:
-                "Connect Codex here. The site stores the encrypted OAuth tokens server-side and uses them for storm generation."
+                "Connect Codex or Claude here. The site stores encrypted OAuth tokens server-side and uses them for storm generation."
                     .to_string(),
             updated_label: "No stored runtime credentials".to_string(),
+            selected_kind: if claude_pending.is_some() {
+                "claude".to_string()
+            } else {
+                "codex".to_string()
+            },
+            connected_kind: None,
+            codex_pending_user_code: codex_pending.map(|pending| pending.user_code),
+            claude_pending_auth_url: claude_pending.map(|pending| pending.auth_url),
         }),
     }
 }
@@ -3698,7 +3879,21 @@ async fn clear_codex_pending(db: &PgPool, user_id: Uuid) -> Result<(), AppError>
     sqlx::query("DELETE FROM codex_device_auth_sessions WHERE user_id = $1")
         .bind(user_id)
         .execute(db)
+    .await?;
+    Ok(())
+}
+
+async fn clear_claude_pending(db: &PgPool, user_id: Uuid) -> Result<(), AppError> {
+    sqlx::query("DELETE FROM claude_oauth_sessions WHERE user_id = $1")
+        .bind(user_id)
+        .execute(db)
         .await?;
+    Ok(())
+}
+
+async fn clear_provider_pending(db: &PgPool, user_id: Uuid) -> Result<(), AppError> {
+    clear_codex_pending(db, user_id).await?;
+    clear_claude_pending(db, user_id).await?;
     Ok(())
 }
 
@@ -4012,9 +4207,9 @@ async fn build_tool_provider(
     runtime: StormRuntimeCtx,
 ) -> Arc<dyn ToolProvider> {
     let custom = StormToolProvider::new(role, workspace);
-    let mut tools = CompositeTools::new().add(custom);
+    let mut tools = ToolSet::new() + custom;
     if let Some(key) = runtime.tavily_api_key.as_ref() {
-        tools = tools.add(WebSearch::new(key.clone())).add(FetchUrl::new(key.clone()));
+        tools = tools + WebSearch::new(key.clone()) + FetchUrl::new(key.clone());
     }
     Arc::new(tools)
 }
@@ -4052,7 +4247,7 @@ async fn run_design_agent(
         base_dir: Some(workspace_dir),
         ..RuntimeConfig::default()
     };
-    let mut engine = RuntimeEngine::from_state(config, tools, AgentStateEnvelope::default())
+    let mut engine = LashRuntime::from_state(config, tools, AgentStateEnvelope::default())
         .await
         .map_err(|error| {
             error!(

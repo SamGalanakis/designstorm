@@ -18,7 +18,7 @@ datastar = { version = "0.3.1", features = ["axum", "tracing"] }
 dotenvy = "0.15.7"
 futures-core = "0.3.31"
 jsonwebtoken = "9.3.1"
-lash-core = { git = "https://github.com/SamGalanakis/lash", rev = "f1bf8bacbe256d9e2bf0f084ea86add0609aeff7", package = "lash-core", default-features = false, features = ["native-tools-only"] }
+lash-core = { git = "https://github.com/SamGalanakis/lash", rev = "e28673707acc5995370837c7e370a22dd24cc78e", package = "lash-core", default-features = false }
 mime_guess = "2.0.5"
 rand = "0.8"
 reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls"] }

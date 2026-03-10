@@ -1,20 +1,146 @@
-<section id="provider-panel" class="provider-panel">
+<section
+  id="provider-panel"
+  class="provider-panel"
+  data-signals:_provider-kind="'{{ status.selected_kind }}'"
+>
   <div class="provider-status">
     <span class="eyebrow">{% if status.connected %}Connected{% else %}Provider Required{% endif %}</span>
     <h3>{{ status.label }}</h3>
     <p>{{ status.detail }}</p>
     <span class="meta-note">{{ status.updated_label }}</span>
+    <div class="provider-badges">
+      {% if let Some(connected_kind) = status.connected_kind %}
+        <span class="provider-badge provider-badge-active">Current: {% if connected_kind == "codex" %}Codex{% else %}Claude{% endif %}</span>
+      {% else %}
+        <span class="provider-badge">No active runtime</span>
+      {% endif %}
+      {% if status.using_fallback %}
+        <span class="provider-badge">Server fallback</span>
+      {% endif %}
+      {% if status.codex_pending_user_code.is_some() %}
+        <span class="provider-badge">Codex pending</span>
+      {% endif %}
+      {% if status.claude_pending_auth_url.is_some() %}
+        <span class="provider-badge">Claude pending</span>
+      {% endif %}
+    </div>
   </div>
 
-  <div class="provider-actions">
-    {% if status.connected %}
-      {% if !status.using_fallback %}
-        <button class="btn btn-ghost" type="button" data-on:click="@post('/settings/provider/logout')">Disconnect</button>
-      {% endif %}
-    {% else %}
-      <button class="btn btn-accent" type="button" data-on:click="window.designstormSettings.connectCodex()">Connect Codex</button>
+  <div class="provider-picker">
+    <div class="provider-picker-head">
+      <span class="eyebrow">Runtime Provider</span>
+      <span class="provider-picker-note">Choose which model backend powers generation</span>
+    </div>
+    <div class="provider-switcher" role="tablist" aria-label="Runtime provider">
+      <button
+        class="provider-switch"
+        type="button"
+        role="tab"
+        data-class:is-active="$_providerKind === 'codex'"
+        data-on:click="$_providerKind = 'codex'"
+        aria-selected="true"
+      >
+        <span class="provider-switch-kicker">OpenAI</span>
+        <strong>Codex</strong>
+        <span class="provider-switch-copy">Device code</span>
+      </button>
+      <button
+        class="provider-switch"
+        type="button"
+        role="tab"
+        data-class:is-active="$_providerKind === 'claude'"
+        data-on:click="$_providerKind = 'claude'"
+        aria-selected="false"
+      >
+        <span class="provider-switch-kicker">Anthropic</span>
+        <strong>Claude</strong>
+        <span class="provider-switch-copy">Browser code</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="provider-option" style="display: none" data-show="$_providerKind === 'codex'">
+    <div class="provider-option-copy">
+      <div class="provider-option-head">
+        <span class="eyebrow">Codex OAuth</span>
+        {% if let Some(connected_kind) = status.connected_kind %}
+          {% if connected_kind == "codex" %}
+            <span class="provider-badge provider-badge-active">Active</span>
+          {% endif %}
+        {% endif %}
+      </div>
+      <strong>Device-code login for ChatGPT-backed runtime access.</strong>
+      <p>Open the OpenAI device page, enter the shown code, and this panel will connect automatically when approval completes.</p>
+      <ul class="provider-feature-list">
+        <li>Uses OpenAI device authorization</li>
+        <li>Polls automatically while this sheet stays open</li>
+        <li>Best fit when you want Codex-backed generation</li>
+      </ul>
+    </div>
+    <div class="provider-option-actions">
+      <button class="btn btn-accent" type="button" data-on:click="window.designstormSettings.connectProvider('codex')">Connect Codex</button>
+    </div>
+    {% if let Some(user_code) = status.codex_pending_user_code %}
+      <div class="provider-pending-card">
+        <span class="eyebrow">Pending</span>
+        <strong>Enter this code in OpenAI</strong>
+        <code class="provider-code-pill">{{ user_code }}</code>
+        <ol class="provider-step-list">
+          <li>Open the OpenAI device page in the browser tab that just opened.</li>
+          <li>Enter the code shown above and approve access.</li>
+          <li>Keep this sheet open while Design Storm polls for completion.</li>
+        </ol>
+      </div>
     {% endif %}
   </div>
+
+  <div class="provider-option" style="display: none" data-show="$_providerKind === 'claude'">
+    <div class="provider-option-copy">
+      <div class="provider-option-head">
+        <span class="eyebrow">Claude OAuth</span>
+        {% if let Some(connected_kind) = status.connected_kind %}
+          {% if connected_kind == "claude" %}
+            <span class="provider-badge provider-badge-active">Active</span>
+          {% endif %}
+        {% endif %}
+      </div>
+      <strong>Manual Claude login using the same browser-code flow as lash.</strong>
+      <p>Open the Claude authorization page, approve the request, then paste the returned authorization code here.</p>
+      <ul class="provider-feature-list">
+        <li>Uses Anthropic PKCE OAuth</li>
+        <li>Matches the lash CLI Claude login flow</li>
+        <li>Good fit when you want Claude as the runtime provider</li>
+      </ul>
+    </div>
+    <div class="provider-option-actions">
+      <button class="btn btn-accent" type="button" data-on:click="window.designstormSettings.connectProvider('claude')">Start Claude Login</button>
+    </div>
+    {% if let Some(auth_url) = status.claude_pending_auth_url %}
+      <div class="provider-pending-card">
+        <span class="eyebrow">Pending</span>
+        <strong>Finish Claude authorization</strong>
+        <ol class="provider-step-list">
+          <li>Open the Claude login page.</li>
+          <li>Approve access in Anthropic.</li>
+          <li>Paste the returned authorization code or `code#state` value below.</li>
+        </ol>
+        <a class="btn btn-ghost btn-sm" href="{{ auth_url }}" target="_blank" rel="noopener noreferrer">Open Claude Login</a>
+        <label class="provider-code-field">
+          <span class="provider-field-label">Authorization code</span>
+          <input id="provider-claude-code" class="provider-code-input" type="text" placeholder="Paste code or code#state" autocomplete="off" />
+        </label>
+        <div class="provider-inline-actions">
+          <button class="btn btn-accent btn-sm" type="button" data-on:click="window.designstormSettings.submitClaudeCode()">Finish Claude Login</button>
+        </div>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if status.connected && !status.using_fallback %}
+    <div class="provider-actions">
+      <button class="btn btn-ghost" type="button" data-on:click="@post('/settings/provider/logout')">Disconnect Current Provider</button>
+    </div>
+  {% endif %}
 
   <div id="provider-connect-status" class="provider-connect-status" role="status" aria-live="polite"></div>
   <button id="provider-refresh" type="button" hidden data-on:click="@get('/settings/provider')"></button>

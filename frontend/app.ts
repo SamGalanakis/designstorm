@@ -42,6 +42,16 @@ type CodexPollResponse = {
   message?: string | null;
 };
 
+type ClaudeStartResponse = {
+  authUrl: string;
+};
+
+type ClaudeExchangeResponse = {
+  status: "error" | "connected";
+  message?: string | null;
+  authUrl?: string | null;
+};
+
 type ClientTelemetryPayload = {
   eventType: string;
   message?: string | null;
@@ -253,7 +263,8 @@ declare global {
       signOut(): Promise<void>;
     };
     designstormSettings: {
-      connectCodex(): Promise<void>;
+      connectProvider(kind: "codex" | "claude"): Promise<void>;
+      submitClaudeCode(): Promise<void>;
     };
   }
 }
@@ -265,31 +276,31 @@ const CARD_HEIGHT = 332;
 const ENTROPY_NODE_WIDTH = 240;
 const ENTROPY_NODE_HEIGHT = 180;
 const GENERATE_NODE_WIDTH = 200;
-const GENERATE_NODE_HEIGHT = 140;
+const GENERATE_NODE_HEIGHT = 160;
 const INPUT_NODE_WIDTH = 220;
 const INPUT_NODE_HEIGHT = 120;
 const PALETTE_NODE_WIDTH = 200;
-const PALETTE_NODE_HEIGHT = 140;
+const PALETTE_NODE_HEIGHT = 160;
 const PICKK_NODE_WIDTH = 160;
-const PICKK_NODE_HEIGHT = 120;
-const SET_NODE_WIDTH = 200;
-const SET_NODE_HEIGHT = 140;
+const PICKK_NODE_HEIGHT = 140;
+const SET_NODE_WIDTH = 260;
+const SET_NODE_HEIGHT = 160;
 const IMAGE_NODE_WIDTH = 200;
 const IMAGE_NODE_HEIGHT = 160;
 const INT_NODE_WIDTH = 150;
-const INT_NODE_HEIGHT = 100;
+const INT_NODE_HEIGHT = 110;
 const FLOAT_NODE_WIDTH = 150;
-const FLOAT_NODE_HEIGHT = 100;
+const FLOAT_NODE_HEIGHT = 110;
 const STRING_NODE_WIDTH = 160;
-const STRING_NODE_HEIGHT = 90;
+const STRING_NODE_HEIGHT = 100;
 const BOOL_NODE_WIDTH = 140;
-const BOOL_NODE_HEIGHT = 80;
+const BOOL_NODE_HEIGHT = 100;
 const FONT_NODE_WIDTH = 180;
 const FONT_NODE_HEIGHT = 160;
 const HARMONY_NODE_WIDTH = 200;
-const HARMONY_NODE_HEIGHT = 140;
+const HARMONY_NODE_HEIGHT = 160;
 const CONDITIONAL_NODE_WIDTH = 180;
-const CONDITIONAL_NODE_HEIGHT = 120;
+const CONDITIONAL_NODE_HEIGHT = 140;
 const EDGE_HANDLE_PROXIMITY = 30;
 const INITIAL_PAN: Point = { x: 160, y: 120 };
 const BACKGROUND_CHUNK_WORLD_SIZE = 1536;
@@ -1424,7 +1435,58 @@ async function connectCodex(): Promise<void> {
   const payload = (await res.json()) as CodexStartResponse;
   setProviderStatus(`Enter code ${payload.userCode} in the OpenAI window.`);
   window.open(payload.verifyUrl, "_blank", "noopener,noreferrer");
+  ($("provider-refresh") as HTMLButtonElement | null)?.click();
   startCodexPolling(payload.intervalSeconds);
+}
+
+async function connectClaude(): Promise<void> {
+  setProviderStatus("Starting Claude OAuth...");
+  const res = await fetch("/settings/provider/claude/start", { method: "POST", credentials: "include" });
+  if (!res.ok) { setProviderStatus("Failed to start Claude OAuth.", "error"); return; }
+  const payload = (await res.json()) as ClaudeStartResponse;
+  setProviderStatus("Claude login started. Complete the browser step, then paste the code below.");
+  window.open(payload.authUrl, "_blank", "noopener,noreferrer");
+  ($("provider-refresh") as HTMLButtonElement | null)?.click();
+}
+
+async function connectProvider(kind: "codex" | "claude"): Promise<void> {
+  if (kind === "claude") {
+    await connectClaude();
+    return;
+  }
+  await connectCodex();
+}
+
+async function submitClaudeCode(): Promise<void> {
+  const input = $("provider-claude-code") as HTMLInputElement | null;
+  const code = input?.value.trim() ?? "";
+  if (!code) {
+    setProviderStatus("Paste the Claude authorization code first.", "error");
+    input?.focus();
+    return;
+  }
+
+  setProviderStatus("Finishing Claude OAuth...");
+  const res = await fetch("/settings/provider/claude/exchange", {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) {
+    setProviderStatus("Failed to finish Claude OAuth.", "error");
+    return;
+  }
+  const payload = (await res.json()) as ClaudeExchangeResponse;
+  if (payload.status === "connected") {
+    setProviderStatus(payload.message ?? "Claude is connected.", "success");
+    if (input) input.value = "";
+    ($("provider-refresh") as HTMLButtonElement | null)?.click();
+    return;
+  }
+  if (payload.authUrl) window.open(payload.authUrl, "_blank", "noopener,noreferrer");
+  setProviderStatus(payload.message ?? "Claude OAuth failed.", "error");
+  ($("provider-refresh") as HTMLButtonElement | null)?.click();
 }
 
 function startCodexPolling(interval: number): void {
@@ -3065,8 +3127,27 @@ function getSetMemberPreviewHtml(entry: { sourceId: string; sourceType: string; 
         const conditionalLabel = truncatePreview((node.content.label as string) ?? "", 28);
         return `<div class="set-member-preview set-member-preview-text">${escapeHtml(conditionalLabel || "If / Else")}</div>`;
       }
+      case "int_value": {
+        const intVal = Number(node.content.value ?? 0);
+        const intRandom = node.content.random === true;
+        return `<div class="set-member-preview set-member-preview-value">${intRandom ? "🎲" : intVal}<span>${intRandom ? "random" : "int"}</span></div>`;
+      }
+      case "float_value": {
+        const floatVal = Number(node.content.value ?? 0);
+        const floatRandom = node.content.random === true;
+        const floatDisplay = floatRandom ? "🎲" : floatVal.toFixed(2);
+        return `<div class="set-member-preview set-member-preview-value">${floatRandom ? "🎲" : escapeHtml(floatDisplay)}<span>${floatRandom ? "random" : "float"}</span></div>`;
+      }
+      case "string_value": {
+        const strVal = truncatePreview((node.content.value as string) ?? "", 30);
+        return `<div class="set-member-preview set-member-preview-text">${escapeHtml(strVal || "String")}</div>`;
+      }
+      case "bool_value": {
+        const boolVal = node.content.value === true;
+        return `<div class="set-member-preview set-member-preview-bool"><div class="set-bool-dot ${boolVal ? "is-true" : "is-false"}"></div></div>`;
+      }
       default:
-        return `<div class="set-member-preview set-member-preview-text">${escapeHtml(node.nodeType)}</div>`;
+        return `<div class="set-member-preview set-member-preview-text">${escapeHtml(node.nodeType.replace(/_/g, " "))}</div>`;
     }
   })();
 
@@ -5140,6 +5221,6 @@ async function bootstrap(): Promise<void> {
 }
 
 window.designstormAuth = { signIn, signUp, signOut };
-window.designstormSettings = { connectCodex };
+window.designstormSettings = { connectProvider, submitClaudeCode };
 
 void bootstrap();
