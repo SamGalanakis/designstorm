@@ -1616,6 +1616,38 @@ function getRun(id: string | null): StormRun | null {
   return state.runs.find((r) => r.id === id) ?? null;
 }
 
+function nudgeToAvoidOverlap(
+  pos: Point,
+  dims: { w: number; h: number },
+  excludeId: string | null,
+  positions: Map<string, Point> = state.positions,
+): Point {
+  let { x, y } = pos;
+  const PAD = 20; // min gap between nodes
+  for (let attempt = 0; attempt < 12; attempt++) {
+    let overlapping = false;
+    for (const [id, otherPos] of positions) {
+      if (id === excludeId) continue;
+      const otherDims = getNodeDimensions(id);
+      // AABB overlap check with padding
+      if (
+        x < otherPos.x + otherDims.w + PAD &&
+        x + dims.w + PAD > otherPos.x &&
+        y < otherPos.y + otherDims.h + PAD &&
+        y + dims.h + PAD > otherPos.y
+      ) {
+        overlapping = true;
+        // Nudge right and slightly down
+        x = otherPos.x + otherDims.w + PAD + 10;
+        y = pos.y + attempt * 20;
+        break;
+      }
+    }
+    if (!overlapping) break;
+  }
+  return { x, y };
+}
+
 function assignPosition(
   run: StormRun,
   index: number,
@@ -1623,18 +1655,24 @@ function assignPosition(
   positions: Map<string, Point> = state.positions,
 ): void {
   if (positions.has(run.id)) return;
+  let candidate: Point;
   if (sourceIds?.length) {
     const pts = sourceIds.map((id) => positions.get(id)).filter((p): p is Point => Boolean(p));
     if (pts.length > 0) {
       const c = pts.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y }), { x: 0, y: 0 });
       const off = sourceIds.length > 1 ? 170 : 250;
-      positions.set(run.id, { x: c.x / pts.length + off, y: c.y / pts.length + 110 });
-      return;
+      candidate = { x: c.x / pts.length + off, y: c.y / pts.length + 110 };
+    } else {
+      const col = index % 4;
+      const row = Math.floor(index / 4);
+      candidate = { x: 220 + col * 360 + (row % 2) * 70, y: 240 + row * 290 + (col % 2) * 28 };
     }
+  } else {
+    const col = index % 4;
+    const row = Math.floor(index / 4);
+    candidate = { x: 220 + col * 360 + (row % 2) * 70, y: 240 + row * 290 + (col % 2) * 28 };
   }
-  const col = index % 4;
-  const row = Math.floor(index / 4);
-  positions.set(run.id, { x: 220 + col * 360 + (row % 2) * 70, y: 240 + row * 290 + (col % 2) * 28 });
+  positions.set(run.id, nudgeToAvoidOverlap(candidate, getDefaultNodeDimensions(run.id), run.id, positions));
 }
 
 function setStatus(msg: string): void {
@@ -2972,7 +3010,9 @@ function createBoardNode(nodeType: string, worldPos: Point, opts?: CreateBoardNo
   }
 
   const placement = opts?.placement ?? "anchor";
-  const originWorldPos = getNodeOriginForPlacement(nodeType, worldPos, placement);
+  const rawPos = getNodeOriginForPlacement(nodeType, worldPos, placement);
+  const dims = nodeDimensions(nodeType);
+  const originWorldPos = nudgeToAvoidOverlap(rawPos, dims, null);
   console.log("[createBoardNode]", { nodeType, worldPos, originWorldPos, placement, pan: { ...state.pan }, scale: state.scale, radialPos: { ...state.radialMenu.position } });
   const hasSource = Boolean(opts?.sourceId && opts?.sourceType);
   typeInput.value = nodeType;
@@ -3135,7 +3175,7 @@ async function dropNodeIntoSet(nodeId: string, setNode: BoardNode): Promise<void
 
 // ─── Edge hit testing ───
 
-function hitTestEdge(worldPt: Point, maxDist: number = 12): string | null {
+function hitTestEdge(worldPt: Point, maxDist: number = 24): string | null {
   let bestId: string | null = null;
   let bestDist = maxDist;
 
