@@ -38,7 +38,7 @@
       <div class="generate-shell">
         <div class="generate-header">
           <span class="eyebrow generate-eyebrow">Generate</span>
-          <span class="generate-status" data-show="$_status && $_status !== 'Seed a direction or select a card to branch from it.'" data-text="$_status"></span>
+          <span class="generate-status" role="status" aria-live="polite" data-show="$_status && $_status !== 'Seed a direction or select a card to branch from it.'" data-text="$_status"></span>
         </div>
         <div class="generate-inputs" id="gen-inputs-{{ node.id }}">
           <span class="generate-placeholder">Wire inputs here</span>
@@ -57,7 +57,7 @@
         <div class="input-header">
           <span class="eyebrow input-eyebrow">Input</span>
         </div>
-        <div class="input-body" contenteditable="true" data-placeholder="Type here..." data-ignore>{{ node.input_text() }}{% for img in node.input_images() %}<img src="{{ img }}" class="input-image-thumb" title="Double-click to enlarge" />{% endfor %}</div>
+        <div class="input-body" contenteditable="true" data-placeholder="Type here..." data-ignore-morph>{{ node.input_text() }}{% for img in node.input_images() %}<img src="{{ img }}" class="input-image-thumb" title="Double-click to enlarge" />{% endfor %}</div>
       </div>
 
       {% else if node.node_type == "color" %}
@@ -106,8 +106,8 @@
         <div class="set-header">
           <span class="eyebrow set-eyebrow">Set</span>
         </div>
-        <div class="set-title" contenteditable="true" data-placeholder="Set title..." data-ignore>{{ node.set_title() }}</div>
-        <div class="set-description" contenteditable="true" data-placeholder="Description..." data-ignore>{{ node.set_description() }}</div>
+        <div class="set-title" contenteditable="true" data-placeholder="Set title..." data-ignore-morph>{{ node.set_title() }}</div>
+        <div class="set-description" contenteditable="true" data-placeholder="Description..." data-ignore-morph>{{ node.set_description() }}</div>
         <div class="set-members" id="set-members-{{ node.id }}">
           <div class="set-members-empty">Shift-drag supported nodes into this set</div>
         </div>

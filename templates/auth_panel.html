@@ -4,7 +4,7 @@
     <h2>{{ viewer.name }}</h2>
     <p>{{ viewer.secondary_line() }}</p>
     <div class="auth-actions">
-      <button class="btn btn-accent" type="button" data-on:click="window.location.href='/app'">Open app</button>
+      <a class="btn btn-accent" href="/app">Open app</a>
       <button class="btn btn-ghost" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
     </div>
   {% else %}

@@ -16,6 +16,6 @@
     {% endif %}
   </div>
 
-  <div id="provider-connect-status" class="provider-connect-status"></div>
+  <div id="provider-connect-status" class="provider-connect-status" role="status" aria-live="polite"></div>
   <button id="provider-refresh" type="button" hidden data-on:click="@get('/settings/provider')"></button>
 </section>
