@@ -2060,6 +2060,24 @@ function getNodeType(id: string): string {
   return bn?.nodeType ?? "design";
 }
 
+function hydrateEdgesFromDom(container: HTMLElement): void {
+  const edgesScript = container.querySelector<HTMLScriptElement>("#board-edges-data");
+  if (!edgesScript) return;
+  if (!edgesScript.textContent) {
+    state.edges = [];
+    return;
+  }
+  try {
+    state.edges = JSON.parse(edgesScript.textContent);
+  } catch {
+    reportClientEvent(
+      "board_edges_parse_failed",
+      { length: edgesScript.textContent.length },
+      { cooldownMs: 4000 },
+    );
+  }
+}
+
 function hydrateBoardFromDom(): void {
   const container = $("storm-runs");
   if (!container) {
@@ -2141,14 +2159,7 @@ function hydrateBoardFromDom(): void {
   });
 
   state.positions = nextPositions;
-
-  // Hydrate edges
-  const edgesScript = container.querySelector<HTMLScriptElement>("#board-edges-data");
-  if (edgesScript?.textContent) {
-    try { state.edges = JSON.parse(edgesScript.textContent); } catch { state.edges = []; }
-  } else {
-    state.edges = [];
-  }
+  hydrateEdgesFromDom(container);
 
   reportClientEvent(
     "board_hydrated",
@@ -5478,7 +5489,12 @@ function bindBoardObserver(): void {
       mutation.type === "childList"
       && [...mutation.addedNodes, ...mutation.removedNodes].some((node) =>
         node instanceof HTMLElement
-        && (node.id === "storm-runs" || node.classList.contains("storm-node") || node.classList.contains("board-node"))
+        && (
+          node.id === "storm-runs"
+          || node.id === "board-edges-data"
+          || node.classList.contains("storm-node")
+          || node.classList.contains("board-node")
+        )
       )
     );
     if (relevant) {
