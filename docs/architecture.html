@@ -6,1318 +6,426 @@
   <title>Design Storm / Architecture</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
     mermaid.initialize({
       startOnLoad: true,
-      theme: 'dark',
+      theme: "dark",
       themeVariables: {
-        darkMode: true,
-        background: '#131d2e',
-        primaryColor: '#1e3040',
-        primaryTextColor: '#dce4ed',
-        primaryBorderColor: '#283548',
-        lineColor: '#7ba3b8',
-        secondaryColor: '#1a2740',
-        tertiaryColor: '#1e2b3f',
-        fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: '13px',
-        nodeBorder: '#3a5068',
-        mainBkg: '#1e3040',
-        clusterBkg: 'rgba(30, 48, 64, 0.5)',
-        clusterBorder: '#283548',
-        edgeLabelBackground: '#131d2e',
-        nodeTextColor: '#dce4ed',
+        background: "#120b12",
+        primaryColor: "#1c1f2d",
+        secondaryColor: "#171924",
+        tertiaryColor: "#1f2332",
+        primaryTextColor: "#eef2f7",
+        primaryBorderColor: "#314056",
+        lineColor: "#6aa4bd",
+        fontFamily: "'IBM Plex Mono', monospace"
       }
     });
   </script>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     :root {
-      --bg: #0b1120;
-      --bg-rgb: 11, 17, 32;
-      --surface: #131d2e;
-      --surface-rgb: 19, 29, 46;
-      --surface-strong: #1a2740;
-      --surface-strong-rgb: 26, 39, 64;
-      --text: #dce4ed;
-      --text-rgb: 220, 228, 237;
-      --text-soft: #8d9bab;
-      --text-soft-rgb: 141, 155, 171;
-      --muted: #6b7a8d;
-      --muted-rgb: 107, 122, 141;
-      --line: #283548;
-      --line-rgb: 40, 53, 72;
-      --accent: #7ba3b8;
-      --accent-rgb: 123, 163, 184;
-      --accent-soft: #1e3040;
-      --accent-soft-rgb: 30, 48, 64;
-      --accent-2: #a08b72;
-      --accent-2-rgb: 160, 139, 114;
-      --mark: #1e2b3f;
-      --mark-rgb: 30, 43, 63;
-      --shadow-rgb: 3, 6, 12;
-      --ambient:
-        radial-gradient(circle at 20% 12%, rgba(78, 107, 136, 0.22) 0%, rgba(78, 107, 136, 0) 26%),
-        radial-gradient(circle at 78% 14%, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 20%),
-        radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0) 36%);
+      --bg: #120b12;
+      --bg-2: #180d14;
+      --panel: rgba(20, 24, 34, 0.84);
+      --panel-strong: rgba(28, 31, 45, 0.92);
+      --line: rgba(255, 255, 255, 0.1);
+      --text: #eef2f7;
+      --text-dim: rgba(238, 242, 247, 0.72);
+      --text-faint: rgba(238, 242, 247, 0.46);
+      --accent: #6aa4bd;
+      --accent-2: #c78f7f;
+      --shadow: rgba(0, 0, 0, 0.42);
     }
 
-    html { font-size: 16px; scroll-behavior: smooth; }
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
 
     body {
+      margin: 0;
       min-height: 100vh;
-      font-family: 'Manrope', sans-serif;
+      font-family: "Manrope", sans-serif;
       color: var(--text);
-      line-height: 1.65;
-      -webkit-font-smoothing: antialiased;
-      text-rendering: optimizeLegibility;
-      overflow-x: hidden;
-    }
-
-    #grain-canvas {
-      position: fixed;
-      inset: 0;
-      z-index: 0;
-      pointer-events: none;
-      width: 100%;
-      height: 100%;
-    }
-
-    body::after {
-      content: '';
-      position: fixed;
-      inset: 0;
-      z-index: 0;
-      pointer-events: none;
-      background: var(--ambient);
-    }
-
-    ::selection {
-      background: rgba(var(--accent-rgb), 0.22);
-      color: var(--text);
-    }
-
-    /* ─── Navigation ─── */
-
-    .direction-nav {
-      position: sticky;
-      top: 0;
-      z-index: 1000;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 14px 24px;
-      background: rgba(var(--bg-rgb), 0.82);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-bottom: 1px solid rgba(var(--line-rgb), 0.6);
-      box-shadow: 0 8px 28px rgba(var(--shadow-rgb), 0.12);
-    }
-
-    .direction-nav a {
-      color: rgba(var(--text-rgb), 0.5);
-      text-decoration: none;
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      white-space: nowrap;
-      padding: 6px 12px;
-      border-radius: 999px;
-      transition: color 0.25s ease, background 0.25s ease;
-    }
-
-    .direction-nav a:hover {
-      color: rgba(var(--text-rgb), 0.88);
-      background: rgba(var(--text-rgb), 0.06);
-    }
-
-    .nav-title {
-      flex: 1;
-      text-align: center;
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 1rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: rgba(var(--text-rgb), 0.5);
-    }
-
-    .nav-home {
-      padding-right: 18px;
-      margin-right: 2px;
-      border-right: 1px solid rgba(var(--line-rgb), 0.8);
-      font-size: 11px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: rgba(var(--text-rgb), 0.5);
-    }
-
-    /* ─── Content shell ─── */
-
-    .arch {
-      position: relative;
-      z-index: 1;
-      min-height: 100vh;
-    }
-
-    .arch-header,
-    .arch-section {
-      position: relative;
-      z-index: 1;
-      width: min(1180px, calc(100vw - 48px));
-      margin: 0 auto;
-    }
-
-    .arch-header {
-      padding: 96px 0 44px;
-    }
-
-    .arch-number {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 11px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.8);
-      margin-bottom: 10px;
-    }
-
-    .arch-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 20px;
-      padding: 8px 14px;
-      border-radius: 999px;
-      background: rgba(var(--surface-rgb), 0.8);
-      border: 1px solid rgba(var(--line-rgb), 0.85);
-      box-shadow: 0 14px 40px rgba(var(--shadow-rgb), 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: rgba(var(--text-rgb), 0.6);
-    }
-
-    .arch-name {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: clamp(4.2rem, 10vw, 7.4rem);
-      font-weight: 600;
-      line-height: 0.92;
-      letter-spacing: -0.035em;
-      color: rgba(var(--text-rgb), 0.96);
-      margin-bottom: 10px;
-    }
-
-    .arch-subtitle {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: clamp(1.45rem, 3vw, 2.1rem);
-      font-style: italic;
-      letter-spacing: 0.04em;
-      color: rgba(var(--accent-rgb), 0.88);
-      margin-bottom: 28px;
-    }
-
-    .header-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
-      gap: 28px;
-      align-items: start;
-    }
-
-    .arch-desc {
-      max-width: 680px;
-      font-size: 17px;
-      line-height: 1.95;
-      color: rgba(var(--text-soft-rgb), 0.96);
-    }
-
-    .arch-aside {
-      display: grid;
-      gap: 14px;
-    }
-
-    .aside-card {
-      padding: 18px 18px 16px;
-      border-radius: 22px;
-      background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.88), rgba(var(--surface-strong-rgb), 0.75));
-      border: 1px solid rgba(var(--line-rgb), 0.8);
-      box-shadow: 0 22px 45px rgba(var(--shadow-rgb), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-    }
-
-    .meta-label {
-      display: inline-block;
-      margin-bottom: 10px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.9);
-    }
-
-    .aside-card p {
-      font-size: 13px;
-      line-height: 1.8;
-      color: rgba(var(--text-soft-rgb), 0.92);
-    }
-
-    /* ─── Divider ─── */
-
-    .quiet-divider {
-      width: min(1180px, calc(100vw - 48px));
-      margin: 0 auto 22px;
-      display: flex;
-      justify-content: center;
-    }
-
-    .quiet-divider span {
-      width: min(260px, 42vw);
-      height: 1px;
-      background: linear-gradient(90deg, rgba(var(--line-rgb), 0) 0%, rgba(var(--line-rgb), 0.9) 50%, rgba(var(--line-rgb), 0) 100%);
-      position: relative;
-    }
-
-    .quiet-divider span::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 9px;
-      height: 9px;
-      transform: translate(-50%, -50%);
-      border-radius: 999px;
-      background: rgba(var(--accent-rgb), 0.38);
-      box-shadow: 0 0 0 8px rgba(var(--accent-rgb), 0.06);
-    }
-
-    /* ─── Sections ─── */
-
-    .arch-section {
-      padding: 44px 0;
-    }
-
-    .section-label {
-      margin-bottom: 28px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      font-weight: 500;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.9);
-    }
-
-    .section-title {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: clamp(2rem, 4vw, 3rem);
-      font-weight: 600;
-      line-height: 0.96;
-      letter-spacing: -0.02em;
-      color: rgba(var(--text-rgb), 0.94);
-      margin-bottom: 18px;
-    }
-
-    .section-desc {
-      max-width: 720px;
-      font-size: 15px;
-      line-height: 1.85;
-      color: rgba(var(--text-soft-rgb), 0.94);
-      margin-bottom: 32px;
-    }
-
-    /* ─── Panels ─── */
-
-    .panel {
-      position: relative;
-      overflow: hidden;
-      padding: 30px;
-      border-radius: 30px;
-      background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.9), rgba(var(--surface-strong-rgb), 0.78));
-      border: 1px solid rgba(var(--line-rgb), 0.82);
-      box-shadow:
-        0 30px 80px rgba(var(--shadow-rgb), 0.18),
-        0 8px 22px rgba(var(--shadow-rgb), 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04);
-      margin-bottom: 24px;
-      animation: panel-rise 0.7s ease both;
-    }
-
-    .panel::before {
-      content: '';
-      position: absolute;
-      inset: 0;
       background:
-        linear-gradient(155deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0) 42%),
-        radial-gradient(circle at 100% 0%, rgba(var(--accent-rgb), 0.06), rgba(var(--accent-rgb), 0) 34%);
-      pointer-events: none;
+        radial-gradient(circle at top left, rgba(106, 164, 189, 0.16), transparent 26rem),
+        radial-gradient(circle at top right, rgba(199, 143, 127, 0.12), transparent 24rem),
+        linear-gradient(180deg, var(--bg-2), var(--bg));
+      line-height: 1.7;
     }
 
-    @keyframes panel-rise {
-      from { opacity: 0; transform: translateY(18px); }
-      to { opacity: 1; transform: translateY(0); }
+    a { color: inherit; }
+
+    .shell {
+      width: min(1120px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 56px 0 88px;
     }
 
-    .panel-label {
-      position: relative;
-      z-index: 1;
-      margin-bottom: 20px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      font-weight: 500;
+    .hero {
+      display: grid;
+      gap: 20px;
+      margin-bottom: 36px;
+    }
+
+    .eyebrow {
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 11px;
       letter-spacing: 0.16em;
       text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.9);
+      color: var(--text-faint);
     }
 
-    .panel-content {
-      position: relative;
-      z-index: 1;
-    }
-
-    .panel-content h3 {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 1.6rem;
+    h1, h2 {
+      margin: 0;
+      font-family: "Cormorant Garamond", serif;
       font-weight: 600;
-      color: rgba(var(--text-rgb), 0.92);
-      margin-bottom: 14px;
+      letter-spacing: -0.03em;
+      line-height: 0.96;
     }
 
-    .panel-content p {
-      font-size: 14px;
-      line-height: 1.85;
-      color: rgba(var(--text-soft-rgb), 0.92);
-      margin-bottom: 16px;
+    h1 {
+      font-size: clamp(3.6rem, 9vw, 6.4rem);
     }
 
-    .panel-content p:last-child { margin-bottom: 0; }
+    h2 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      margin-bottom: 12px;
+    }
 
-    /* ─── Grid layouts ─── */
+    .subtitle {
+      max-width: 760px;
+      font-size: 1.08rem;
+      color: var(--text-dim);
+    }
 
-    .panel-grid {
+    .summary-grid {
       display: grid;
-      gap: 24px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 42px;
     }
 
-    .panel-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .panel-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-
-    /* ─── Cards inside panels ─── */
-
-    .arch-card {
-      padding: 20px;
+    .card {
+      padding: 18px 20px;
+      border: 1px solid var(--line);
       border-radius: 22px;
-      border: 1px solid rgba(var(--line-rgb), 0.72);
-      background: rgba(var(--mark-rgb), 0.52);
+      background: var(--panel);
+      box-shadow: 0 24px 60px var(--shadow);
+      backdrop-filter: blur(20px);
     }
 
-    .arch-card strong {
+    .card strong {
       display: block;
       margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 700;
-      color: rgba(var(--text-rgb), 0.9);
+      font-size: 0.95rem;
     }
 
-    .arch-card p {
-      font-size: 12px;
-      line-height: 1.75;
-      color: rgba(var(--text-soft-rgb), 0.86);
-      margin-bottom: 0;
+    .card p,
+    .card li {
+      color: var(--text-dim);
+      font-size: 0.96rem;
     }
 
-    /* ─── Tech pills ─── */
-
-    .tech-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 20px;
+    .section {
+      margin-top: 44px;
     }
 
-    .tech-pill {
-      padding: 6px 12px;
-      border-radius: 999px;
-      background: rgba(var(--accent-rgb), 0.12);
-      border: 1px solid rgba(var(--accent-rgb), 0.2);
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 11px;
-      letter-spacing: 0.06em;
-      color: rgba(var(--accent-rgb), 0.94);
+    .section-grid {
+      display: grid;
+      gap: 18px;
     }
 
-    .tech-pill.warm {
-      background: rgba(var(--accent-2-rgb), 0.12);
-      border-color: rgba(var(--accent-2-rgb), 0.2);
-      color: rgba(var(--accent-2-rgb), 0.96);
+    .two-up {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 18px;
     }
 
-    .tech-pill.muted {
-      background: rgba(var(--text-rgb), 0.06);
-      border-color: rgba(var(--line-rgb), 0.6);
-      color: rgba(var(--text-rgb), 0.56);
+    ul {
+      margin: 0;
+      padding-left: 18px;
     }
 
-    /* ─── Mermaid diagrams ─── */
+    li + li {
+      margin-top: 8px;
+    }
 
-    .mermaid-wrap {
-      margin: 20px 0;
-      padding: 24px;
-      border-radius: 22px;
-      background: rgba(var(--mark-rgb), 0.5);
-      border: 1px solid rgba(var(--line-rgb), 0.6);
+    .code {
+      display: block;
       overflow-x: auto;
-    }
-
-    .mermaid-wrap .mermaid {
-      display: flex;
-      justify-content: center;
-    }
-
-    .mermaid-wrap svg {
-      max-width: 100%;
-      height: auto;
-    }
-
-    /* ─── Code blocks ─── */
-
-    .code-block {
-      margin: 16px 0;
-      padding: 18px 20px;
-      border-radius: 16px;
-      background: rgba(var(--bg-rgb), 0.7);
-      border: 1px solid rgba(var(--line-rgb), 0.6);
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 12px;
-      line-height: 1.7;
-      color: rgba(var(--text-rgb), 0.8);
-      overflow-x: auto;
+      padding: 16px 18px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(10, 12, 18, 0.7);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.85rem;
+      line-height: 1.65;
+      color: #d8e5ef;
       white-space: pre;
     }
 
-    /* ─── Route table ─── */
-
-    .route-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 16px 0;
-      font-size: 13px;
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
     }
 
-    .route-table th {
-      text-align: left;
-      padding: 10px 14px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.9);
-      border-bottom: 1px solid rgba(var(--line-rgb), 0.6);
-    }
-
-    .route-table td {
-      padding: 8px 14px;
-      border-bottom: 1px solid rgba(var(--line-rgb), 0.3);
-      color: rgba(var(--text-soft-rgb), 0.9);
-    }
-
-    .route-table td:first-child {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 12px;
-      color: rgba(var(--accent-rgb), 0.9);
-      white-space: nowrap;
-    }
-
-    .route-table .method {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.06em;
-      padding: 3px 8px;
+    .pill {
+      padding: 7px 12px;
       border-radius: 999px;
-      background: rgba(var(--accent-rgb), 0.12);
-      color: rgba(var(--accent-rgb), 0.9);
+      border: 1px solid rgba(106, 164, 189, 0.28);
+      background: rgba(106, 164, 189, 0.1);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text);
     }
 
-    .route-table .method.post {
-      background: rgba(var(--accent-2-rgb), 0.12);
-      color: rgba(var(--accent-2-rgb), 0.9);
+    .mermaid {
+      padding: 12px;
+      border-radius: 24px;
+      border: 1px solid var(--line);
+      background: var(--panel-strong);
+      overflow: auto;
     }
 
-    .route-table .method.del {
-      background: rgba(200, 80, 80, 0.12);
-      color: rgba(200, 80, 80, 0.9);
+    .muted {
+      color: var(--text-faint);
     }
 
-    /* ─── Responsive ─── */
-
-    @media (max-width: 1024px) {
-      .header-grid { grid-template-columns: 1fr; }
-      .panel-grid-2,
-      .panel-grid-3 { grid-template-columns: 1fr; }
-    }
-
-    @media (max-width: 640px) {
-      .arch-header { padding: 56px 0 28px; }
-      .direction-nav { gap: 8px; padding: 10px 16px; }
-      .direction-nav a { font-size: 10px; padding: 5px 8px; }
+    @media (max-width: 720px) {
+      .shell { width: min(100vw - 24px, 1120px); padding-top: 36px; }
+      .card { border-radius: 18px; }
+      .code { font-size: 0.8rem; }
     }
   </style>
 </head>
 <body>
-  <canvas id="grain-canvas"></canvas>
-  <nav class="direction-nav">
-    <span class="nav-home">Design Storm</span>
-    <span class="nav-title">Architecture</span>
-    <a href="#overview">Overview</a>
-    <a href="#backend">Backend</a>
-    <a href="#frontend">Frontend</a>
-    <a href="#generation">Generation</a>
-    <a href="#data">Data</a>
-    <a href="#auth">Auth</a>
-    <a href="#infra">Infra</a>
-  </nav>
-
-  <article class="arch">
-    <header class="arch-header">
-      <div class="arch-number">Technical Reference 001</div>
-      <div class="arch-tag">Rust &middot; Axum &middot; Datastar &middot; PostgreSQL</div>
-      <h1 class="arch-name">Architecture</h1>
-      <p class="arch-subtitle">How Design Storm is built</p>
-
-      <div class="header-grid">
-        <p class="arch-desc">
-          Design Storm is a full-stack Rust web application for AI-directed design exploration.
-          A monolithic Axum server renders HTML templates, streams real-time updates over SSE via
-          Datastar, and orchestrates agentic AI generation through the lash runtime. The frontend
-          is vanilla TypeScript with a WebGL-powered infinite canvas.
-        </p>
-
-        <div class="arch-aside">
-          <div class="aside-card">
-            <span class="meta-label">Philosophy</span>
-            <p>Server is the source of truth. HTML-over-the-wire via Datastar SSE.
-              Minimal client state. The backend drives the UI by patching elements and signals.</p>
-          </div>
-          <div class="aside-card">
-            <span class="meta-label">Stack</span>
-            <p>Rust 1.93 &middot; Axum 0.8 &middot; sqlx + PostgreSQL &middot; Askama templates &middot;
-              Datastar RC.8 &middot; TypeScript &middot; Bun &middot; WebGL2 &middot; Fly.io</p>
-          </div>
-        </div>
-      </div>
-    </header>
-
-    <div class="quiet-divider"><span></span></div>
-
-    <!-- ════════════ OVERVIEW ════════════ -->
-
-    <section id="overview" class="arch-section">
-      <div class="section-label">01 / System Overview</div>
-      <h2 class="section-title">High-Level Architecture</h2>
-      <p class="section-desc">
-        A single Rust binary serves the entire application &mdash; static assets, server-rendered HTML,
-        REST APIs, and SSE streams. The AI generation pipeline runs in-process via the lash agent runtime,
-        writing artifacts to an isolated filesystem workspace.
+  <main class="shell">
+    <section class="hero">
+      <span class="eyebrow">Design Storm / Architecture</span>
+      <h1>Chat-First Design Sessions</h1>
+      <p class="subtitle">
+        The shipped app is a session-based studio: one chat thread, one reference shelf, a persistent async job queue, and a gallery of generated designs.
+        The old board/node graph is gone from the runtime, schema, and primary UX.
       </p>
+    </section>
 
-      <div class="panel">
-        <div class="panel-label">Request Flow</div>
-        <div class="mermaid-wrap">
-          <pre class="mermaid">
+    <section class="summary-grid">
+      <article class="card">
+        <strong>Primary UX</strong>
+        <p>Sidebar sessions, central gallery, right-rail chat composer and references. The user talks to one agent and iterates by selecting references or prior designs.</p>
+      </article>
+      <article class="card">
+        <strong>Agent contract</strong>
+        <p>The session agent either replies conversationally or calls <code>make_design</code> exactly once per turn. Design generation is always asynchronous.</p>
+      </article>
+      <article class="card">
+        <strong>Persistence</strong>
+        <p>Sessions, messages, references, jobs, and generated runs are all stored in Postgres. Generated workspaces are previewable from disk and can be recovered from archived ZIPs.</p>
+      </article>
+    </section>
+
+    <section class="section">
+      <span class="eyebrow">Flow</span>
+      <h2>Request Lifecycle</h2>
+      <div class="mermaid">
 flowchart LR
-    Browser["Browser<br/><small>Datastar + TypeScript</small>"]
-    Axum["Axum Server<br/><small>Rust monolith</small>"]
-    PG[("PostgreSQL")]
-    Lash["Lash Runtime<br/><small>Agent + Tools</small>"]
-    FS[("Workspace FS")]
-    Clerk["Clerk<br/><small>Auth provider</small>"]
-    LLM["LLM Provider<br/><small>OpenAI / Claude</small>"]
-
-    Browser -- "HTTP / SSE" --> Axum
-    Axum -- "sqlx" --> PG
-    Axum -- "JWT verify" --> Clerk
-    Axum --> Lash
-    Lash -- "API calls" --> LLM
-    Lash -- "read/write" --> FS
-    Browser -. "OAuth" .-> Clerk
-          </pre>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-label">Project Structure</div>
-        <div class="panel-content">
-          <div class="code-block">designstorm/
-├── src/main.rs           # Monolithic backend (~3,300 lines)
-├── frontend/app.ts       # Client TypeScript (~2,900 lines)
-├── templates/            # Askama HTML templates
-│   ├── base.html         # Root layout, fonts, Datastar
-│   ├── app.html          # Main application shell
-│   ├── storm_board.html  # Board nodes + edges
-│   ├── roots_list.html   # Navigator sidebar
-│   ├── auth_panel.html   # Sign in/out
-│   └── provider_panel.html
-├── static/
-│   ├── styles.css        # All styles
-│   └── app.js            # Compiled TypeScript
-├── migrations/           # PostgreSQL schema (5 versions)
-├── Dockerfile            # Multi-stage build
-└── fly.toml              # Fly.io deployment</div>
-        </div>
+  U[User] --> C[Session chat composer]
+  C --> M[POST /sessions/{id}/messages]
+  M --> DB[(session_messages)]
+  M --> A[Session agent]
+  A -->|No tool call| DB
+  A -->|make_design| J[(design_jobs)]
+  J --> W[Async job runner]
+  W --> G[generate_storm_internal]
+  G --> R[(storm_runs)]
+  R --> P[/preview/{run_id}/]
+  R --> Z[/storms/{id}/download]
+  J --> S[GET /sessions/{id}/snapshot]
+  S --> UI[Gallery + chat refresh]
       </div>
     </section>
 
-    <div class="quiet-divider"><span></span></div>
-
-    <!-- ════════════ BACKEND ════════════ -->
-
-    <section id="backend" class="arch-section">
-      <div class="section-label">02 / Backend</div>
-      <h2 class="section-title">Rust + Axum Server</h2>
-      <p class="section-desc">
-        A single-binary Axum application handles routing, template rendering, database access,
-        authentication, and AI orchestration. All state is shared via an Arc&lt;AppState&gt;.
-      </p>
-
-      <div class="panel">
-        <div class="panel-label">Core Dependencies</div>
-        <div class="panel-content">
-          <div class="tech-row">
-            <span class="tech-pill">Axum 0.8</span>
-            <span class="tech-pill">Tokio</span>
-            <span class="tech-pill">sqlx 0.8</span>
-            <span class="tech-pill">Askama 0.12</span>
-            <span class="tech-pill">Datastar 0.3</span>
-            <span class="tech-pill warm">lash-core</span>
-            <span class="tech-pill muted">jsonwebtoken</span>
-            <span class="tech-pill muted">aes-gcm</span>
-            <span class="tech-pill muted">reqwest</span>
-            <span class="tech-pill muted">tracing</span>
-          </div>
-          <p>The backend is a monolithic <code>main.rs</code>. Key types:</p>
-          <div class="code-block">AppState {
-    config: Arc&lt;Config&gt;,     // Environment-driven configuration
-    db: PgPool,              // sqlx PostgreSQL pool
-    http: Client,            // reqwest HTTP client
-    session_encoding_key,    // HS256 JWT signing
-    session_decoding_key,    // HS256 JWT verification
-    clerk_decoding_key,      // Clerk JWKS public key
-}</div>
-        </div>
+    <section class="section">
+      <span class="eyebrow">Surface</span>
+      <h2>Server Responsibilities</h2>
+      <div class="two-up">
+        <article class="card">
+          <strong>Session layer</strong>
+          <ul>
+            <li>Create and rename sessions.</li>
+            <li>Load sidebar, messages, references, jobs, and session-specific runs into one snapshot payload.</li>
+            <li>Persist user and assistant messages, including optional links from assistant messages to queued jobs.</li>
+          </ul>
+        </article>
+        <article class="card">
+          <strong>Generation layer</strong>
+          <ul>
+            <li>Resolve selected reference handles into a frozen JSON snapshot.</li>
+            <li>Create a durable <code>design_jobs</code> record before background work starts.</li>
+            <li>Turn completed jobs into <code>storm_runs</code> with optional <code>iterates_on_id</code> lineage.</li>
+          </ul>
+        </article>
       </div>
-
-      <div class="panel">
-        <div class="panel-label">HTTP Routes</div>
-        <div class="panel-content">
-          <table class="route-table">
-            <thead>
-              <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
-            </thead>
-            <tbody>
-              <tr><td><span class="method">GET</span></td><td>/app</td><td>Main application (server-rendered)</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/auth/session</td><td>Validate Clerk JWT, issue session cookie</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/storms/generate</td><td>Generate artifact (SSE stream via Datastar)</td></tr>
-              <tr><td><span class="method">GET</span></td><td>/api/storms</td><td>List user's storm runs</td></tr>
-              <tr><td><span class="method">GET</span></td><td>/preview/{id}/</td><td>Serve generated artifact HTML</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/nodes/create</td><td>Create board node through Datastar form post</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/nodes/{id}/run</td><td>Execute generate node (SSE stream)</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/nodes/{id}/position</td><td>Update node position + size</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/nodes/{id}/content</td><td>Update node content (text, images)</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/nodes/{id}/reroll</td><td>Re-roll entropy node</td></tr>
-              <tr><td><span class="method del">DEL</span></td><td>/nodes/{id}</td><td>Delete node + associated edges</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/edges</td><td>Create edge between nodes</td></tr>
-              <tr><td><span class="method del">DEL</span></td><td>/edges/{id}</td><td>Delete edge</td></tr>
-              <tr><td><span class="method">GET</span></td><td>/storms/{id}/download</td><td>Download generated workspace as ZIP</td></tr>
-              <tr><td><span class="method post">POST</span></td><td>/settings/provider/codex/start</td><td>Initiate device OAuth flow</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-label">Datastar SSE Pattern</div>
-        <div class="panel-content">
-          <p>
-            Long-running operations (generation, node creation, deletion) return SSE streams.
-            The Datastar client automatically patches the DOM and updates signals from these events.
-          </p>
-          <div class="mermaid-wrap">
-            <pre class="mermaid">
-sequenceDiagram
-    participant B as Browser
-    participant D as Datastar Client
-    participant S as Axum Server
-
-    B->>D: Click button (data-on:click="@post")
-    D->>S: POST /storms/generate
-    S-->>D: event: datastar-patch-signals<br/>data: {_generating: true}
-    Note over S: Run lash agent...
-    S-->>D: event: datastar-patch-elements<br/>data: selector #roots-list<br/>data: mode inner<br/>data: elements &lt;html&gt;
-    S-->>D: event: datastar-patch-elements<br/>data: selector #storm-runs<br/>data: mode outer<br/>data: elements &lt;html&gt;
-    S-->>D: event: datastar-patch-signals<br/>data: {_generating: false, _latestRunId: "..."}
-    D->>B: DOM morphed + signals updated
-            </pre>
-          </div>
-          <p>
-            The server uses <code>PatchElements</code> and <code>PatchSignals</code> from the
-            <code>datastar</code> Rust crate, streamed through Axum's <code>Sse</code> response type
-            with <code>async_stream::stream!</code>.
-          </p>
-        </div>
+      <div class="pill-row">
+        <span class="pill">Axum</span>
+        <span class="pill">Askama</span>
+        <span class="pill">Datastar</span>
+        <span class="pill">SQLx</span>
+        <span class="pill">Clerk</span>
+        <span class="pill">Bun</span>
       </div>
     </section>
 
-    <div class="quiet-divider"><span></span></div>
-
-    <!-- ════════════ FRONTEND ════════════ -->
-
-    <section id="frontend" class="arch-section">
-      <div class="section-label">03 / Frontend</div>
-      <h2 class="section-title">TypeScript + Datastar + WebGL</h2>
-      <p class="section-desc">
-        A hybrid approach: server-rendered HTML with Datastar directives for reactivity,
-        plus vanilla TypeScript for the infinite canvas, node interactions, and complex UI state.
-      </p>
-
-      <div class="panel">
-        <div class="panel-label">Architecture</div>
-        <div class="panel-content">
-          <div class="panel-grid panel-grid-3">
-            <div class="arch-card">
-              <strong>Server-Rendered Layer</strong>
-              <p>Askama templates generate initial HTML. Datastar attributes (<code>data-signals</code>,
-                <code>data-show</code>, <code>data-on</code>) provide reactivity without a framework.</p>
-            </div>
-            <div class="arch-card">
-              <strong>Client State Layer</strong>
-              <p>A single <code>StormState</code> object manages runs, board nodes, edges, positions,
-                and pointer interactions. Hydrated from DOM data attributes on page load.</p>
-            </div>
-            <div class="arch-card">
-              <strong>Canvas Layer</strong>
-              <p>WebGL2 procedural background rendered as one seamless presentation surface, backed by
-                cached offscreen chunks. DOM-based node rendering uses CSS transforms for positioning,
-                and SVG renders the connection lines.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-label">Board Interaction Model</div>
-        <div class="panel-content">
-          <div class="mermaid-wrap">
-            <pre class="mermaid">
-stateDiagram-v2
-    [*] --> Idle
-    Idle --> Pan: Space + drag / Hand tool
-    Idle --> DragNode: Pointer down on node
-    Idle --> ResizeNode: Drag resize handle
-    Idle --> Wire: Pointer down on output anchor chip
-    Idle --> RadialMenu: Right-click / Backtick
-
-    Pan --> Idle: Pointer up
-    DragNode --> Idle: Pointer up (persist position)
-    ResizeNode --> Idle: Pointer up (persist size)
-    Wire --> CreateEdge: Drop on valid target
-    Wire --> RadialMenu: Drop on empty canvas
-    Wire --> Idle: Drop on invalid target
-    CreateEdge --> Idle: Edge created
-    RadialMenu --> CreateNode: Select node type
-    RadialMenu --> DeleteNode: Select delete
-    RadialMenu --> Idle: Escape / dismiss
-    CreateNode --> Idle: Node created
-    DeleteNode --> Idle: Node removed
-            </pre>
-          </div>
-          <p>
-            Pointer state is modeled as a discriminated union with modes: <code>pan</code>,
-            <code>drag</code>, <code>drag-board-node</code>, <code>wire</code>, and <code>resize</code>.
-            The board now uses Figma-style navigation: wheel pans, <code>Ctrl</code>/<code>Cmd</code> + wheel zooms,
-            and the bottom tool dock controls select vs hand mode. Radial-created nodes spawn at the invocation point,
-            while toolbar-created nodes spawn centered in the current viewport. Wiring is now anchor-only:
-            output chips start wires, input chips are the only valid drop targets, and generated result cards expose
-            <code>generated_by</code> and <code>out</code> ports for lineage and downstream connections.
-          </p>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-label">Build Pipeline</div>
-        <div class="panel-content">
-          <div class="tech-row">
-            <span class="tech-pill">Bun</span>
-            <span class="tech-pill">TypeScript</span>
-            <span class="tech-pill muted">No framework</span>
-            <span class="tech-pill muted">No bundler plugins</span>
-          </div>
-          <div class="code-block">bun build ./frontend/app.ts --outfile ./static/app.js --target browser --minify</div>
-          <p>
-            Single entry point, single output file. Bun handles TypeScript compilation and bundling.
-            The only npm dependency is <code>@clerk/clerk-js</code> for client-side auth.
-          </p>
-        </div>
-      </div>
+    <section class="section">
+      <span class="eyebrow">Routes</span>
+      <h2>Active HTTP Surface</h2>
+      <div class="code">GET  /app
+POST /sessions
+POST /sessions/{id}/rename
+GET  /sessions/{id}/snapshot
+POST /sessions/{id}/messages
+POST /sessions/{id}/references
+POST /sessions/{id}/references/image
+DELETE /storms/{id}
+GET  /storms/{id}/download
+GET  /preview/{run_id}
+GET  /preview/{run_id}/
+GET  /preview/{run_id}/{*path}
+POST /assets
+GET  /assets/{id}/{file_name}</div>
+      <p class="muted">Board routes, board mutations, preset endpoints, and board-edge APIs were removed during the chat-first cutover.</p>
     </section>
 
-    <div class="quiet-divider"><span></span></div>
-
-    <!-- ════════════ GENERATION ════════════ -->
-
-    <section id="generation" class="arch-section">
-      <div class="section-label">04 / Generation Pipeline</div>
-      <h2 class="section-title">The Lash Agent Runtime</h2>
-      <p class="section-desc">
-        Design artifacts are generated by an agentic AI runtime called <strong>lash</strong>.
-        The server creates an isolated filesystem workspace, configures the agent with restricted
-        capabilities and custom tools, then runs iterative turns until the artifact is submitted.
-      </p>
-
-      <div class="panel">
-        <div class="panel-label">Generation Flow</div>
-        <div class="panel-content">
-          <div class="mermaid-wrap">
-            <pre class="mermaid">
-flowchart TD
-    A["User submits prompt"] --> B["Load provider credentials<br/><small>Decrypt AES-256-GCM</small>"]
-    B --> C["Create workspace<br/><small>/{user_id}/{run_id}/</small>"]
-    C --> D["Scaffold files<br/><small>index.html + styles.css</small>"]
-    D --> E["Configure RuntimeEngine"]
-    E --> F["Run agent turn"]
-    F --> G{Agent calls tools}
-    G -- "workspace_write" --> H["Write to workspace"]
-    G -- "workspace_read" --> I["Read workspace files"]
-    G -- "search_web" --> J["Tavily search"]
-    G -- "submit_result" --> K["Finalize artifact"]
-    H --> F
-    I --> F
-    J --> F
-    K --> L["Store in DB<br/><small>storm_runs table</small>"]
-    L --> M["Stream SSE patches<br/><small>Board + roots HTML</small>"]
-            </pre>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-label">Agent Configuration</div>
-        <div class="panel-content">
-          <div class="panel-grid panel-grid-2">
-            <div class="arch-card">
-              <strong>Sandboxed Tools</strong>
-              <p><code>workspace_list</code>, <code>workspace_read</code>, <code>workspace_write</code> &mdash;
-                confined to the run directory. <code>render_result</code> and <code>submit_result</code>
-                for artifact lifecycle. Optional <code>search_web</code> and <code>fetch_url</code> via Tavily.</p>
-            </div>
-            <div class="arch-card">
-              <strong>Disabled Capabilities</strong>
-              <p>No shell access, no filesystem beyond workspace, no memory persistence, no task delegation,
-                no skill loading. The agent can only modify its own workspace and call web search if configured.</p>
-            </div>
-            <div class="arch-card">
-              <strong>Provider Abstraction</strong>
-              <p>Supports Codex (OpenAI), Claude, Google OAuth, and a generic OpenAI-compatible endpoint.
-                Provider credentials encrypted at rest with AES-256-GCM. Model tier selection per provider.</p>
-            </div>
-            <div class="arch-card">
-              <strong>Prompt Engineering</strong>
-              <p>Custom system prompt sections override identity, personality, execution contract, tool access,
-                guidelines, and error recovery. The agent is instructed to produce static HTML design artifacts.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-label">Node Graph Generation</div>
-        <div class="panel-content">
-          <p>
-            The stormboard's generate node collects wired inputs and builds a composite prompt.
-            When the user clicks Run, the backend resolves all incoming edges:
-          </p>
-          <div class="mermaid-wrap">
-            <pre class="mermaid">
-flowchart LR
-    E["Entropy Node<br/><small>Wikipedia article</small>"] --> G["Generate Node"]
-    I["Input Node<br/><small>User text + images</small>"] --> G
-    D["Design Node<br/><small>Previous artifact</small>"] --> G
-    G --> |"Run"| R["New Design Node<br/><small>Generated artifact</small>"]
-    G -.-> |"auto-wire"| R
-            </pre>
-          </div>
-          <p>
-            Each source type contributes to the prompt differently: entropy provides reference URLs,
-            user input provides direction text, and design nodes provide context from previous generations.
-            Generate-node execution is server-owned and returns Datastar SSE patches that refresh the
-            board HTML, roots navigator, and local generation signals. The resulting design run is then
-            auto-linked back to the generate node through the run card's <code>generated_by</code> anchor.
-          </p>
-        </div>
-      </div>
-    </section>
-
-    <div class="quiet-divider"><span></span></div>
-
-    <!-- ════════════ DATA ════════════ -->
-
-    <section id="data" class="arch-section">
-      <div class="section-label">05 / Data Model</div>
-      <h2 class="section-title">PostgreSQL Schema</h2>
-      <p class="section-desc">
-        Five core tables managed through sqlx migrations. Workspace files are produced on the local
-        filesystem first, then archived to S3-compatible object storage, while metadata and credentials
-        live in PostgreSQL.
-      </p>
-
-      <div class="panel">
-        <div class="panel-label">Entity Relationships</div>
-        <div class="panel-content">
-          <div class="mermaid-wrap">
-            <pre class="mermaid">
+    <section class="section">
+      <span class="eyebrow">Data</span>
+      <h2>Persistence Model</h2>
+      <div class="mermaid">
 erDiagram
-    users {
-        uuid id PK
-        text clerk_user_id UK
-        text email
-        text display_name
-        timestamp created_at
-    }
+  design_sessions ||--o{ session_messages : contains
+  design_sessions ||--o{ reference_items : contains
+  design_sessions ||--o{ design_jobs : queues
+  design_sessions ||--o{ storm_runs : groups
+  design_jobs o|--|| storm_runs : result_run_id
+  design_jobs o|--o| storm_runs : iterates_on_id
+  storm_runs o|--o| storm_runs : iterates_on_id
 
-    storm_runs {
-        uuid id PK
-        uuid owner_user_id FK
-        text prompt
-        text title
-        text summary
-        text preview_url
-        boolean submitted
-        text workspace_dir
-        uuid[] parent_ids
-    }
+  design_sessions {
+    uuid id PK
+    uuid owner_user_id
+    text title
+    timestamptz created_at
+    timestamptz updated_at
+  }
 
-    board_nodes {
-        uuid id PK
-        uuid owner_user_id FK
-        text node_type
-        float8 position_x
-        float8 position_y
-        jsonb content
-        boolean locked
-        float8 width
-        float8 height
-    }
+  session_messages {
+    uuid id PK
+    uuid session_id FK
+    text role
+    text body
+    uuid design_job_id FK
+    timestamptz created_at
+  }
 
-    board_edges {
-        uuid id PK
-        uuid owner_user_id FK
-        uuid source_id
-        text source_type
-        uuid target_id
-        text target_type
-    }
+  reference_items {
+    uuid id PK
+    uuid owner_user_id
+    uuid session_id FK
+    text kind
+    text title
+    jsonb content_json
+    timestamptz created_at
+  }
 
-    user_provider_credentials {
-        uuid id PK
-        uuid user_id FK
-        text provider_kind
-        bytea encrypted_config
-        bytea nonce
-    }
+  design_jobs {
+    uuid id PK
+    uuid session_id FK
+    uuid owner_user_id
+    text status
+    text prompt
+    text title
+    uuid iterates_on_id FK
+    uuid result_run_id FK
+    jsonb reference_snapshot_json
+    text error
+    timestamptz created_at
+    timestamptz started_at
+    timestamptz completed_at
+  }
 
-    users ||--o{ storm_runs : owns
-    users ||--o{ board_nodes : owns
-    users ||--o{ board_edges : owns
-    users ||--o{ user_provider_credentials : has
-    board_edges }o--|| board_nodes : "source/target"
-            </pre>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-label">Node Types</div>
-        <div class="panel-content">
-          <div class="panel-grid panel-grid-3">
-            <div class="arch-card">
-              <strong>entropy</strong>
-              <p>Random Wikipedia article. Content stores <code>title</code> and <code>url</code>.
-                Can be re-rolled and locked.</p>
-            </div>
-            <div class="arch-card">
-              <strong>user_input</strong>
-              <p>Free-form text and pasted images. Content stores <code>text</code> and
-                <code>images</code> (data URLs). Contenteditable.</p>
-            </div>
-            <div class="arch-card">
-              <strong>generate</strong>
-              <p>Aggregation node. Accepts wired inputs from other nodes. Run button triggers
-                AI generation. Output auto-wires to a new design node.</p>
-            </div>
-          </div>
-        </div>
+  storm_runs {
+    uuid id PK
+    uuid owner_user_id
+    uuid session_id FK
+    uuid iterates_on_id FK
+    text title
+    text preview_url
+    bool submitted
+  }
       </div>
     </section>
 
-    <div class="quiet-divider"><span></span></div>
+    <section class="section">
+      <span class="eyebrow">Tooling</span>
+      <h2>Session Agent Contract</h2>
+      <article class="card">
+        <strong>Custom tool</strong>
+        <div class="code">make_design({
+  prompt: string,
+  reference_ids?: string[],
+  iterates_on_id?: string,
+  title?: string
+})</div>
+        <ul>
+          <li>The agent is only allowed to use reference handles already selected in the draft.</li>
+          <li>If no <code>reference_ids</code> are passed, the backend defaults to the selected draft references.</li>
+          <li>The backend snapshots those references at job creation time so in-flight work is stable.</li>
+          <li>The tool can only be called once per assistant turn.</li>
+        </ul>
+      </article>
+    </section>
 
-    <!-- ════════════ AUTH ════════════ -->
-
-    <section id="auth" class="arch-section">
-      <div class="section-label">06 / Authentication</div>
-      <h2 class="section-title">Clerk + Session Cookies</h2>
-
-      <div class="panel">
-        <div class="panel-label">Auth Flow</div>
-        <div class="panel-content">
-          <div class="mermaid-wrap">
-            <pre class="mermaid">
-sequenceDiagram
-    participant U as User
-    participant C as Clerk JS
-    participant S as Axum Server
-    participant K as Clerk JWKS
-
-    U->>C: Sign in (hosted modal)
-    C->>U: Clerk JWT token
-    U->>S: POST /auth/session {token}
-    S->>K: Validate JWT signature (JWKS)
-    K-->>S: Valid
-    S->>S: Upsert user record
-    S->>S: Issue HS256 session JWT (7 day)
-    S-->>U: Set-Cookie: designstorm_session
-    Note over U,S: Subsequent requests use cookie
-    U->>S: GET /app (cookie attached)
-    S->>S: Verify session JWT
-    S-->>U: Rendered page
-            </pre>
-          </div>
-          <p>
-            Session cookies are HttpOnly, Secure, SameSite=Lax. The session JWT contains
-            <code>{sub: user_id, clerk_user_id, exp}</code>. Every handler calls
-            <code>require_viewer()</code> to authenticate.
-          </p>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-label">Provider Credentials</div>
-        <div class="panel-content">
-          <p>
-            LLM provider credentials are encrypted with AES-256-GCM before storage in PostgreSQL.
-            The encryption key derives from the <code>SESSION_SECRET</code> environment variable.
-            Supported flows:
-          </p>
-          <div class="panel-grid panel-grid-2">
-            <div class="arch-card">
-              <strong>Codex (OpenAI) &mdash; Device OAuth</strong>
-              <p>Polling-based device code flow. User visits a URL, enters a code, and the server
-                polls until authorization completes. Stores access token + optional account ID.</p>
-            </div>
-            <div class="arch-card">
-              <strong>Fallback &mdash; Generic OpenAI</strong>
-              <p>API key + base URL for any OpenAI-compatible endpoint. Configured via environment
-                variables. Used when no user-specific provider is connected.</p>
-            </div>
-          </div>
-        </div>
+    <section class="section">
+      <span class="eyebrow">Storage</span>
+      <h2>Generated Artifact Lifecycle</h2>
+      <div class="two-up">
+        <article class="card">
+          <strong>Live workspace</strong>
+          <p>Successful generation creates a workspace directory on disk, stores a <code>storm_runs</code> record, and exposes the preview through <code>/preview/{run_id}/</code>.</p>
+        </article>
+        <article class="card">
+          <strong>Archive fallback</strong>
+          <p>If S3-compatible storage is configured, the workspace is zipped and uploaded. Preview and download routes can recover from that archive when the local workspace is missing.</p>
+        </article>
       </div>
     </section>
 
-    <div class="quiet-divider"><span></span></div>
-
-    <!-- ════════════ INFRA ════════════ -->
-
-    <section id="infra" class="arch-section" style="padding-bottom: 96px;">
-      <div class="section-label">07 / Infrastructure</div>
-      <h2 class="section-title">Deployment &amp; Operations</h2>
-
-      <div class="panel">
-        <div class="panel-label">Deployment Pipeline</div>
-        <div class="panel-content">
-          <div class="mermaid-wrap">
-            <pre class="mermaid">
-flowchart LR
-    subgraph Build["Docker Multi-Stage"]
-        A["Bun Alpine<br/><small>Compile TS → app.js</small>"] --> C["Runtime Image"]
-        B["Rust Bookworm<br/><small>cargo build --release</small>"] --> C
-        C["Debian Slim<br/><small>Binary + static assets</small>"]
-    end
-
-    D["Git Push"] --> E["GitHub Actions"]
-    E --> Build
-    Build --> F["Fly.io Registry"]
-    F --> G["Fly Machine<br/><small>AMS region</small>"]
-    G --> H[("Fly Postgres")]
-            </pre>
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-label">Runtime Configuration</div>
-        <div class="panel-content">
-          <div class="panel-grid panel-grid-2">
-            <div class="arch-card">
-              <strong>Compute</strong>
-              <p>Fly.io shared CPU, 1 vCPU, 1 GB RAM. Auto-scales to zero when idle.
-                Health checks via <code>GET /healthz</code> every 15 seconds.</p>
-            </div>
-            <div class="arch-card">
-              <strong>Storage</strong>
-              <p>Workspace artifacts are written locally, zipped, and uploaded to S3-compatible object
-                storage for durable preview recovery. Database migrations run automatically on startup via sqlx.</p>
-            </div>
-            <div class="arch-card">
-              <strong>Networking</strong>
-              <p>Force HTTPS. Single port 8080. Axum serves static files, docs, templates,
-                and API routes from the same listener. SSE with 15-second keepalive.</p>
-            </div>
-            <div class="arch-card">
-              <strong>Observability</strong>
-              <p>Structured logging via <code>tracing</code> with span-level HTTP request traces
-                (tower-http TraceLayer). Client telemetry endpoint for frontend errors.</p>
-            </div>
-          </div>
-        </div>
+    <section class="section">
+      <span class="eyebrow">UI</span>
+      <h2>Current Client Model</h2>
+      <div class="two-up">
+        <article class="card">
+          <strong>Gallery</strong>
+          <ul>
+            <li>Shows pending jobs first, then finished designs.</li>
+            <li>Each design card exposes preview, download, lineage, iterate, and use-as-reference actions.</li>
+          </ul>
+        </article>
+        <article class="card">
+          <strong>Composer</strong>
+          <ul>
+            <li><code>@</code> opens mention search over current-session references and prior designs.</li>
+            <li><code>Shift</code>-click on a design card or reference adds it to the draft selection.</li>
+            <li>An optional iteration target sets the default <code>iterates_on_id</code> for the next turn.</li>
+          </ul>
+        </article>
       </div>
     </section>
-
-  </article>
-
-  <script>
-    (function () {
-      const canvas = document.getElementById('grain-canvas');
-      const gl = canvas.getContext('webgl2', {
-        alpha: false, antialias: false, depth: false, stencil: false,
-        preserveDrawingBuffer: false, desynchronized: true, powerPreference: 'high-performance'
-      });
-      if (!gl) return;
-
-      const vs = `#version 300 es
-        in vec2 a_pos;
-        void main() { gl_Position = vec4(a_pos, 0, 1); }
-      `;
-
-      const fs = `#version 300 es
-        precision highp float;
-        uniform vec2 u_res;
-        uniform float u_time;
-        uniform vec3 u_bg;
-        uniform float u_strength;
-        out vec4 fragColor;
-
-        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 permute(vec4 x) { return mod289(((x * 34.0) + 10.0) * x); }
-        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
-
-        float snoise(vec3 v) {
-          const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
-          const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-          vec3 i = floor(v + dot(v, C.yyy));
-          vec3 x0 = v - i + dot(i, C.xxx);
-          vec3 g = step(x0.yzx, x0.xyz);
-          vec3 l = 1.0 - g;
-          vec3 i1 = min(g.xyz, l.zxy);
-          vec3 i2 = max(g.xyz, l.zxy);
-          vec3 x1 = x0 - i1 + C.xxx;
-          vec3 x2 = x0 - i2 + C.yyy;
-          vec3 x3 = x0 - D.yyy;
-          i = mod289(i);
-          vec4 p = permute(permute(permute(
-            i.z + vec4(0.0, i1.z, i2.z, 1.0))
-            + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-            + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-          float n_ = 0.142857142857;
-          vec3 ns = n_ * D.wyz - D.xzx;
-          vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-          vec4 x_ = floor(j * ns.z);
-          vec4 y_ = floor(j - 7.0 * x_);
-          vec4 x = x_ * ns.x + ns.yyyy;
-          vec4 y = y_ * ns.x + ns.yyyy;
-          vec4 h = 1.0 - abs(x) - abs(y);
-          vec4 b0 = vec4(x.xy, y.xy);
-          vec4 b1 = vec4(x.zw, y.zw);
-          vec4 s0 = floor(b0) * 2.0 + 1.0;
-          vec4 s1 = floor(b1) * 2.0 + 1.0;
-          vec4 sh = -step(h, vec4(0.0));
-          vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
-          vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
-          vec3 p0 = vec3(a0.xy, h.x);
-          vec3 p1 = vec3(a0.zw, h.y);
-          vec3 p2 = vec3(a1.xy, h.z);
-          vec3 p3 = vec3(a1.zw, h.w);
-          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
-          p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
-          vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-          m = m * m;
-          return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
-        }
-
-        float fbm(vec3 p) {
-          float v = 0.0, a = 0.5;
-          vec3 shift = vec3(100.0);
-          for (int i = 0; i < 5; i++) { v += a * snoise(p); p = p * 2.0 + shift; a *= 0.5; }
-          return v;
-        }
-
-        void main() {
-          vec2 uv = gl_FragCoord.xy / u_res;
-          vec3 p = vec3(uv * u_res / 2.8, u_time * 0.8);
-          float grain = fbm(p) * 0.5 + 0.5;
-          float swell = snoise(vec3(uv * 1.8, u_time * 0.3)) * 0.5 + 0.5;
-          float swell2 = snoise(vec3(uv * 0.6 + 40.0, u_time * 0.15)) * 0.5 + 0.5;
-          float variation = mix(0.85, 1.15, swell * 0.6 + swell2 * 0.4);
-          float n = grain * variation;
-          vec3 color = u_bg + (n - 0.5) * u_strength;
-          fragColor = vec4(color, 1.0);
-        }
-      `;
-
-      function compile(type, src) {
-        const s = gl.createShader(type);
-        gl.shaderSource(s, src);
-        gl.compileShader(s);
-        return s;
-      }
-
-      const prog = gl.createProgram();
-      gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
-      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
-      gl.linkProgram(prog);
-      gl.useProgram(prog);
-
-      const buf = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
-      const loc = gl.getAttribLocation(prog, 'a_pos');
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-
-      const uRes = gl.getUniformLocation(prog, 'u_res');
-      const uTime = gl.getUniformLocation(prog, 'u_time');
-      gl.getUniformLocation(prog, 'u_bg');
-      gl.getUniformLocation(prog, 'u_strength');
-      gl.uniform3f(gl.getUniformLocation(prog, 'u_bg'), 11/255, 17/255, 32/255);
-      gl.uniform1f(gl.getUniformLocation(prog, 'u_strength'), 0.12);
-
-      function resize() {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const w = window.innerWidth, h = window.innerHeight;
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
-        canvas.style.width = w + 'px';
-        canvas.style.height = h + 'px';
-        gl.viewport(0, 0, canvas.width, canvas.height);
-        gl.uniform2f(uRes, canvas.width, canvas.height);
-        gl.uniform1f(uTime, performance.now() * 0.0001);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      }
-
-      window.addEventListener('resize', resize);
-      resize();
-    })();
-  </script>
+  </main>
 </body>
 </html>

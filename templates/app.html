@@ -2,216 +2,187 @@
 
 {% block content %}
 <div
-  class="storm-app"
+  id="studio-app"
+  class="studio-app"
+  data-active-session-id="{{ active_session_id }}"
   data-signals:_account-open="false"
   data-signals:_settings-open="false"
-  data-signals:prompt="''"
-  data-signals:draft-mode="''"
-  data-signals:source-ids="''"
-  data-signals:_status="'Seed a direction or select a card to branch from it.'"
-  data-signals:_generating="false"
-  data-signals:_gen-elapsed="0"
-  data-signals:_latest-run-id="''"
   data-on:keydown__window="evt.key === 'Escape' && ($_settingsOpen ? ($_settingsOpen = false, $_accountOpen = true) : ($_accountOpen = false, $_settingsOpen = false))"
 >
-
-  <div id="palette-panel" class="palette-panel" hidden>
-    <div class="palette-bar">
-      <div class="palette-bar-icon" aria-hidden="true">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+  <aside class="studio-sidebar">
+    <div class="studio-sidebar-head">
+      <div>
+        <span class="eyebrow">Sessions</span>
+        <h1>Design Storm</h1>
       </div>
-      <input id="palette-search" class="palette-search" type="text" placeholder="Search nodes..." autocomplete="off" />
-      <div class="palette-filters">
-        <button class="palette-chip is-active" data-filter="all">All</button>
-        <span class="palette-filter-sep"></span>
-        <button class="palette-chip" data-filter="generate">Generate</button>
-        <button class="palette-chip" data-filter="entropy">Entropy</button>
-        <button class="palette-chip" data-filter="user_input">Input</button>
-        <span class="palette-filter-sep"></span>
-        <button class="palette-chip" data-filter="color">Color</button>
-        <button class="palette-chip" data-filter="color_harmony">Harmony</button>
-        <button class="palette-chip" data-filter="color_palette">Palette</button>
-        <button class="palette-chip" data-filter="font">Font</button>
-        <span class="palette-filter-sep"></span>
-        <button class="palette-chip" data-filter="image">Image</button>
-        <button class="palette-chip" data-filter="draw">Draw</button>
-        <span class="palette-filter-sep"></span>
-        <button class="palette-chip" data-filter="set">Set</button>
-        <button class="palette-chip" data-filter="pick_k">Pick K</button>
-        <button class="palette-chip" data-filter="conditional">If/Else</button>
-        <span class="palette-filter-sep"></span>
-        <button class="palette-chip" data-filter="int_value">Int</button>
-        <button class="palette-chip" data-filter="float_value">Float</button>
-        <button class="palette-chip" data-filter="string_value">Str</button>
-        <button class="palette-chip" data-filter="bool_value">Bool</button>
-      </div>
-      <kbd class="palette-kbd">ESC</kbd>
+      <button id="new-session-button" class="btn btn-accent btn-sm" type="button">New</button>
     </div>
-    <div id="palette-list" class="palette-list"></div>
-  </div>
-  <div id="palette-backdrop" class="palette-backdrop" hidden></div>
 
-  <div class="account-shell" data-on:click__outside="$_accountOpen = false; $_settingsOpen = false">
-    <button
-      id="avatar-button"
-      class="avatar-btn"
-      type="button"
-      aria-label="Open account menu"
-      data-on:click="$_accountOpen = !$_accountOpen; $_settingsOpen = false"
-    >
-      <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
-    </button>
+    <nav id="session-list" class="session-list" aria-label="Sessions">
+      {{ session_list_html|safe }}
+    </nav>
+  </aside>
 
-    <section
-      id="account-sheet"
-      class="sheet"
-      role="dialog"
-      aria-label="Account"
-      style="display: none"
-      data-show="$_accountOpen && !$_settingsOpen"
-    >
-      <div class="sheet-header">
-        <span class="eyebrow">Account</span>
-        <h2>{{ viewer.name }}</h2>
-        <p class="text-muted">{{ viewer.secondary_line() }}</p>
+  <main class="studio-main">
+    <header class="studio-main-head">
+      <div class="studio-title-group">
+        <input
+          id="active-session-title"
+          class="session-title-input"
+          type="text"
+          value="{{ active_session_title }}"
+          autocomplete="off"
+          aria-label="Session title"
+        />
+        <span id="active-session-updated" class="session-title-meta">{{ active_session_updated_label }}</span>
       </div>
 
-      <button id="settings-trigger" class="settings-link" type="button" data-on:click="$_settingsOpen = true; $_accountOpen = false">
-        <span class="settings-link-copy">
-          <span class="eyebrow">Settings</span>
-          <strong>Runtime Provider</strong>
-        </span>
-        <span class="settings-link-chevron" aria-hidden="true">&rsaquo;</span>
-      </button>
+      <div class="account-shell" data-on:click__outside="$_accountOpen = false; $_settingsOpen = false">
+        <button
+          id="avatar-button"
+          class="avatar-btn"
+          type="button"
+          aria-label="Open account menu"
+          data-on:click="$_accountOpen = !$_accountOpen; $_settingsOpen = false"
+        >
+          <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
+        </button>
 
-      <div class="sheet-actions">
-        <button id="account-close" class="btn btn-ghost" type="button" data-on:click="$_accountOpen = false; $_settingsOpen = false">Close</button>
-        <button id="account-signout" class="btn btn-accent" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
+        <section
+          id="account-sheet"
+          class="sheet"
+          role="dialog"
+          aria-label="Account"
+          style="display: none"
+          data-show="$_accountOpen && !$_settingsOpen"
+        >
+          <div class="sheet-header">
+            <span class="eyebrow">Account</span>
+            <h2>{{ viewer.name }}</h2>
+            <p class="text-muted">{{ viewer.secondary_line() }}</p>
+          </div>
+
+          <button id="settings-trigger" class="settings-link" type="button" data-on:click="$_settingsOpen = true; $_accountOpen = false">
+            <span class="settings-link-copy">
+              <span class="eyebrow">Settings</span>
+              <strong>Runtime Provider</strong>
+            </span>
+            <span class="settings-link-chevron" aria-hidden="true">&rsaquo;</span>
+          </button>
+
+          <div class="sheet-actions">
+            <button id="account-close" class="btn btn-ghost" type="button" data-on:click="$_accountOpen = false; $_settingsOpen = false">Close</button>
+            <button id="account-signout" class="btn btn-accent" type="button" data-on:click="window.designstormAuth.signOut()">Sign out</button>
+          </div>
+        </section>
+
+        <section
+          id="settings-sheet"
+          class="sheet"
+          role="dialog"
+          aria-label="Settings"
+          style="display: none"
+          data-show="$_settingsOpen"
+        >
+          <div class="sheet-header-row">
+            <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on:click="$_settingsOpen = false; $_accountOpen = true">&lsaquo;</button>
+            <div>
+              <span class="eyebrow">Settings</span>
+              <h2>Runtime Provider</h2>
+            </div>
+          </div>
+
+          <div class="note-card">
+            <strong>Provider</strong>
+            <p>Connect a runtime provider for session chat and async design jobs.</p>
+          </div>
+
+          {{ provider_panel|safe }}
+
+          <div class="sheet-actions">
+            <button id="settings-close" class="btn btn-ghost" type="button" data-on:click="$_accountOpen = false; $_settingsOpen = false">Close</button>
+          </div>
+        </section>
       </div>
-    </section>
+    </header>
 
-    <section
-      id="settings-sheet"
-      class="sheet"
-      role="dialog"
-      aria-label="Settings"
-      style="display: none"
-      data-show="$_settingsOpen"
-    >
-      <div class="sheet-header-row">
-        <button id="settings-back" class="back-btn" type="button" aria-label="Back to account" data-on:click="$_settingsOpen = false; $_accountOpen = true">&lsaquo;</button>
+    <section class="gallery-shell">
+      <div class="gallery-head">
         <div>
-          <span class="eyebrow">Settings</span>
-          <h2>Runtime Provider</h2>
+          <span class="eyebrow">Gallery</span>
+          <p class="gallery-copy">Pending jobs and finished designs for this session.</p>
         </div>
+        <p id="studio-status" class="studio-status">Select references with <code>@</code> or shift-click, then ask the agent to make designs.</p>
       </div>
 
-      <div class="note-card">
-        <strong>Provider</strong>
-        <p>Connect Codex here, then generate storms from the canvas.</p>
-      </div>
-
-      {{ provider_panel|safe }}
-
-      <div class="sheet-actions">
-        <button id="settings-close" class="btn btn-ghost" type="button" data-on:click="$_accountOpen = false; $_settingsOpen = false">Close</button>
+      <div id="design-gallery" class="design-gallery">
+        {{ gallery_html|safe }}
       </div>
     </section>
-  </div>
+  </main>
 
-  <div id="storm-composer-backdrop" class="composer-backdrop" hidden></div>
-  <form id="storm-form" class="composer" hidden>
-    <div class="composer-body">
-      <div id="storm-draft-context" class="draft-context" hidden></div>
-
-      <input id="storm-draft-mode" data-bind:draft-mode type="hidden" value="">
-      <input id="storm-source-ids" data-bind:source-ids type="hidden" value="">
-      <input id="storm-status-signal" data-bind:_status type="hidden" value="Seed a direction or select a card to branch from it.">
-      <input id="storm-latest-run-id" data-bind:_latest-run-id type="hidden" value="">
-
-      <textarea
-        id="storm-prompt"
-        data-bind:prompt
-        rows="3"
-        placeholder="Describe the design direction..."
-      ></textarea>
-    </div>
-
-    <div class="composer-bar">
-      <span id="storm-status" class="status-text" role="status" aria-live="polite" data-text="$_status"></span>
-      <button id="storm-clear-context" class="btn btn-ghost" type="button" disabled>Clear</button>
-      <button
-        id="storm-submit"
-        class="btn btn-accent"
-        type="button"
-        data-on:click="@post('/storms/generate')"
-        data-attr:disabled="$_generating"
-        data-class:is-loading="$_generating"
-      >Generate</button>
-    </div>
-  </form>
-
-  <form
-    id="board-node-create-form"
-    hidden
-    data-on:submit__prevent="@post('/nodes/create', {contentType: 'form', selector: '#board-node-create-form'})"
-  >
-    <input id="board-node-create-type" name="node_type" type="hidden" value="">
-    <input id="board-node-create-x" name="position_x" type="hidden" value="">
-    <input id="board-node-create-y" name="position_y" type="hidden" value="">
-    <input id="board-node-create-source-id" name="source_id" type="hidden" value="">
-    <input id="board-node-create-source-type" name="source_type" type="hidden" value="">
-    <input id="board-node-create-source-anchor-side" name="source_anchor_side" type="hidden" value="">
-    <input id="board-node-create-source-anchor_t" name="source_anchor_t" type="hidden" value="">
-    <input id="board-node-create-preset" name="preset" type="hidden" value="">
-    <button id="board-node-create-submit" type="submit" hidden></button>
-  </form>
-
-  <section id="storm-canvas" class="canvas" aria-label="Design storm canvas">
-    <div id="storm-background" class="board-background" aria-hidden="true"></div>
-    <div class="canvas-grid" aria-hidden="true"></div>
-    <div id="storm-board" class="board">
-      <svg id="storm-lines" class="board-lines" aria-hidden="true"></svg>
-      {{ board_html|safe }}
-    </div>
-  </section>
-
-
-  <section id="storm-focus" class="focus-overlay" hidden aria-hidden="true">
-    <div class="focus-backdrop" data-action="close-focus"></div>
-    <div class="focus-shell" role="dialog" aria-modal="true" aria-labelledby="storm-focus-title">
-      <div class="focus-bar">
-        <button id="storm-focus-back" class="btn btn-ghost" type="button">Back</button>
-        <h2 id="storm-focus-title">Artifact</h2>
+  <aside class="studio-rail">
+    <section class="chat-shell">
+      <div class="chat-shell-head">
+        <span class="eyebrow">Agent</span>
+        <p class="chat-shell-copy">One session chat. One optional design job per turn.</p>
       </div>
-      <div class="focus-frame">
-        <iframe
-          id="storm-focus-preview"
-          title="Fullscreen storm preview"
-          sandbox="allow-scripts allow-forms allow-modals"
-          referrerpolicy="no-referrer"
-          data-ignore
-        ></iframe>
+
+      <div id="session-messages" class="chat-thread">
+        {{ messages_html|safe }}
       </div>
-    </div>
-  </section>
 
-  <nav class="tool-dock" aria-label="Board tools">
-    <div class="tool-dock-group">
-      <button id="tool-select" class="tool-dock-btn is-active" type="button" title="Select tool (V)">Select</button>
-      <button id="tool-pan" class="tool-dock-btn" type="button" title="Hand tool (H)">Pan</button>
-    </div>
-  </nav>
+      <div class="composer-shell">
+        <div class="composer-section">
+          <div class="composer-section-head">
+            <span class="eyebrow">Draft Context</span>
+            <button id="clear-selected-references" class="mini-link" type="button">Clear</button>
+          </div>
+          <div id="selected-references" class="selected-reference-list"></div>
+          <div id="draft-iteration" class="draft-iteration" hidden></div>
+        </div>
 
-  <div id="radial-backdrop" class="radial-backdrop" hidden></div>
-  <div id="radial-menu" hidden aria-hidden="true">
-    <div id="radial-capture" class="radial-capture"></div>
-    <svg id="radial-svg" class="radial-svg"></svg>
-    <div id="radial-center" class="radial-center">
-      <div class="radial-center-dot"></div>
-      <span id="radial-center-label" class="radial-center-label"></span>
-    </div>
-    <div id="radial-items"></div>
-  </div>
+        <form id="session-message-form" class="session-message-form">
+          <textarea id="session-composer" rows="5" placeholder="Ask for a new direction, refine a design, or discuss the brief..."></textarea>
+          <div id="mention-menu" class="mention-menu" hidden></div>
+          <div class="composer-actions">
+            <span class="composer-hint">Use <code>@</code> to insert references.</span>
+            <button id="session-send" class="btn btn-accent" type="submit">Send</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <section class="reference-shell">
+      <div class="reference-shell-head">
+        <span class="eyebrow">References</span>
+        <p class="reference-shell-copy">Session notes, links, and uploaded images.</p>
+      </div>
+
+      <div class="reference-create-grid">
+        <form id="reference-note-form" class="reference-form">
+          <input id="reference-note-title" type="text" placeholder="Note title" />
+          <textarea id="reference-note-body" rows="3" placeholder="Brief, art direction note, or constraint"></textarea>
+          <button class="btn btn-ghost btn-sm" type="submit">Add note</button>
+        </form>
+
+        <form id="reference-link-form" class="reference-form">
+          <input id="reference-link-title" type="text" placeholder="Link title" />
+          <input id="reference-link-url" type="url" placeholder="https://example.com" />
+          <textarea id="reference-link-body" rows="2" placeholder="Why this matters"></textarea>
+          <button class="btn btn-ghost btn-sm" type="submit">Add link</button>
+        </form>
+
+        <label class="reference-upload">
+          <span>Upload image</span>
+          <input id="reference-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+        </label>
+      </div>
+
+      <div id="reference-list" class="reference-list">
+        {{ reference_list_html|safe }}
+      </div>
+    </section>
+  </aside>
 </div>
 {% endblock %}

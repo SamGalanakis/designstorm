@@ -3,33 +3,25 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
 };
 use askama::Template;
-use async_stream::stream;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::{Client as S3Client, config::Region, primitives::ByteStream};
 use axum::{
     Router,
     body::Body,
-    extract::{Form, Json, Multipart, Path, State},
+    extract::{Json, Multipart, Path, Query, State},
     http::{
         HeaderMap, HeaderValue, StatusCode,
         header::{
-            CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE, SET_COOKIE,
-            X_CONTENT_TYPE_OPTIONS,
+            CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_SECURITY_POLICY, CONTENT_TYPE, COOKIE,
+            SET_COOKIE, X_CONTENT_TYPE_OPTIONS,
         },
     },
-    response::{
-        Html, IntoResponse, Redirect, Response, Sse,
-        sse::{Event, KeepAlive},
-    },
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use cookie::{Cookie, SameSite};
-use datastar::{
-    axum::ReadSignals,
-    prelude::{ElementPatchMode, PatchElements, PatchSignals},
-};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use lash_core::{
     AgentCapabilities, AgentStateEnvelope, HostProfile, InputItem, LashRuntime, PromptOverrideMode,
@@ -48,12 +40,10 @@ use sqlx::{
     postgres::{PgConnectOptions, PgPoolOptions},
 };
 use std::{
-    collections::HashMap,
-    convert::Infallible,
+    collections::{HashMap, HashSet},
     env,
     io::{Cursor, Read, Write},
     net::SocketAddr,
-    pin::Pin,
     path::{Component, Path as StdPath, PathBuf},
     str::FromStr,
     sync::Arc,
@@ -148,9 +138,7 @@ impl Config {
     }
 }
 
-async fn build_artifact_storage(
-    config: &Config,
-) -> Result<Option<ArtifactStorage>, AppError> {
+async fn build_artifact_storage(config: &Config) -> Result<Option<ArtifactStorage>, AppError> {
     let Some(bucket) = config.bucket_name.clone() else {
         return Ok(None);
     };
@@ -380,6 +368,8 @@ struct StormRunSummary {
     submitted: bool,
     created_at: DateTime<Utc>,
     parent_ids: Vec<Uuid>,
+    session_id: Option<Uuid>,
+    iterates_on_id: Option<Uuid>,
     position_x: Option<f64>,
     position_y: Option<f64>,
     width: Option<f64>,
@@ -389,18 +379,6 @@ struct StormRunSummary {
 impl StormRunSummary {
     fn created_label(&self) -> String {
         self.created_at.format("%b %d").to_string()
-    }
-
-    fn created_iso(&self) -> String {
-        self.created_at.to_rfc3339()
-    }
-
-    fn parent_ids_csv(&self) -> String {
-        self.parent_ids
-            .iter()
-            .map(Uuid::to_string)
-            .collect::<Vec<_>>()
-            .join(",")
     }
 }
 
@@ -417,6 +395,8 @@ struct StormRunRecord {
     created_at: DateTime<Utc>,
     workspace_dir: PathBuf,
     parent_ids: Vec<Uuid>,
+    session_id: Option<Uuid>,
+    iterates_on_id: Option<Uuid>,
     position_x: Option<f64>,
     position_y: Option<f64>,
     width: Option<f64>,
@@ -435,6 +415,8 @@ impl StormRunRecord {
             submitted: self.submitted,
             created_at: self.created_at,
             parent_ids: self.parent_ids.clone(),
+            session_id: self.session_id,
+            iterates_on_id: self.iterates_on_id,
             position_x: self.position_x,
             position_y: self.position_y,
             width: self.width,
@@ -456,6 +438,8 @@ struct StormRunRow {
     created_at: DateTime<Utc>,
     workspace_dir: String,
     parent_ids: Vec<Uuid>,
+    session_id: Option<Uuid>,
+    iterates_on_id: Option<Uuid>,
     position_x: Option<f64>,
     position_y: Option<f64>,
     width: Option<f64>,
@@ -476,12 +460,64 @@ impl From<StormRunRow> for StormRunRecord {
             created_at: row.created_at,
             workspace_dir: PathBuf::from(row.workspace_dir),
             parent_ids: row.parent_ids,
+            session_id: row.session_id,
+            iterates_on_id: row.iterates_on_id,
             position_x: row.position_x,
             position_y: row.position_y,
             width: row.width,
             height: row.height,
         }
     }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct DesignSessionRow {
+    id: Uuid,
+    title: String,
+    updated_at: DateTime<Utc>,
+}
+
+impl DesignSessionRow {
+    fn updated_label(&self) -> String {
+        self.updated_at.format("%b %d").to_string()
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct SessionMessageRow {
+    role: String,
+    body: String,
+    design_job_id: Option<Uuid>,
+    created_at: DateTime<Utc>,
+}
+
+impl SessionMessageRow {
+    fn created_label(&self) -> String {
+        self.created_at.format("%H:%M").to_string()
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct ReferenceItemRow {
+    id: Uuid,
+    kind: String,
+    title: String,
+    content_json: serde_json::Value,
+    created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct DesignJobRow {
+    id: Uuid,
+    session_id: Uuid,
+    status: String,
+    prompt: String,
+    title: String,
+    iterates_on_id: Option<Uuid>,
+    result_run_id: Option<Uuid>,
+    reference_snapshot_json: serde_json::Value,
+    error: Option<String>,
+    created_at: DateTime<Utc>,
 }
 
 #[derive(Debug)]
@@ -545,10 +581,7 @@ struct StormToolProvider {
 }
 
 impl StormToolProvider {
-    fn new(
-        _role: StormAgentRole,
-        workspace: Arc<Mutex<WorkspaceRuntimeState>>,
-    ) -> Self {
+    fn new(_role: StormAgentRole, workspace: Arc<Mutex<WorkspaceRuntimeState>>) -> Self {
         Self { workspace }
     }
 
@@ -572,7 +605,9 @@ impl StormToolProvider {
         while let Some(dir) = stack.pop() {
             let mut entries = match tokio::fs::read_dir(&dir).await {
                 Ok(entries) => entries,
-                Err(error) => return ToolResult::err_fmt(format_args!("Failed to list workspace: {error}")),
+                Err(error) => {
+                    return ToolResult::err_fmt(format_args!("Failed to list workspace: {error}"));
+                }
             };
             loop {
                 match entries.next_entry().await {
@@ -587,12 +622,11 @@ impl StormToolProvider {
                                 ));
                             }
                         };
-                        let relative = match path.strip_prefix(
-                            &self.workspace.lock().await.workspace_dir,
-                        ) {
-                            Ok(relative) => relative.to_string_lossy().to_string(),
-                            Err(_) => continue,
-                        };
+                        let relative =
+                            match path.strip_prefix(&self.workspace.lock().await.workspace_dir) {
+                                Ok(relative) => relative.to_string_lossy().to_string(),
+                                Err(_) => continue,
+                            };
                         if metadata.is_dir() {
                             stack.push(path);
                             items.push(json!({"path": relative, "kind": "dir"}));
@@ -606,7 +640,9 @@ impl StormToolProvider {
                     }
                     Ok(None) => break,
                     Err(error) => {
-                        return ToolResult::err_fmt(format_args!("Failed to iterate workspace: {error}"));
+                        return ToolResult::err_fmt(format_args!(
+                            "Failed to iterate workspace: {error}"
+                        ));
                     }
                 }
             }
@@ -631,7 +667,10 @@ impl StormToolProvider {
 
         match tokio::fs::read_to_string(&resolved).await {
             Ok(content) => ToolResult::ok(json!({ "path": path, "content": content })),
-            Err(error) => ToolResult::err_fmt(format_args!("Failed to read {}: {error}", resolved.display())),
+            Err(error) => ToolResult::err_fmt(format_args!(
+                "Failed to read {}: {error}",
+                resolved.display()
+            )),
         }
     }
 
@@ -666,7 +705,10 @@ impl StormToolProvider {
                 "path": path,
                 "bytesWritten": content.len()
             })),
-            Err(error) => ToolResult::err_fmt(format_args!("Failed to write {}: {error}", resolved.display())),
+            Err(error) => ToolResult::err_fmt(format_args!(
+                "Failed to write {}: {error}",
+                resolved.display()
+            )),
         }
     }
 
@@ -734,7 +776,10 @@ impl StormToolProvider {
             Err(msg) => return ToolResult::err_fmt(msg),
         };
 
-        if !tokio::fs::try_exists(&source_resolved).await.unwrap_or(false) {
+        if !tokio::fs::try_exists(&source_resolved)
+            .await
+            .unwrap_or(false)
+        {
             return ToolResult::err_fmt(format_args!("Source file not found: {source}"));
         }
 
@@ -824,7 +869,10 @@ impl ToolProvider for StormToolProvider {
                     "Create or overwrite a text file inside the current artifact workspace. Use this to author index.html, styles.css, and supporting docs.",
                     [lash_core::ExecutionMode::NativeTools],
                 )],
-                params: vec![ToolParam::typed("path", "str"), ToolParam::typed("content", "str")],
+                params: vec![
+                    ToolParam::typed("path", "str"),
+                    ToolParam::typed("content", "str"),
+                ],
                 returns: "dict".into(),
                 examples: vec![],
                 hidden: false,
@@ -920,407 +968,6 @@ impl ToolProvider for StormToolProvider {
     }
 }
 
-// ─── Presets ───
-
-struct Preset {
-    id: &'static str,
-    label: &'static str,
-    icon: &'static str,
-    items: &'static [&'static str],
-}
-
-static PRESETS: &[Preset] = &[
-    Preset { id: "oblique_strategy", label: "Oblique Strategy", icon: "🃏", items: &[
-        "Use an old idea", "Honor thy error as a hidden intention",
-        "What would your closest friend do?", "Emphasize differences",
-        "Remove specifics and convert to ambiguities", "Don't be frightened of clichés",
-        "What is the reality of the situation?", "Are there sections? Consider transitions",
-        "Turn it upside down", "Think of the radio", "Allow an easement",
-        "Bridges —build —burn", "Change instrument roles", "Cluster analysis",
-        "Consider different fading systems", "Courage!", "Cut a vital connection",
-        "Decorate, decorate", "Discover the recipes you are using and abandon them",
-        "Disconnect from desire", "Do nothing for as long as possible",
-        "Do something boring", "Do the washing up", "Don't be afraid of things because they're easy to do",
-        "Don't be frightened to display your talents", "Faced with a choice, do both",
-        "Go slowly all the way round the outside", "How would you have done it?",
-        "Humanize something free of error", "Infinitesimal gradations",
-        "Into the impossible", "Is it finished?", "Just carry on",
-        "Look at the order in which you do things", "Lowest common denominator",
-        "Make a sudden, destructive unpredictable action; incorporate",
-        "Mute and continue", "Only one element of each kind",
-        "Remove ambiguities and convert to specifics", "Repetition is a form of change",
-        "Reverse", "Short circuit", "Shut the door and listen from outside",
-        "Simple subtraction", "Spectrum analysis", "Take a break",
-        "Take away the elements in order of apparent non-importance",
-        "The inconsistency principle", "The tape is now the music",
-        "Think —inside— the work", "Tidy up", "Trust in the you of now",
-        "Try faking it!", "Use 'unqualified' people", "Use fewer notes",
-        "Water", "What mistakes did you make last time?",
-        "What wouldn't you do?", "Work at a different speed",
-        "You are an engineer", "You can only make one dot at a time",
-        "Your mistake was a hidden intention",
-    ]},
-    Preset { id: "art_movement", label: "Art Movement", icon: "🏛", items: &[
-        "Brutalism", "Art Deco", "Bauhaus", "Memphis", "De Stijl", "Art Nouveau",
-        "Swiss International", "Constructivism", "Psychedelic", "Futurism",
-        "Minimalism", "Maximalism", "Ukiyo-e", "Op Art", "Pop Art",
-        "Dadaism", "Surrealism", "Expressionism", "Cubism", "Gothic",
-        "Victorian", "Mid-Century Modern", "Streamline Moderne",
-        "Vaporwave", "Y2K", "Neoclassical", "Rococo", "Arts & Crafts",
-        "Suprematism", "Abstract Expressionism", "Post-Punk", "Acid House",
-        "Cyberpunk", "Solarpunk", "Afrofuturism", "Wabi-Sabi",
-    ]},
-    Preset { id: "material", label: "Material", icon: "🧱", items: &[
-        "Brushed copper", "Wet concrete", "Cracked porcelain", "Woven linen",
-        "Oxidized steel", "Raw marble", "Frosted glass", "Charred wood",
-        "Hammered brass", "Liquid mercury", "Dried clay", "Polished obsidian",
-        "Torn paper", "Rusted iron", "Silk velvet", "Rough sandstone",
-        "Molten gold", "Patinated bronze", "Cork", "Volcanic basalt",
-        "Bleached bone", "Smoked oak", "Anodized aluminum", "Raw denim",
-        "Sea glass", "Terracotta", "Resin", "Pressed tin",
-        "Weathered leather", "Ice", "Bamboo", "Carbon fiber",
-    ]},
-    Preset { id: "mood", label: "Mood", icon: "◑", items: &[
-        "Caustic", "Devotional", "Glacial", "Feral", "Saccharine",
-        "Liminal", "Euphoric", "Melancholic", "Abrasive", "Ethereal",
-        "Monastic", "Volcanic", "Tender", "Corrosive", "Luminous",
-        "Desolate", "Riotous", "Hypnotic", "Fragile", "Tectonic",
-        "Nocturnal", "Ceremonial", "Volatile", "Pristine", "Ancient",
-        "Electric", "Submerged", "Feverish", "Meditative", "Carnivalesque",
-        "Austere", "Radiant",
-    ]},
-    Preset { id: "era", label: "Era", icon: "⏳", items: &[
-        "1920s Jazz Age", "1930s Propaganda poster", "1950s Atomic Age",
-        "1960s Counterculture", "1970s Disco", "1972 Swiss typography",
-        "1980s MTV", "1984 Macintosh", "1990s Grunge", "1995 Early web",
-        "1998 Flash era", "2000s Web 2.0", "2004 MySpace", "2007 iPhone launch",
-        "2010s Flat design", "2013 Skeuomorphism's death", "2016 Brutalist web",
-        "2020s Glassmorphism", "2025 AI-native", "Near future 2035",
-        "Retro-future 1960s vision of 2000", "Cassette futurism",
-    ]},
-    Preset { id: "type_pairing", label: "Type Pairing", icon: "Aa", items: &[
-        "Playfair Display + Source Sans Pro — editorial elegance",
-        "Space Grotesk + Inter — technical clarity",
-        "Cormorant Garamond + Manrope — warm contrast",
-        "DM Serif Display + DM Sans — modern authority",
-        "Libre Baskerville + Karla — bookish digital",
-        "Syne + Work Sans — geometric energy",
-        "Fraunces + Commissioner — quirky editorial",
-        "Instrument Serif + Instrument Sans — matched pair",
-        "Anybody + IBM Plex Mono — variable futurism",
-        "Bricolage Grotesque + Geist — startup clean",
-        "Crimson Pro + Lato — longform readability",
-        "Archivo Black + Archivo — bold system",
-        "EB Garamond + Fira Sans — classical meets code",
-        "Unbounded + Noto Sans — expressive + neutral",
-    ]},
-];
-
-fn find_preset(id: &str) -> Option<&'static Preset> {
-    PRESETS.iter().find(|p| p.id == id)
-}
-
-fn random_preset_value(preset: &Preset) -> &'static str {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let idx = rng.gen_range(0..preset.items.len());
-    preset.items[idx]
-}
-
-// ─── Board nodes & edges ───
-
-#[derive(Debug, Clone, FromRow)]
-struct BoardNodeRow {
-    id: Uuid,
-    #[allow(dead_code)]
-    owner_user_id: Uuid,
-    node_type: String,
-    position_x: f64,
-    position_y: f64,
-    content: serde_json::Value,
-    locked: bool,
-    #[allow(dead_code)]
-    created_at: DateTime<Utc>,
-    width: Option<f64>,
-    height: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BoardNodeSummary {
-    id: Uuid,
-    node_type: String,
-    position_x: f64,
-    position_y: f64,
-    content: serde_json::Value,
-    locked: bool,
-    width: Option<f64>,
-    height: Option<f64>,
-}
-
-impl BoardNodeSummary {
-    fn content_json(&self) -> String {
-        self.content.to_string()
-    }
-
-    fn entropy_title(&self) -> &str {
-        self.content
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Random page")
-    }
-
-    fn input_text(&self) -> &str {
-        self.content
-            .get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-    }
-
-    fn input_images(&self) -> Vec<&str> {
-        self.content
-            .get("images")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-            .unwrap_or_default()
-    }
-
-    fn color_value(&self) -> &str {
-        self.content
-            .get("value")
-            .and_then(|v| v.as_str())
-            .unwrap_or("#5b9cb8")
-    }
-
-    fn palette_colors(&self) -> Vec<&str> {
-        self.content
-            .get("colors")
-            .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
-            .unwrap_or_default()
-    }
-
-    fn pick_k_value(&self) -> i64 {
-        self.content.get("k").and_then(|v| v.as_i64()).unwrap_or(1)
-    }
-
-    fn pick_k_replace(&self) -> bool {
-        self.content.get("replace").and_then(|v| v.as_bool()).unwrap_or(false)
-    }
-
-    fn set_title(&self) -> &str {
-        self.content.get("title").and_then(|v| v.as_str()).unwrap_or("Set")
-    }
-
-    fn set_description(&self) -> &str {
-        self.content.get("description").and_then(|v| v.as_str()).unwrap_or("")
-    }
-
-    fn image_url(&self) -> &str {
-        self.content.get("url").and_then(|v| v.as_str()).unwrap_or("")
-    }
-
-    fn image_alt(&self) -> &str {
-        self.content.get("alt").and_then(|v| v.as_str()).unwrap_or("")
-    }
-
-    fn int_value(&self) -> i64 {
-        self.content.get("value").and_then(|v| v.as_i64()).unwrap_or(0)
-    }
-
-    fn float_value(&self) -> f64 {
-        self.content.get("value").and_then(|v| v.as_f64()).unwrap_or(0.0)
-    }
-
-    fn string_value(&self) -> &str {
-        self.content.get("value").and_then(|v| v.as_str()).unwrap_or("")
-    }
-
-    fn bool_value(&self) -> bool {
-        self.content.get("value").and_then(|v| v.as_bool()).unwrap_or(false)
-    }
-
-    fn int_min(&self) -> i64 {
-        self.content.get("min").and_then(|v| v.as_i64()).unwrap_or(0)
-    }
-
-    fn int_max(&self) -> i64 {
-        self.content.get("max").and_then(|v| v.as_i64()).unwrap_or(100)
-    }
-
-    fn float_min(&self) -> f64 {
-        self.content.get("min").and_then(|v| v.as_f64()).unwrap_or(0.0)
-    }
-
-    fn float_max(&self) -> f64 {
-        self.content.get("max").and_then(|v| v.as_f64()).unwrap_or(1.0)
-    }
-
-    fn float_step(&self) -> f64 {
-        self.content.get("step").and_then(|v| v.as_f64()).unwrap_or(0.01)
-    }
-
-    fn random_enabled(&self) -> bool {
-        self.content.get("random").and_then(|v| v.as_bool()).unwrap_or(false)
-    }
-
-    fn font_family(&self) -> &str {
-        self.content.get("family").and_then(|v| v.as_str()).unwrap_or("")
-    }
-
-    fn font_weight(&self) -> &str {
-        self.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400")
-    }
-
-    fn font_size(&self) -> &str {
-        self.content.get("size").and_then(|v| v.as_str()).unwrap_or("16")
-    }
-
-    fn font_line_height(&self) -> &str {
-        self.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5")
-    }
-
-    fn font_file_name(&self) -> &str {
-        self.content.get("file_name").and_then(|v| v.as_str()).unwrap_or("")
-    }
-
-    fn harmony_mode(&self) -> &str {
-        self.content.get("mode").and_then(|v| v.as_str()).unwrap_or("complementary")
-    }
-
-    fn has_preset(&self) -> bool {
-        self.content.get("preset").and_then(|v| v.as_str()).is_some()
-    }
-
-    fn preset_id(&self) -> &str {
-        self.content.get("preset").and_then(|v| v.as_str()).unwrap_or("")
-    }
-
-    fn preset_label(&self) -> &str {
-        let id = self.preset_id();
-        find_preset(id).map(|p| p.label).unwrap_or("Preset")
-    }
-}
-
-impl From<BoardNodeRow> for BoardNodeSummary {
-    fn from(row: BoardNodeRow) -> Self {
-        Self {
-            id: row.id,
-            node_type: row.node_type,
-            position_x: row.position_x,
-            position_y: row.position_y,
-            content: row.content,
-            locked: row.locked,
-            width: row.width,
-            height: row.height,
-        }
-    }
-}
-
-#[derive(Debug, Clone, FromRow)]
-struct BoardEdgeRow {
-    id: Uuid,
-    #[allow(dead_code)]
-    owner_user_id: Uuid,
-    source_id: Uuid,
-    source_type: String,
-    target_id: Uuid,
-    target_type: String,
-    source_anchor_side: Option<String>,
-    source_anchor_t: Option<f64>,
-    target_anchor_side: Option<String>,
-    target_anchor_t: Option<f64>,
-    source_slot: String,
-    target_slot: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BoardEdgeSummary {
-    id: Uuid,
-    source_id: Uuid,
-    source_type: String,
-    target_id: Uuid,
-    target_type: String,
-    source_anchor_side: Option<String>,
-    source_anchor_t: Option<f64>,
-    target_anchor_side: Option<String>,
-    target_anchor_t: Option<f64>,
-    source_slot: String,
-    target_slot: String,
-}
-
-impl From<BoardEdgeRow> for BoardEdgeSummary {
-    fn from(row: BoardEdgeRow) -> Self {
-        Self {
-            id: row.id,
-            source_id: row.source_id,
-            source_type: row.source_type,
-            target_id: row.target_id,
-            target_type: row.target_type,
-            source_anchor_side: row.source_anchor_side,
-            source_anchor_t: row.source_anchor_t,
-            target_anchor_side: row.target_anchor_side,
-            target_anchor_t: row.target_anchor_t,
-            source_slot: row.source_slot,
-            target_slot: row.target_slot,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct CreateNodeRequest {
-    node_type: String,
-    position_x: f64,
-    position_y: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct DuplicateNodeRequest {
-    source_id: Uuid,
-    position_x: Option<f64>,
-    position_y: Option<f64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CreateNodeFormRequest {
-    node_type: String,
-    position_x: f64,
-    position_y: f64,
-    source_id: Option<Uuid>,
-    source_type: Option<String>,
-    source_anchor_side: Option<String>,
-    source_anchor_t: Option<f64>,
-    preset: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct UpdatePositionRequest {
-    position_x: f64,
-    position_y: f64,
-    width: Option<f64>,
-    height: Option<f64>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CreateEdgeRequest {
-    source_id: Uuid,
-    source_type: String,
-    target_id: Uuid,
-    target_type: String,
-    source_anchor_side: Option<String>,
-    source_anchor_t: Option<f64>,
-    target_anchor_side: Option<String>,
-    target_anchor_t: Option<f64>,
-    #[serde(default = "default_out_slot")]
-    source_slot: String,
-    #[serde(default = "default_sources_slot")]
-    target_slot: String,
-}
-
-fn default_out_slot() -> String { "out".to_string() }
-fn default_sources_slot() -> String { "sources".to_string() }
-
 #[derive(Template)]
 #[template(path = "index.html")]
 struct IndexTemplate<'a> {
@@ -1340,7 +987,13 @@ struct AppTemplate<'a> {
     viewer: &'a Viewer,
     app_config_json: &'a str,
     provider_panel: &'a str,
-    board_html: &'a str,
+    active_session_id: Uuid,
+    active_session_title: &'a str,
+    active_session_updated_label: &'a str,
+    session_list_html: &'a str,
+    gallery_html: &'a str,
+    messages_html: &'a str,
+    reference_list_html: &'a str,
 }
 
 #[derive(Template)]
@@ -1355,21 +1008,6 @@ struct ProviderPanelTemplate<'a> {
     status: &'a ProviderStatusView,
 }
 
-#[derive(Template)]
-#[template(path = "storm_board.html")]
-struct StormBoardTemplate<'a> {
-    runs: &'a [StormRunSummary],
-    board_nodes: &'a [BoardNodeSummary],
-    edges_json: &'a str,
-}
-
-#[derive(Template)]
-#[template(path = "board_node.html")]
-struct BoardNodeTemplate<'a> {
-    node: &'a BoardNodeSummary,
-}
-
-
 #[derive(Debug, Deserialize)]
 struct StormRequest {
     prompt: String,
@@ -1378,11 +1016,8 @@ struct StormRequest {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GenerateStormSignals {
-    prompt: String,
-    draft_mode: Option<String>,
-    source_ids: Option<String>,
+struct AppQuery {
+    session: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1402,6 +1037,9 @@ struct StormGenerationInput {
     draft_mode: Option<String>,
     source_ids: Vec<Uuid>,
     asset_ids: Vec<(Uuid, String)>,
+    session_id: Option<Uuid>,
+    iterates_on_id: Option<Uuid>,
+    fallback_title: Option<String>,
 }
 
 impl StormGenerationInput {
@@ -1438,8 +1076,74 @@ impl StormGenerationInput {
                 .filter(|value| !value.is_empty()),
             source_ids,
             asset_ids: Vec::new(),
+            session_id: None,
+            iterates_on_id: None,
+            fallback_title: None,
         })
     }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionMessageRequest {
+    body: String,
+    reference_ids: Vec<String>,
+    iterates_on_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateSessionForm {
+    title: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RenameSessionForm {
+    title: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateReferenceForm {
+    kind: String,
+    title: Option<String>,
+    body: Option<String>,
+    url: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionMessageResponse {
+    session_list_html: String,
+    messages_html: String,
+    gallery_html: String,
+    reference_list_html: String,
+    active_session_title: String,
+    active_session_updated_label: String,
+    status: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateDesignSessionResponse {
+    session_id: Uuid,
+    location: String,
+}
+
+#[derive(Debug)]
+struct SessionPageSnapshot {
+    session_list_html: String,
+    messages_html: String,
+    gallery_html: String,
+    reference_list_html: String,
+    active_session_title: String,
+    active_session_updated_label: String,
+}
+
+#[derive(Debug, Clone)]
+struct UploadedAsset {
+    id: Uuid,
+    url: String,
+    file_name: String,
+    content_type: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1498,9 +1202,9 @@ async fn main() -> Result<(), AppError> {
     let db = tokio::time::timeout(
         Duration::from_secs(10),
         PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(15))
-        .connect_with(connect_options),
+            .max_connections(5)
+            .acquire_timeout(Duration::from_secs(15))
+            .connect_with(connect_options),
     )
     .await
     .map_err(|_| AppError::Internal("Timed out connecting to postgres".to_string()))??;
@@ -1543,33 +1247,31 @@ async fn main() -> Result<(), AppError> {
         .route("/partials/auth-panel", get(auth_panel))
         .route("/settings/provider", get(provider_panel))
         .route("/settings/provider/claude/start", post(start_claude_auth))
-        .route("/settings/provider/claude/exchange", post(exchange_claude_auth))
+        .route(
+            "/settings/provider/claude/exchange",
+            post(exchange_claude_auth),
+        )
         .route("/settings/provider/codex/start", post(start_codex_auth))
         .route("/settings/provider/codex/poll", post(poll_codex_auth))
         .route("/settings/provider/logout", post(disconnect_provider))
-        .route("/storms/generate", post(generate_storm_datastar))
+        .route("/sessions", post(create_design_session_route))
+        .route("/sessions/{id}/rename", post(rename_design_session))
+        .route("/sessions/{id}/snapshot", get(session_snapshot))
+        .route("/sessions/{id}/messages", post(post_session_message))
+        .route("/sessions/{id}/references", post(create_reference_item))
+        .route(
+            "/sessions/{id}/references/image",
+            post(upload_reference_image),
+        )
         .route("/storms/{id}", axum::routing::delete(delete_storm_run))
         .route("/storms/{id}/download", get(download_storm_run_archive))
-        .route("/storms/{id}/position", post(update_storm_run_position))
         .route("/telemetry/client", post(client_telemetry))
         .route("/api/storms", get(list_storms).post(create_storm))
         .route("/preview/{run_id}", get(preview_index_redirect))
         .route("/preview/{run_id}/", get(preview_index))
         .route("/preview/{run_id}/{*path}", get(preview_asset))
-        .route("/presets", get(list_presets))
-        .route("/nodes/create", post(create_board_node_datastar))
-        .route("/nodes", post(create_board_node))
-        .route("/nodes/duplicate", post(duplicate_board_node))
-        .route("/nodes/{id}/reroll", post(reroll_board_node))
-        .route("/nodes/{id}/lock", post(toggle_board_node_lock))
-        .route("/nodes/{id}/position", post(update_board_node_position))
-        .route("/nodes/{id}/content", post(update_board_node_content))
-        .route("/nodes/{id}/run", post(run_generate_node))
-        .route("/nodes/{id}", axum::routing::delete(delete_board_node))
         .route("/assets", post(upload_asset))
         .route("/assets/{id}/{file_name}", get(serve_asset))
-        .route("/edges", post(create_board_edge))
-        .route("/edges/{id}", axum::routing::delete(delete_board_edge))
         .nest_service("/static", ServeDir::new("static"))
         .nest_service("/docs", ServeDir::new("docs"))
         .layer(
@@ -1597,10 +1299,7 @@ async fn healthz() -> &'static str {
     "ok"
 }
 
-async fn index(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Result<Response, AppError> {
+async fn index(State(state): State<AppState>, headers: HeaderMap) -> Result<Response, AppError> {
     let viewer = current_viewer(&state, &headers).await?;
     if viewer.is_some() {
         return Ok(Redirect::temporary("/app").into_response());
@@ -1628,13 +1327,19 @@ async fn index(
     Ok(Html(page.render()?).into_response())
 }
 
-async fn app_page(State(state): State<AppState>, headers: HeaderMap) -> Result<Response, AppError> {
+async fn app_page(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<AppQuery>,
+) -> Result<Response, AppError> {
     let Some(viewer) = current_viewer(&state, &headers).await? else {
         return Ok(Redirect::temporary("/").into_response());
     };
 
     let provider_panel = render_provider_panel_html(&state, &viewer).await?;
-    let board_html = render_storm_board_html(&state, viewer.id).await?;
+    let active_session =
+        resolve_active_session(&state, viewer.id, query.session.as_deref()).await?;
+    let snapshot = build_session_snapshot(&state, viewer.id, active_session.id).await?;
     let config_json = json!({
         "clerkPublishableKey": state.config.clerk_publishable_key,
         "appUrl": state.config.app_url,
@@ -1644,13 +1349,19 @@ async fn app_page(State(state): State<AppState>, headers: HeaderMap) -> Result<R
     .to_string();
 
     let page = AppTemplate {
-        title: "Design Storm / Stormboard",
+        title: "Design Storm / Studio",
         body_class: "app-page",
         datastar_cdn: DATASTAR_CDN,
         viewer: &viewer,
         app_config_json: &config_json,
         provider_panel: &provider_panel,
-        board_html: &board_html,
+        active_session_id: active_session.id,
+        active_session_title: &snapshot.active_session_title,
+        active_session_updated_label: &snapshot.active_session_updated_label,
+        session_list_html: &snapshot.session_list_html,
+        gallery_html: &snapshot.gallery_html,
+        messages_html: &snapshot.messages_html,
+        reference_list_html: &snapshot.reference_list_html,
     };
 
     Ok(Html(page.render()?).into_response())
@@ -1736,6 +1447,83 @@ async fn logout() -> Result<Response, AppError> {
             .map_err(|error| AppError::Internal(error.to_string()))?,
     );
     Ok(response)
+}
+
+async fn create_design_session_route(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateSessionForm>,
+) -> Result<Json<CreateDesignSessionResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let session = create_design_session(&state.db, viewer.id, payload.title.as_deref()).await?;
+    Ok(Json(CreateDesignSessionResponse {
+        session_id: session.id,
+        location: format!("/app?session={}", session.id),
+    }))
+}
+
+async fn rename_design_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<RenameSessionForm>,
+) -> Result<Json<SessionMessageResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    update_design_session_title(&state.db, viewer.id, id, &payload.title).await?;
+    Ok(Json(
+        build_session_response(&state, viewer.id, id, "Session renamed.").await?,
+    ))
+}
+
+async fn session_snapshot(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<SessionMessageResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    Ok(Json(
+        build_session_response(&state, viewer.id, id, "").await?,
+    ))
+}
+
+async fn create_reference_item(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<CreateReferenceForm>,
+) -> Result<Json<SessionMessageResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    create_reference_record(&state.db, viewer.id, id, &payload).await?;
+    Ok(Json(
+        build_session_response(&state, viewer.id, id, "Reference added.").await?,
+    ))
+}
+
+async fn upload_reference_image(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    mut multipart: Multipart,
+) -> Result<Json<SessionMessageResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let asset = upload_asset_to_storage(&state, viewer.id, &mut multipart).await?;
+    create_image_reference_record(&state.db, viewer.id, id, &asset).await?;
+    Ok(Json(
+        build_session_response(&state, viewer.id, id, "Image reference added.").await?,
+    ))
+}
+
+async fn post_session_message(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<SessionMessageRequest>,
+) -> Result<Json<SessionMessageResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    let status = handle_session_message(&state, &viewer, id, payload).await?;
+    Ok(Json(
+        build_session_response(&state, viewer.id, id, &status).await?,
+    ))
 }
 
 async fn start_claude_auth(
@@ -1965,546 +1753,6 @@ async fn list_storms(
     Ok(Json(items))
 }
 
-async fn generate_storm_datastar(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    ReadSignals(signals): ReadSignals<GenerateStormSignals>,
-) -> Result<impl IntoResponse, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    let input = match StormGenerationInput::from_prompt_and_sources(
-        signals.prompt,
-        signals.draft_mode,
-        signals.source_ids,
-    ) {
-        Ok(input) => input,
-        Err(message) => {
-            return Ok(datastar_event_stream(Box::pin(stream! {
-                yield Ok::<_, Infallible>(patch_signals(json!({
-                    "_generating": false,
-                    "_status": message,
-                }).to_string()));
-            })));
-        }
-    };
-
-    Ok(datastar_event_stream(Box::pin(stream! {
-        yield Ok::<_, Infallible>(patch_signals(json!({
-            "_generating": true,
-            "_status": "Generating storm...",
-            "_latestRunId": "",
-        }).to_string()));
-
-        match generate_storm_internal(&state, &viewer, input).await {
-            Ok(response) => {
-                let run = &response.run;
-                let px = run.position_x.unwrap_or(0.0) as f64;
-                let py = run.position_y.unwrap_or(0.0) as f64;
-                let node_html = render_storm_node_html(run, px, py);
-                yield Ok::<_, Infallible>(
-                    PatchElements::new(node_html)
-                        .selector("#storm-runs")
-                        .mode(ElementPatchMode::Append)
-                        .write_as_axum_sse_event(),
-                );
-                yield Ok::<_, Infallible>(patch_signals(json!({
-                    "_generating": false,
-                    "_status": "Storm generated.",
-                    "prompt": "",
-                    "draftMode": "",
-                    "sourceIds": "",
-                    "_latestRunId": response.run.id.to_string(),
-                }).to_string()));
-            }
-            Err(error) => {
-                yield Ok::<_, Infallible>(patch_signals(json!({
-                    "_generating": false,
-                    "_latestRunId": "",
-                    "_status": error.to_string(),
-                }).to_string()));
-            }
-        }
-    })))
-}
-
-async fn run_generate_node(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(node_id): Path<Uuid>,
-) -> Response {
-    match run_generate_node_inner(State(state), headers, Path(node_id)).await {
-        Ok(resp) => resp.into_response(),
-        Err(error) => {
-            let message = error.to_string();
-            datastar_event_stream(Box::pin(stream! {
-                yield Ok::<_, Infallible>(patch_signals(json!({
-                    "_generating": false,
-                    "_status": message,
-                }).to_string()));
-            }))
-            .into_response()
-        }
-    }
-}
-
-struct PromptParts {
-    entropy: Vec<String>,
-    user: Vec<String>,
-    design: Vec<String>,
-    asset_ids: Vec<(Uuid, String)>,
-}
-
-impl PromptParts {
-    fn new() -> Self {
-        Self { entropy: Vec::new(), user: Vec::new(), design: Vec::new(), asset_ids: Vec::new() }
-    }
-}
-
-const BOARD_NODE_SQL: &str = "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2";
-const BOARD_EDGE_SQL: &str = r#"SELECT id, owner_user_id, source_id, source_type, target_id, target_type, source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t, source_slot, target_slot FROM board_edges WHERE target_id = $1 AND owner_user_id = $2"#;
-
-fn resolve_node_to_prompt<'a>(
-    db: &'a PgPool, owner_id: Uuid, node: &'a BoardNodeRow,
-    parts: &'a mut PromptParts, depth: u8,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), AppError>> + Send + 'a>> {
-    Box::pin(async move {
-        if depth > 8 { return Ok(()); }
-        match node.node_type.as_str() {
-            "entropy" => {
-                let title = node.content.get("title").and_then(|v| v.as_str()).unwrap_or("Random page");
-                let url = node.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                parts.entropy.push(format!("Reference: \"{}\" — {}", title, url));
-            }
-            "user_input" => {
-                let text = node.content.get("text").and_then(|v| v.as_str()).unwrap_or("");
-                if !text.is_empty() {
-                    parts.user.push(format!("User direction: \"{}\"", text));
-                }
-            }
-            "design" => {
-                if let Ok(Some(run)) = sqlx::query_as::<_, StormRunRow>(
-                    "SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url, submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height FROM storm_runs WHERE id = $1 AND owner_user_id = $2",
-                )
-                .bind(node.id)
-                .bind(owner_id)
-                .fetch_optional(db)
-                .await
-                {
-                    let record = StormRunRecord::from(run);
-                    parts.design.push(format!(
-                        "Build on: \"{}\" — {}\nOriginal seed: {}",
-                        record.title, record.summary, record.prompt
-                    ));
-                }
-            }
-            "color" => {
-                let val = node.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                if !val.is_empty() {
-                    parts.user.push(format!("Color constraint: {}", val));
-                }
-            }
-            "color_palette" => {
-                let mut colors: Vec<String> = node.content.get("colors")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect())
-                    .unwrap_or_default();
-                let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                    &format!("{} AND target_slot = 'members'", BOARD_EDGE_SQL),
-                )
-                .bind(node.id)
-                .bind(owner_id)
-                .fetch_all(db)
-                .await
-                .unwrap_or_default();
-                for me in &member_edges {
-                    if me.source_type == "color" {
-                        if let Ok(Some(cn)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
-                            .bind(me.source_id).bind(owner_id).fetch_optional(db).await {
-                            if let Some(val) = cn.content.get("value").and_then(|v| v.as_str()) {
-                                if !val.is_empty() { colors.push(val.to_string()); }
-                            }
-                        }
-                    }
-                }
-                if !colors.is_empty() {
-                    parts.user.push(format!("Color palette constraint: use these colors: {}", colors.join(", ")));
-                }
-            }
-            "color_harmony" => {
-                let mode = node.content.get("mode").and_then(|v| v.as_str()).unwrap_or("complementary");
-                let source_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                    &format!("{} AND target_slot = 'source'", BOARD_EDGE_SQL),
-                )
-                .bind(node.id)
-                .bind(owner_id)
-                .fetch_all(db)
-                .await
-                .unwrap_or_default();
-                if let Some(se) = source_edges.first() {
-                    if se.source_type == "color" {
-                        if let Ok(Some(cn)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
-                            .bind(se.source_id).bind(owner_id).fetch_optional(db).await {
-                            let base_hex = cn.content.get("value").and_then(|v| v.as_str()).unwrap_or("#5b9cb8");
-                            let colors = compute_harmony_colors(base_hex, mode);
-                            parts.user.push(format!("Color harmony ({}) constraint: use these colors: {}", mode.replace('_', "-"), colors.join(", ")));
-                        }
-                    }
-                }
-            }
-            "image" | "draw" => {
-                let alt = node.content.get("alt").and_then(|v| v.as_str()).unwrap_or("");
-                if let Some(aid) = node.content.get("asset_id").and_then(|v| v.as_str()) {
-                    if let Ok(asset_uuid) = Uuid::from_str(aid) {
-                        let desc = if alt.is_empty() { if node.node_type == "draw" { "drawing" } else { "image" }.to_string() } else { alt.to_string() };
-                        parts.asset_ids.push((asset_uuid, desc.clone()));
-                        parts.user.push(format!("Reference image available at: inputs/{} — use copy_input to include it in your output if needed", desc));
-                    }
-                } else {
-                    let url = node.content.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                    if !url.is_empty() {
-                        parts.user.push(format!("Reference image: {} ({})", url, alt));
-                    }
-                }
-            }
-            "font" => {
-                let family = node.content.get("family").and_then(|v| v.as_str()).unwrap_or("");
-                let weight = node.content.get("weight").and_then(|v| v.as_str()).unwrap_or("400");
-                let size = node.content.get("size").and_then(|v| v.as_str()).unwrap_or("16");
-                let line_height = node.content.get("lineHeight").and_then(|v| v.as_str()).unwrap_or("1.5");
-                let mut font_parts = Vec::new();
-                if !family.is_empty() { font_parts.push(format!("font-family: {}", family)); }
-                font_parts.push(format!("font-weight: {}", weight));
-                font_parts.push(format!("font-size: {}px", size));
-                font_parts.push(format!("line-height: {}", line_height));
-                parts.user.push(format!("Typography constraint: {}", font_parts.join(", ")));
-                if let Some(aid) = node.content.get("asset_id").and_then(|v| v.as_str()) {
-                    if let Ok(asset_uuid) = Uuid::from_str(aid) {
-                        let file_name = node.content.get("file_name").and_then(|v| v.as_str()).unwrap_or("font.woff2");
-                        parts.asset_ids.push((asset_uuid, file_name.to_string()));
-                        parts.user.push(format!("Custom font file available at: inputs/{} — use copy_input to copy it into your workspace, then add a @font-face declaration pointing to it", file_name));
-                    }
-                }
-            }
-            "string_value" => {
-                let val = node.content.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                if !val.is_empty() {
-                    let label = if let Some(pid) = node.content.get("preset").and_then(|v| v.as_str()) {
-                        let plabel = find_preset(pid).map(|p| p.label).unwrap_or("String");
-                        format!("{}: \"{}\"", plabel, val)
-                    } else {
-                        format!("String parameter: \"{}\"", val)
-                    };
-                    parts.user.push(label);
-                }
-            }
-            "int_value" => {
-                if let Some(val) = node.content.get("value").and_then(|v| v.as_i64()) {
-                    parts.user.push(format!("Integer parameter: {}", val));
-                }
-            }
-            "float_value" => {
-                if let Some(val) = node.content.get("value").and_then(|v| v.as_f64()) {
-                    parts.user.push(format!("Float parameter: {}", val));
-                }
-            }
-            "bool_value" => {
-                if let Some(val) = node.content.get("value").and_then(|v| v.as_bool()) {
-                    parts.user.push(format!("Boolean parameter: {}", val));
-                }
-            }
-            "conditional" => {
-                let cond_edges = sqlx::query_as::<_, BoardEdgeRow>(BOARD_EDGE_SQL)
-                    .bind(node.id)
-                    .bind(owner_id)
-                    .fetch_all(db)
-                    .await
-                    .unwrap_or_default();
-                let mut condition = false;
-                for ce in &cond_edges {
-                    if ce.target_slot == "condition" && ce.source_type == "bool_value" {
-                        if let Ok(Some(bool_node)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
-                            .bind(ce.source_id).bind(owner_id).fetch_optional(db).await {
-                            condition = bool_node.content.get("value").and_then(|v| v.as_bool()).unwrap_or(false);
-                        }
-                    }
-                }
-                let active_slot = if condition { "if_true" } else { "if_false" };
-                for ce in &cond_edges {
-                    if ce.target_slot != active_slot { continue; }
-                    if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
-                        .bind(ce.source_id).bind(owner_id).fetch_optional(db).await {
-                        resolve_node_to_prompt(db, owner_id, &src, parts, depth + 1).await?;
-                    }
-                }
-            }
-            "set" => {
-                let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                    &format!("{} AND target_slot = 'members'", BOARD_EDGE_SQL),
-                )
-                .bind(node.id)
-                .bind(owner_id)
-                .fetch_all(db)
-                .await
-                .unwrap_or_default();
-                for me in &member_edges {
-                    if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
-                        .bind(me.source_id).bind(owner_id).fetch_optional(db).await {
-                        resolve_node_to_prompt(db, owner_id, &src, parts, depth + 1).await?;
-                    }
-                }
-            }
-            "pick_k" => {
-                let k = node.content.get("k").and_then(|v| v.as_i64()).unwrap_or(1) as usize;
-                let with_replacement = node.content.get("replace").and_then(|v| v.as_bool()).unwrap_or(false);
-                let member_edges = sqlx::query_as::<_, BoardEdgeRow>(
-                    &format!("{} AND target_slot = 'sources'", BOARD_EDGE_SQL),
-                )
-                .bind(node.id)
-                .bind(owner_id)
-                .fetch_all(db)
-                .await
-                .unwrap_or_default();
-
-                let mut resolved_sources = Vec::new();
-                for me in &member_edges {
-                    if let Ok(Some(src)) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
-                        .bind(me.source_id).bind(owner_id).fetch_optional(db).await {
-                        resolved_sources.push(src);
-                    }
-                }
-
-                if resolved_sources.is_empty() { return Ok(()); }
-
-                if with_replacement {
-                    let mut count = 0usize;
-                    let mut idx = 0usize;
-                    while count < k {
-                        let src = &resolved_sources[idx % resolved_sources.len()];
-                        resolve_node_to_prompt(db, owner_id, src, parts, depth + 1).await?;
-                        count += 1;
-                        idx += 1;
-                        if idx >= k * resolved_sources.len() { break; }
-                    }
-                } else {
-                    let mut count = 0usize;
-                    for src in &resolved_sources {
-                        if count >= k { break; }
-                        resolve_node_to_prompt(db, owner_id, src, parts, depth + 1).await?;
-                        count += 1;
-                    }
-                }
-            }
-            _ => {}
-        }
-        Ok(())
-    })
-}
-
-async fn resolve_node_by_id(
-    db: &PgPool, owner_id: Uuid, node_id: Uuid,
-    parts: &mut PromptParts, depth: u8,
-) -> Result<(), AppError> {
-    if let Some(node) = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
-        .bind(node_id).bind(owner_id).fetch_optional(db).await? {
-        resolve_node_to_prompt(db, owner_id, &node, parts, depth).await?;
-    }
-    Ok(())
-}
-
-async fn run_generate_node_inner(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(node_id): Path<Uuid>,
-) -> Result<impl IntoResponse, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-
-    // Load the generate node and verify ownership/type
-    let node = sqlx::query_as::<_, BoardNodeRow>(BOARD_NODE_SQL)
-    .bind(node_id)
-    .bind(viewer.id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::BadRequest("Generate node not found.".to_string()))?;
-
-    if node.node_type != "generate" {
-        return Err(AppError::BadRequest("Node is not a generate node.".to_string()));
-    }
-
-    // Collect all inputs wired into this generate node
-    let edges = sqlx::query_as::<_, BoardEdgeRow>(BOARD_EDGE_SQL)
-    .bind(node_id)
-    .bind(viewer.id)
-    .fetch_all(&state.db)
-    .await?;
-
-    // Build prompt from wired inputs
-    let mut parts = PromptParts::new();
-    for edge in &edges {
-        resolve_node_by_id(&state.db, viewer.id, edge.source_id, &mut parts, 0).await?;
-    }
-
-    if parts.entropy.is_empty() && parts.user.is_empty() && parts.design.is_empty() {
-        return Ok(datastar_event_stream(Box::pin(stream! {
-            yield Ok::<_, Infallible>(patch_signals(json!({
-                "_generating": false,
-                "_status": "Wire some inputs to the Generate node first.",
-            }).to_string()));
-        })));
-    }
-
-    let mut prompt = String::from("Design Direction:\n\n");
-    if !parts.entropy.is_empty() {
-        prompt.push_str(&parts.entropy.join("\n"));
-        prompt.push('\n');
-    }
-    if !parts.user.is_empty() {
-        if !parts.entropy.is_empty() { prompt.push('\n'); }
-        prompt.push_str(&parts.user.join("\n"));
-        prompt.push('\n');
-    }
-    if !parts.design.is_empty() {
-        if !parts.entropy.is_empty() || !parts.user.is_empty() { prompt.push('\n'); }
-        prompt.push_str(&parts.design.join("\n\n"));
-        prompt.push('\n');
-    }
-    prompt.push_str("\n---\nCreate a bold design language artifact that synthesizes these inputs.");
-
-    let input = StormGenerationInput {
-        prompt,
-        draft_mode: None,
-        source_ids: vec![],
-        asset_ids: parts.asset_ids,
-    };
-
-    let gen_node_id = node_id;
-    let gen_pos_x = node.position_x;
-    let gen_pos_y = node.position_y;
-    let gen_width = node.width.unwrap_or(200.0);
-
-    Ok(datastar_event_stream(Box::pin(stream! {
-        yield Ok::<_, Infallible>(patch_signals(json!({
-            "_generating": true,
-            "_status": "Generating storm...",
-            "_latestRunId": "",
-            "_genElapsed": 0,
-        }).to_string()));
-
-        // Emit placeholder node to the right of the generate node
-        let placeholder_x = gen_pos_x + gen_width + 60.0;
-        let placeholder_y = gen_pos_y;
-        let placeholder_html = format!(
-            r#"<article class="storm-node generating-placeholder" data-run-id="generating-placeholder-{node_id}"
-                data-position-x="{placeholder_x}" data-position-y="{placeholder_y}"
-                data-run-prompt="" data-run-title="Generating…" data-run-summary=""
-                data-run-assistant-summary="" data-run-preview-url="" data-run-created-at=""
-                data-run-submitted="false" data-run-parent-ids="">
-              <div class="storm-node-shell">
-                <div class="generating-placeholder-body"
-                  data-effect="
-                    if ($_generating) {{
-                      if (!window._genTimer) {{
-                        $_genElapsed = 0;
-                        window._genTimer = setInterval(() => $_genElapsed++, 1000);
-                      }}
-                    }} else if (window._genTimer) {{
-                      clearInterval(window._genTimer);
-                      window._genTimer = null;
-                    }}
-                  "
-                >
-                  <div class="generate-spinner-ring"></div>
-                  <span class="generate-timer" data-text="$_genElapsed + 's'"></span>
-                </div>
-              </div>
-            </article>"#,
-            node_id = gen_node_id,
-            placeholder_x = placeholder_x,
-            placeholder_y = placeholder_y,
-        );
-        yield Ok::<_, Infallible>(
-            PatchElements::new(placeholder_html)
-                .selector("#storm-runs")
-                .mode(ElementPatchMode::Append)
-                .write_as_axum_sse_event(),
-        );
-
-        match generate_storm_internal(&state, &viewer, input).await {
-            Ok(response) => {
-                let new_run_id = response.run.id;
-
-                // Create board_edge from generate node → new design run
-                if let (Some((source_anchor_side, source_anchor_t)), Some((target_anchor_side, target_anchor_t))) = (
-                    slot_anchor("generate", "out"),
-                    slot_anchor("design", "generated_by"),
-                ) {
-                    let _ = sqlx::query(
-                        r#"INSERT INTO board_edges (
-                               owner_user_id, source_id, source_type, target_id, target_type,
-                               source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                               source_slot, target_slot
-                           )
-                           VALUES ($1, $2, 'generate', $3, 'design', $4, $5, $6, $7, 'out', 'generated_by')
-                           ON CONFLICT (source_id, source_slot, target_id, target_slot) DO NOTHING"#,
-                    )
-                    .bind(viewer.id)
-                    .bind(gen_node_id)
-                    .bind(new_run_id)
-                    .bind(source_anchor_side)
-                    .bind(source_anchor_t)
-                    .bind(target_anchor_side)
-                    .bind(target_anchor_t)
-                    .execute(&state.db)
-                    .await;
-                }
-
-                let run = &response.run;
-                let placeholder_sel = format!(
-                    r#".storm-node[data-run-id="generating-placeholder-{}"]"#,
-                    gen_node_id,
-                );
-
-                // Remove placeholder, then append the real node (two ops to trigger MutationObserver)
-                yield Ok::<_, Infallible>(
-                    PatchElements::new_remove(&placeholder_sel)
-                        .write_as_axum_sse_event(),
-                );
-
-                let node_html = render_storm_node_html(run, placeholder_x, placeholder_y);
-                yield Ok::<_, Infallible>(
-                    PatchElements::new(node_html)
-                        .selector("#storm-runs")
-                        .mode(ElementPatchMode::Append)
-                        .write_as_axum_sse_event(),
-                );
-
-                // Update edges JSON
-                yield Ok::<_, Infallible>(patch_edges_event(&state, viewer.id).await);
-
-                yield Ok::<_, Infallible>(patch_signals(json!({
-                    "_generating": false,
-                    "_status": "Storm generated.",
-                    "_latestRunId": new_run_id.to_string(),
-                }).to_string()));
-            }
-            Err(error) => {
-                // Remove the placeholder on error
-                let placeholder_sel = format!(
-                    r#".storm-node[data-run-id="generating-placeholder-{}"]"#,
-                    gen_node_id,
-                );
-                yield Ok::<_, Infallible>(
-                    PatchElements::new_remove(&placeholder_sel)
-                        .write_as_axum_sse_event(),
-                );
-                yield Ok::<_, Infallible>(patch_signals(json!({
-                    "_generating": false,
-                    "_latestRunId": "",
-                    "_status": error.to_string(),
-                }).to_string()));
-            }
-        }
-    })))
-}
-
 async fn create_storm(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2547,8 +1795,9 @@ async fn delete_storm_run(
 
     sqlx::query(
         r#"
-        DELETE FROM board_edges
-        WHERE owner_user_id = $1 AND (source_id = $2 OR target_id = $2)
+        UPDATE storm_runs
+        SET parent_ids = array_remove(parent_ids, $2)
+        WHERE owner_user_id = $1
         "#,
     )
     .bind(viewer.id)
@@ -2559,8 +1808,21 @@ async fn delete_storm_run(
     sqlx::query(
         r#"
         UPDATE storm_runs
-        SET parent_ids = array_remove(parent_ids, $2)
-        WHERE owner_user_id = $1
+        SET iterates_on_id = NULL
+        WHERE owner_user_id = $1 AND iterates_on_id = $2
+        "#,
+    )
+    .bind(viewer.id)
+    .bind(id)
+    .execute(&state.db)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE design_jobs
+        SET iterates_on_id = NULL,
+            result_run_id = NULL
+        WHERE owner_user_id = $1 AND (iterates_on_id = $2 OR result_run_id = $2)
         "#,
     )
     .bind(viewer.id)
@@ -2590,7 +1852,10 @@ async fn download_storm_run_archive(
     let viewer = require_viewer(&state, &headers).await?;
     let run = get_owned_run(&state, viewer.id, id).await?;
 
-    let archive_bytes = if tokio::fs::try_exists(&run.workspace_dir).await.unwrap_or(false) {
+    let archive_bytes = if tokio::fs::try_exists(&run.workspace_dir)
+        .await
+        .unwrap_or(false)
+    {
         let workspace_dir = run.workspace_dir.clone();
         tokio::task::spawn_blocking(move || zip_workspace_dir(&workspace_dir))
             .await
@@ -2598,18 +1863,25 @@ async fn download_storm_run_archive(
     } else if let Some(bytes) = load_persisted_workspace_archive(&state, viewer.id, id).await? {
         bytes
     } else {
-        return Err(AppError::BadRequest("Artifact archive unavailable.".to_string()));
+        return Err(AppError::BadRequest(
+            "Artifact archive unavailable.".to_string(),
+        ));
     };
 
     let filename = sanitize_download_name(&run.title, id);
     let mut response = Response::new(Body::from(archive_bytes));
-    response.headers_mut().insert(CONTENT_TYPE, HeaderValue::from_static("application/zip"));
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("application/zip"));
     response.headers_mut().insert(
         CONTENT_DISPOSITION,
         HeaderValue::from_str(&format!("attachment; filename=\"{filename}\""))
             .map_err(|error| AppError::Internal(error.to_string()))?,
     );
-    response.headers_mut().insert(CACHE_CONTROL, HeaderValue::from_static("private, max-age=60"));
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=60"),
+    );
     Ok(response)
 }
 
@@ -2638,6 +1910,17 @@ async fn upload_asset(
     mut multipart: Multipart,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
+    let asset = upload_asset_to_storage(&state, viewer.id, &mut multipart).await?;
+    Ok(Json(
+        json!({ "id": asset.id.to_string(), "url": asset.url }),
+    ))
+}
+
+async fn upload_asset_to_storage(
+    state: &AppState,
+    user_id: Uuid,
+    multipart: &mut Multipart,
+) -> Result<UploadedAsset, AppError> {
     let storage = state
         .artifact_storage
         .as_ref()
@@ -2649,10 +1932,7 @@ async fn upload_asset(
         .map_err(|e| AppError::BadRequest(format!("Invalid multipart request: {e}")))?
         .ok_or_else(|| AppError::BadRequest("No file field in upload.".to_string()))?;
 
-    let file_name = field
-        .file_name()
-        .unwrap_or("upload")
-        .to_string();
+    let file_name = field.file_name().unwrap_or("upload").to_string();
     let content_type = field
         .content_type()
         .unwrap_or("application/octet-stream")
@@ -2678,7 +1958,7 @@ async fn upload_asset(
     }
 
     let asset_id = Uuid::new_v4();
-    let s3_key = format!("assets/{}/{}/{}", viewer.id, asset_id, file_name);
+    let s3_key = format!("assets/{}/{}/{}", user_id, asset_id, file_name);
 
     storage
         .client
@@ -2695,7 +1975,7 @@ async fn upload_asset(
         "INSERT INTO assets (id, owner_user_id, file_name, content_type, byte_size, s3_key) VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(asset_id)
-    .bind(viewer.id)
+    .bind(user_id)
     .bind(&file_name)
     .bind(&content_type)
     .bind(data.len() as i64)
@@ -2703,8 +1983,12 @@ async fn upload_asset(
     .execute(&state.db)
     .await?;
 
-    let url = format!("/assets/{}/{}", asset_id, file_name);
-    Ok(Json(json!({ "id": asset_id.to_string(), "url": url })))
+    Ok(UploadedAsset {
+        id: asset_id,
+        url: format!("/assets/{}/{}", asset_id, file_name),
+        file_name,
+        content_type,
+    })
 }
 
 async fn serve_asset(
@@ -2799,7 +2083,9 @@ async fn generate_storm_internal(
     info!(user_id = %viewer.id, run_id = %run_id, "storm workspace scaffolded");
 
     if !input.asset_ids.is_empty() {
-        let copied = copy_assets_to_workspace_inputs(state, viewer.id, &input.asset_ids, &workspace_dir).await?;
+        let copied =
+            copy_assets_to_workspace_inputs(state, viewer.id, &input.asset_ids, &workspace_dir)
+                .await?;
         info!(
             user_id = %viewer.id,
             run_id = %run_id,
@@ -2809,12 +2095,17 @@ async fn generate_storm_internal(
     }
 
     let preview_url = format!("/preview/{run_id}/");
+    let initial_title = input
+        .fallback_title
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "Storm Artifact".to_string());
     let workspace = Arc::new(Mutex::new(WorkspaceRuntimeState {
         run_id,
         preview_url: preview_url.clone(),
         workspace_dir: workspace_dir.clone(),
         prompt: prompt.clone(),
-        title: "Storm Artifact".to_string(),
+        title: initial_title,
         summary: "Design language artifact in progress.".to_string(),
         submitted: false,
     }));
@@ -2883,6 +2174,8 @@ async fn generate_storm_internal(
         created_at: Utc::now(),
         workspace_dir: snapshot.workspace_dir,
         parent_ids: input.source_ids.clone(),
+        session_id: input.session_id,
+        iterates_on_id: input.iterates_on_id,
         position_x: None,
         position_y: None,
         width: None,
@@ -2916,7 +2209,9 @@ async fn preview_index(
     let html = match tokio::fs::read_to_string(run.workspace_dir.join("index.html")).await {
         Ok(html) => html,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match load_persisted_workspace_entry(&state, run.owner_user_id, run_id, "index.html").await? {
+            match load_persisted_workspace_entry(&state, run.owner_user_id, run_id, "index.html")
+                .await?
+            {
                 Some(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
                 None => {
                     warn!(
@@ -2968,7 +2263,14 @@ async fn preview_asset(
     let bytes = match tokio::fs::read(&asset_path).await {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match load_persisted_workspace_entry(&state, run.owner_user_id, run_id, &normalized_path).await? {
+            match load_persisted_workspace_entry(
+                &state,
+                run.owner_user_id,
+                run_id,
+                &normalized_path,
+            )
+            .await?
+            {
                 Some(bytes) => bytes,
                 None => return Ok(StatusCode::NOT_FOUND.into_response()),
             }
@@ -3068,6 +2370,881 @@ async fn require_viewer(state: &AppState, headers: &HeaderMap) -> Result<Viewer,
     current_viewer(state, headers)
         .await?
         .ok_or_else(|| AppError::BadRequest("Authentication required.".to_string()))
+}
+
+async fn list_design_sessions(
+    db: &PgPool,
+    user_id: Uuid,
+) -> Result<Vec<DesignSessionRow>, AppError> {
+    Ok(sqlx::query_as::<_, DesignSessionRow>(
+        r#"
+        SELECT id, owner_user_id, title, created_at, updated_at
+        FROM design_sessions
+        WHERE owner_user_id = $1
+        ORDER BY updated_at DESC, created_at DESC
+        "#,
+    )
+    .bind(user_id)
+    .fetch_all(db)
+    .await?)
+}
+
+async fn get_owned_design_session(
+    db: &PgPool,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<DesignSessionRow, AppError> {
+    sqlx::query_as::<_, DesignSessionRow>(
+        r#"
+        SELECT id, owner_user_id, title, created_at, updated_at
+        FROM design_sessions
+        WHERE id = $1 AND owner_user_id = $2
+        "#,
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| AppError::BadRequest("Session not found.".to_string()))
+}
+
+fn normalize_session_title(input: Option<&str>) -> String {
+    let title = input.unwrap_or("").trim();
+    if title.is_empty() {
+        "Untitled Session".to_string()
+    } else {
+        truncate_for_log(title, 80)
+    }
+}
+
+async fn create_design_session(
+    db: &PgPool,
+    user_id: Uuid,
+    title: Option<&str>,
+) -> Result<DesignSessionRow, AppError> {
+    let title = normalize_session_title(title);
+    Ok(sqlx::query_as::<_, DesignSessionRow>(
+        r#"
+        INSERT INTO design_sessions (owner_user_id, title)
+        VALUES ($1, $2)
+        RETURNING id, owner_user_id, title, created_at, updated_at
+        "#,
+    )
+    .bind(user_id)
+    .bind(title)
+    .fetch_one(db)
+    .await?)
+}
+
+async fn update_design_session_title(
+    db: &PgPool,
+    user_id: Uuid,
+    session_id: Uuid,
+    title: &str,
+) -> Result<(), AppError> {
+    let next_title = normalize_session_title(Some(title));
+    let updated = sqlx::query(
+        r#"
+        UPDATE design_sessions
+        SET title = $3,
+            updated_at = now()
+        WHERE id = $1 AND owner_user_id = $2
+        "#,
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .bind(next_title)
+    .execute(db)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::BadRequest("Session not found.".to_string()));
+    }
+    Ok(())
+}
+
+async fn touch_design_session(
+    db: &PgPool,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        UPDATE design_sessions
+        SET updated_at = now()
+        WHERE id = $1 AND owner_user_id = $2
+        "#,
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+async fn resolve_active_session(
+    state: &AppState,
+    user_id: Uuid,
+    requested: Option<&str>,
+) -> Result<DesignSessionRow, AppError> {
+    if let Some(session_id) = requested.and_then(|value| Uuid::parse_str(value).ok()) {
+        return get_owned_design_session(&state.db, user_id, session_id).await;
+    }
+
+    if let Some(session) = sqlx::query_as::<_, DesignSessionRow>(
+        r#"
+        SELECT id, owner_user_id, title, created_at, updated_at
+        FROM design_sessions
+        WHERE owner_user_id = $1
+        ORDER BY updated_at DESC, created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(user_id)
+    .fetch_optional(&state.db)
+    .await?
+    {
+        return Ok(session);
+    }
+
+    create_design_session(&state.db, user_id, None).await
+}
+
+async fn load_session_messages(
+    db: &PgPool,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<Vec<SessionMessageRow>, AppError> {
+    get_owned_design_session(db, user_id, session_id).await?;
+    Ok(sqlx::query_as::<_, SessionMessageRow>(
+        r#"
+        SELECT id, session_id, role, body, design_job_id, created_at
+        FROM session_messages
+        WHERE session_id = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(session_id)
+    .fetch_all(db)
+    .await?)
+}
+
+async fn load_session_references(
+    db: &PgPool,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<Vec<ReferenceItemRow>, AppError> {
+    get_owned_design_session(db, user_id, session_id).await?;
+    Ok(sqlx::query_as::<_, ReferenceItemRow>(
+        r#"
+        SELECT id, owner_user_id, session_id, kind, title, content_json, created_at
+        FROM reference_items
+        WHERE owner_user_id = $1 AND session_id = $2
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(user_id)
+    .bind(session_id)
+    .fetch_all(db)
+    .await?)
+}
+
+async fn load_session_jobs(
+    db: &PgPool,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<Vec<DesignJobRow>, AppError> {
+    get_owned_design_session(db, user_id, session_id).await?;
+    Ok(sqlx::query_as::<_, DesignJobRow>(
+        r#"
+        SELECT id, session_id, owner_user_id, status, prompt, title, iterates_on_id,
+               result_run_id, reference_snapshot_json, error, created_at, started_at, completed_at
+        FROM design_jobs
+        WHERE owner_user_id = $1 AND session_id = $2
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(user_id)
+    .bind(session_id)
+    .fetch_all(db)
+    .await?)
+}
+
+fn session_run_sort_key(run: &StormRunSummary) -> DateTime<Utc> {
+    run.created_at
+}
+
+fn render_session_list_html(sessions: &[DesignSessionRow], active_session_id: Uuid) -> String {
+    if sessions.is_empty() {
+        return "<div class=\"session-list-empty\">No sessions yet.</div>".to_string();
+    }
+
+    sessions
+        .iter()
+        .map(|session| {
+            let active_class = if session.id == active_session_id { " is-active" } else { "" };
+            format!(
+                r#"<a class="session-link{active_class}" href="/app?session={id}" data-session-id="{id}">
+  <span class="session-link-title">{title}</span>
+  <span class="session-link-meta">{label}</span>
+</a>"#,
+                id = session.id,
+                title = html_escape(&session.title),
+                label = session.updated_label(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn render_messages_html(
+    messages: &[SessionMessageRow],
+    jobs_by_id: &HashMap<Uuid, DesignJobRow>,
+) -> String {
+    if messages.is_empty() {
+        return "<div class=\"chat-empty\">Start with a brief, a direction, or an iteration request.</div>".to_string();
+    }
+
+    messages
+        .iter()
+        .map(|message| {
+            let role_class = if message.role == "user" {
+                " is-user"
+            } else {
+                " is-assistant"
+            };
+            let mut footer = message.created_label();
+            if let Some(job_id) = message.design_job_id
+                && let Some(job) = jobs_by_id.get(&job_id)
+            {
+                footer = format!("{footer} · {}", html_escape(&job.status));
+            }
+            format!(
+                r#"<article class="chat-message{role_class}">
+  <header class="chat-message-head">
+    <span class="chat-message-role">{role}</span>
+    <span class="chat-message-meta">{footer}</span>
+  </header>
+  <div class="chat-message-body">{body}</div>
+</article>"#,
+                role = if message.role == "user" {
+                    "You"
+                } else {
+                    "Agent"
+                },
+                footer = footer,
+                body = html_escape(&message.body).replace('\n', "<br>"),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn render_reference_list_html(references: &[ReferenceItemRow]) -> String {
+    if references.is_empty() {
+        return "<div class=\"reference-empty\">Add notes, links, or images to build the session context.</div>".to_string();
+    }
+
+    references
+        .iter()
+        .map(|reference| {
+            let handle = format!("ref:{}", reference.id);
+            let detail = match reference.kind.as_str() {
+                "text" => reference
+                    .content_json
+                    .get("body")
+                    .and_then(|value| value.as_str())
+                    .map(|value| truncate_for_log(value, 140))
+                    .unwrap_or_else(|| "Text note".to_string()),
+                "link" => reference
+                    .content_json
+                    .get("url")
+                    .and_then(|value| value.as_str())
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "Link reference".to_string()),
+                "image" => reference
+                    .content_json
+                    .get("url")
+                    .and_then(|value| value.as_str())
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "Image reference".to_string()),
+                _ => "Reference".to_string(),
+            };
+            let preview = if reference.kind == "image" {
+                reference
+                    .content_json
+                    .get("url")
+                    .and_then(|value| value.as_str())
+                    .map(|url| {
+                        format!(
+                            r#"<img class="reference-item-thumb" src="{src}" alt="{alt}" loading="lazy">"#,
+                            src = html_escape(url),
+                            alt = html_escape(&reference.title),
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            format!(
+                r#"<button class="reference-item" type="button" data-reference-handle="{handle}" data-reference-label="{label}" data-reference-kind="{kind}" title="Shift-click to add to the draft">
+  <span class="reference-item-top">
+    <span class="reference-item-kind">{kind}</span>
+    <span class="reference-item-date">{date}</span>
+  </span>
+  {preview}
+  <strong class="reference-item-title">{label}</strong>
+  <span class="reference-item-detail">{detail}</span>
+</button>"#,
+                handle = handle,
+                label = html_escape(&reference.title),
+                kind = html_escape(&reference.kind),
+                date = reference.created_at.format("%b %d").to_string(),
+                detail = html_escape(&detail),
+                preview = preview,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+fn render_gallery_html(
+    runs: &[StormRunSummary],
+    jobs: &[DesignJobRow],
+    title_lookup: &HashMap<Uuid, String>,
+) -> String {
+    let pending_cards = jobs.iter().filter(|job| job.result_run_id.is_none()).map(|job| {
+        let lineage = job
+            .iterates_on_id
+            .and_then(|id| title_lookup.get(&id))
+            .map(|title| format!(r#"<span class="gallery-lineage">Iterates on {}</span>"#, html_escape(title)))
+            .unwrap_or_default();
+        let status_class = if job.status == "failed" { " is-failed" } else { "" };
+        let error = job
+            .error
+            .as_ref()
+            .map(|message| format!(r#"<p class="gallery-job-error">{}</p>"#, html_escape(message)))
+            .unwrap_or_default();
+        format!(
+            r#"<article class="gallery-card gallery-card-job{status_class}" data-job-id="{id}" data-job-status="{status}">
+  <div class="gallery-card-meta">
+    <span class="gallery-card-status">{status}</span>
+    <span class="gallery-card-date">{date}</span>
+  </div>
+  <div class="gallery-card-body">
+    <strong class="gallery-card-title">{title}</strong>
+    {lineage}
+    <p class="gallery-card-summary">{prompt}</p>
+    {error}
+  </div>
+</article>"#,
+            id = job.id,
+            status = html_escape(&job.status),
+            date = job.created_at.format("%H:%M").to_string(),
+            title = html_escape(&job.title),
+            prompt = html_escape(&truncate_for_log(&job.prompt, 180)),
+            lineage = lineage,
+            error = error,
+        )
+    });
+
+    let design_cards = runs.iter().rev().map(|run| {
+        let lineage = run
+            .iterates_on_id
+            .and_then(|id| title_lookup.get(&id))
+            .map(|title| format!(r#"<span class="gallery-lineage">Iterates on {}</span>"#, html_escape(title)))
+            .unwrap_or_default();
+        format!(
+            r#"<article class="gallery-card design-card" data-design-id="{id}" data-design-handle="design:{id}" data-design-label="{title}" tabindex="0" title="Shift-click to add as a reference">
+  <div class="gallery-card-meta">
+    <span class="gallery-card-status">{status}</span>
+    <span class="gallery-card-date">{date}</span>
+  </div>
+  <div class="gallery-card-preview-shell">
+    <iframe class="gallery-card-preview" src="{preview}" title="{title}" loading="lazy" sandbox="allow-scripts allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>
+  </div>
+  <div class="gallery-card-body">
+    <strong class="gallery-card-title">{title}</strong>
+    {lineage}
+    <p class="gallery-card-summary">{summary}</p>
+  </div>
+  <div class="gallery-card-actions">
+    <button class="gallery-action" type="button" data-action="iterate-design" data-design-id="{id}" data-design-label="{title}">Iterate</button>
+    <button class="gallery-action" type="button" data-action="use-design-reference" data-reference-handle="design:{id}" data-reference-label="{title}">Use as reference</button>
+    <a class="gallery-action" href="/storms/{id}/download">Download ZIP</a>
+  </div>
+</article>"#,
+            id = run.id,
+            title = html_escape(&run.title),
+            status = if run.submitted { "Ready" } else { "Draft" },
+            date = run.created_label(),
+            preview = html_escape(&run.preview_url),
+            summary = html_escape(&run.summary),
+            lineage = lineage,
+        )
+    });
+
+    let html = pending_cards
+        .chain(design_cards)
+        .collect::<Vec<_>>()
+        .join("");
+    if html.is_empty() {
+        "<div class=\"gallery-empty\">Pending jobs and finished designs will show up here.</div>"
+            .to_string()
+    } else {
+        html
+    }
+}
+
+async fn build_session_snapshot(
+    state: &AppState,
+    user_id: Uuid,
+    session_id: Uuid,
+) -> Result<SessionPageSnapshot, AppError> {
+    let sessions = list_design_sessions(&state.db, user_id).await?;
+    let active_session = get_owned_design_session(&state.db, user_id, session_id).await?;
+    let messages = load_session_messages(&state.db, user_id, session_id).await?;
+    let references = load_session_references(&state.db, user_id, session_id).await?;
+    let jobs = load_session_jobs(&state.db, user_id, session_id).await?;
+    let all_runs = viewer_run_summaries(state, user_id).await;
+    let mut runs = all_runs
+        .iter()
+        .filter(|run| run.session_id == Some(session_id))
+        .cloned()
+        .collect::<Vec<_>>();
+    runs.sort_by_key(session_run_sort_key);
+
+    let title_lookup = all_runs
+        .iter()
+        .map(|run| (run.id, run.title.clone()))
+        .collect::<HashMap<_, _>>();
+    let jobs_by_id = jobs
+        .iter()
+        .cloned()
+        .map(|job| (job.id, job))
+        .collect::<HashMap<_, _>>();
+    let active_session_updated_label = active_session.updated_label();
+
+    Ok(SessionPageSnapshot {
+        session_list_html: render_session_list_html(&sessions, session_id),
+        messages_html: render_messages_html(&messages, &jobs_by_id),
+        gallery_html: render_gallery_html(&runs, &jobs, &title_lookup),
+        reference_list_html: render_reference_list_html(&references),
+        active_session_title: active_session.title,
+        active_session_updated_label,
+    })
+}
+
+async fn build_session_response(
+    state: &AppState,
+    user_id: Uuid,
+    session_id: Uuid,
+    status: &str,
+) -> Result<SessionMessageResponse, AppError> {
+    let snapshot = build_session_snapshot(state, user_id, session_id).await?;
+    Ok(SessionMessageResponse {
+        session_list_html: snapshot.session_list_html,
+        messages_html: snapshot.messages_html,
+        gallery_html: snapshot.gallery_html,
+        reference_list_html: snapshot.reference_list_html,
+        active_session_title: snapshot.active_session_title,
+        active_session_updated_label: snapshot.active_session_updated_label,
+        status: status.to_string(),
+    })
+}
+
+async fn create_reference_record(
+    db: &PgPool,
+    user_id: Uuid,
+    session_id: Uuid,
+    payload: &CreateReferenceForm,
+) -> Result<(), AppError> {
+    get_owned_design_session(db, user_id, session_id).await?;
+
+    let kind = payload.kind.trim().to_lowercase();
+    let (title, content_json) = match kind.as_str() {
+        "text" => {
+            let body = payload.body.as_deref().unwrap_or("").trim().to_string();
+            if body.is_empty() {
+                return Err(AppError::BadRequest(
+                    "Reference text is required.".to_string(),
+                ));
+            }
+            (
+                normalize_session_title(payload.title.as_deref().or(Some(&body))),
+                json!({ "body": body }),
+            )
+        }
+        "link" => {
+            let url = payload.url.as_deref().unwrap_or("").trim().to_string();
+            if url.is_empty() {
+                return Err(AppError::BadRequest(
+                    "Reference URL is required.".to_string(),
+                ));
+            }
+            (
+                normalize_session_title(payload.title.as_deref().or(Some(&url))),
+                json!({
+                    "url": url,
+                    "body": payload.body.as_deref().unwrap_or("").trim()
+                }),
+            )
+        }
+        _ => {
+            return Err(AppError::BadRequest(
+                "Reference kind must be text or link.".to_string(),
+            ));
+        }
+    };
+
+    sqlx::query(
+        r#"
+        INSERT INTO reference_items (owner_user_id, session_id, kind, title, content_json)
+        VALUES ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(user_id)
+    .bind(session_id)
+    .bind(kind)
+    .bind(title)
+    .bind(content_json)
+    .execute(db)
+    .await?;
+    touch_design_session(db, user_id, session_id).await?;
+    Ok(())
+}
+
+async fn create_image_reference_record(
+    db: &PgPool,
+    user_id: Uuid,
+    session_id: Uuid,
+    asset: &UploadedAsset,
+) -> Result<(), AppError> {
+    get_owned_design_session(db, user_id, session_id).await?;
+    sqlx::query(
+        r#"
+        INSERT INTO reference_items (owner_user_id, session_id, kind, title, content_json)
+        VALUES ($1, $2, 'image', $3, $4)
+        "#,
+    )
+    .bind(user_id)
+    .bind(session_id)
+    .bind(normalize_session_title(Some(&asset.file_name)))
+    .bind(json!({
+        "assetId": asset.id,
+        "url": asset.url,
+        "contentType": asset.content_type,
+        "fileName": asset.file_name,
+    }))
+    .execute(db)
+    .await?;
+    touch_design_session(db, user_id, session_id).await?;
+    Ok(())
+}
+
+fn normalize_reference_handles(handles: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+    for handle in handles {
+        let trimmed = handle.trim();
+        if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+            continue;
+        }
+        normalized.push(trimmed.to_string());
+    }
+    normalized
+}
+
+fn parse_optional_uuid(value: Option<&str>, field: &str) -> Result<Option<Uuid>, AppError> {
+    value
+        .filter(|candidate| !candidate.trim().is_empty())
+        .map(|candidate| {
+            Uuid::parse_str(candidate.trim())
+                .map_err(|_| AppError::BadRequest(format!("Invalid {field}.")))
+        })
+        .transpose()
+}
+
+fn derive_design_title(prompt: &str) -> String {
+    let collapsed = prompt
+        .lines()
+        .flat_map(|line| line.split_whitespace())
+        .take(10)
+        .collect::<Vec<_>>()
+        .join(" ");
+    if collapsed.is_empty() {
+        "Untitled Design".to_string()
+    } else {
+        truncate_for_log(&collapsed, 64)
+    }
+}
+
+async fn insert_session_message(
+    db: &PgPool,
+    session_id: Uuid,
+    role: &str,
+    body: &str,
+    design_job_id: Option<Uuid>,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        INSERT INTO session_messages (session_id, role, body, design_job_id)
+        VALUES ($1, $2, $3, $4)
+        "#,
+    )
+    .bind(session_id)
+    .bind(role)
+    .bind(body)
+    .bind(design_job_id)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+async fn get_owned_reference_item(
+    db: &PgPool,
+    user_id: Uuid,
+    reference_id: Uuid,
+) -> Result<ReferenceItemRow, AppError> {
+    sqlx::query_as::<_, ReferenceItemRow>(
+        r#"
+        SELECT id, owner_user_id, session_id, kind, title, content_json, created_at
+        FROM reference_items
+        WHERE id = $1 AND owner_user_id = $2
+        "#,
+    )
+    .bind(reference_id)
+    .bind(user_id)
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| AppError::BadRequest("Reference not found.".to_string()))
+}
+
+async fn resolve_reference_snapshot(
+    state: &AppState,
+    user_id: Uuid,
+    handles: &[String],
+) -> Result<serde_json::Value, AppError> {
+    let mut items = Vec::new();
+    for handle in handles {
+        if let Some(id) = handle.strip_prefix("design:") {
+            let run_id = Uuid::parse_str(id)
+                .map_err(|_| AppError::BadRequest("Invalid design reference.".to_string()))?;
+            let run = get_owned_run(state, user_id, run_id).await?;
+            items.push(json!({
+                "handle": handle,
+                "kind": "design",
+                "id": run.id,
+                "title": run.title,
+                "prompt": run.prompt,
+                "summary": run.summary,
+                "assistantSummary": run.assistant_summary,
+                "previewUrl": run.preview_url,
+            }));
+            continue;
+        }
+        if let Some(id) = handle.strip_prefix("ref:") {
+            let reference_id = Uuid::parse_str(id)
+                .map_err(|_| AppError::BadRequest("Invalid reference handle.".to_string()))?;
+            let reference = get_owned_reference_item(&state.db, user_id, reference_id).await?;
+            items.push(json!({
+                "handle": handle,
+                "kind": reference.kind,
+                "id": reference.id,
+                "title": reference.title,
+                "content": reference.content_json,
+            }));
+            continue;
+        }
+        return Err(AppError::BadRequest(
+            "Unknown reference handle.".to_string(),
+        ));
+    }
+    Ok(serde_json::Value::Array(items))
+}
+
+fn render_reference_snapshot_for_prompt(snapshot: &serde_json::Value) -> String {
+    let Some(items) = snapshot.as_array() else {
+        return "None".to_string();
+    };
+    if items.is_empty() {
+        return "None".to_string();
+    }
+    items
+        .iter()
+        .map(|item| {
+            let kind = item
+                .get("kind")
+                .and_then(|value| value.as_str())
+                .unwrap_or("reference");
+            let handle = item
+                .get("handle")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let title = item
+                .get("title")
+                .and_then(|value| value.as_str())
+                .unwrap_or("Untitled");
+            match kind {
+                "design" => format!(
+                    "- {handle} [design]\n  title: {title}\n  summary: {}\n  prompt: {}",
+                    item.get("summary")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or(""),
+                    truncate_for_log(
+                        item.get("prompt")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or(""),
+                        240
+                    ),
+                ),
+                "text" => format!(
+                    "- {handle} [text]\n  title: {title}\n  body: {}",
+                    truncate_for_log(
+                        item.get("content")
+                            .and_then(|value| value.get("body"))
+                            .and_then(|value| value.as_str())
+                            .unwrap_or(""),
+                        240,
+                    ),
+                ),
+                "link" => format!(
+                    "- {handle} [link]\n  title: {title}\n  url: {}\n  note: {}",
+                    item.get("content")
+                        .and_then(|value| value.get("url"))
+                        .and_then(|value| value.as_str())
+                        .unwrap_or(""),
+                    truncate_for_log(
+                        item.get("content")
+                            .and_then(|value| value.get("body"))
+                            .and_then(|value| value.as_str())
+                            .unwrap_or(""),
+                        160,
+                    ),
+                ),
+                "image" => format!(
+                    "- {handle} [image]\n  title: {title}\n  asset url: {}",
+                    item.get("content")
+                        .and_then(|value| value.get("url"))
+                        .and_then(|value| value.as_str())
+                        .unwrap_or(""),
+                ),
+                _ => format!("- {handle} [{kind}] {title}"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn build_generation_prompt(
+    user_prompt: &str,
+    reference_snapshot: &serde_json::Value,
+    iterates_on: Option<&StormRunRecord>,
+) -> (String, Vec<Uuid>, Vec<(Uuid, String)>) {
+    let mut sections = vec![user_prompt.trim().to_string()];
+    let mut source_ids = Vec::new();
+    let mut asset_ids = Vec::new();
+    let mut seen_sources = HashSet::new();
+
+    if let Some(parent) = iterates_on {
+        if seen_sources.insert(parent.id) {
+            source_ids.push(parent.id);
+        }
+        sections.push(format!(
+            "Primary iteration target:\n- title: {}\n- prompt: {}\n- summary: {}",
+            parent.title, parent.prompt, parent.summary
+        ));
+    }
+
+    if let Some(items) = reference_snapshot.as_array()
+        && !items.is_empty()
+    {
+        sections.push("Selected references:".to_string());
+        for item in items {
+            let kind = item
+                .get("kind")
+                .and_then(|value| value.as_str())
+                .unwrap_or("reference");
+            match kind {
+                "design" => {
+                    if let Some(id) = item
+                        .get("id")
+                        .and_then(|value| value.as_str())
+                        .and_then(|value| Uuid::parse_str(value).ok())
+                        && seen_sources.insert(id)
+                    {
+                        source_ids.push(id);
+                    }
+                    sections.push(format!(
+                        "- design {}: {}\n  summary: {}\n  prompt: {}",
+                        item.get("title")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("Untitled"),
+                        item.get("handle")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or(""),
+                        item.get("summary")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or(""),
+                        truncate_for_log(
+                            item.get("prompt")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or(""),
+                            240
+                        ),
+                    ));
+                }
+                "text" => {
+                    sections.push(format!(
+                        "- text note {}: {}",
+                        item.get("title")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("Untitled"),
+                        item.get("content")
+                            .and_then(|value| value.get("body"))
+                            .and_then(|value| value.as_str())
+                            .unwrap_or(""),
+                    ));
+                }
+                "link" => {
+                    sections.push(format!(
+                        "- link {}: {}\n  note: {}",
+                        item.get("title")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("Untitled"),
+                        item.get("content")
+                            .and_then(|value| value.get("url"))
+                            .and_then(|value| value.as_str())
+                            .unwrap_or(""),
+                        item.get("content")
+                            .and_then(|value| value.get("body"))
+                            .and_then(|value| value.as_str())
+                            .unwrap_or(""),
+                    ));
+                }
+                "image" => {
+                    let title = item
+                        .get("title")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("Image");
+                    let asset_id = item
+                        .get("content")
+                        .and_then(|value| value.get("assetId"))
+                        .and_then(|value| value.as_str())
+                        .and_then(|value| Uuid::parse_str(value).ok());
+                    if let Some(asset_id) = asset_id {
+                        asset_ids.push((asset_id, title.to_string()));
+                    }
+                    sections.push(format!(
+                        "- image reference {} available in inputs/ when useful",
+                        title,
+                    ));
+                }
+                _ => {}
+            }
+        }
+    }
+
+    (sections.join("\n\n"), source_ids, asset_ids)
 }
 
 async fn upsert_user(
@@ -3174,104 +3351,12 @@ async fn render_provider_panel_html(state: &AppState, viewer: &Viewer) -> Result
     Ok(ProviderPanelTemplate { status: &status }.render()?)
 }
 
-fn render_storm_node_html(run: &StormRunSummary, position_x: f64, position_y: f64) -> String {
-    let e = |s: &str| html_escape(s);
-    let parent_ids_csv = run.parent_ids.iter().map(Uuid::to_string).collect::<Vec<_>>().join(",");
-    let submitted = if run.submitted { "true" } else { "false" };
-    let submitted_class = if run.submitted { " is-submitted" } else { "" };
-    format!(
-        r#"<article id="run-{id}" class="storm-node"
-          data-run-id="{id}" data-run-prompt="{prompt}" data-run-title="{title}"
-          data-run-summary="{summary}" data-run-assistant-summary="{asummary}"
-          data-run-preview-url="{preview}" data-run-created-at="{created}"
-          data-run-submitted="{submitted}" data-run-parent-ids="{parents}"
-          data-position-x="{px}" data-position-y="{py}">
-        <div class="storm-node-shell">
-          <div class="storm-node-meta">
-            <div class="storm-node-meta-left">
-              <span class="meta-dot{submitted_class}"></span>
-              <span class="meta-note">{label}</span>
-            </div>
-            <details class="storm-node-menu" data-node-menu>
-              <summary class="storm-node-menu-trigger" aria-label="Node actions">
-                <span aria-hidden="true">&hellip;</span>
-              </summary>
-              <div class="storm-node-menu-panel">
-                <a class="storm-node-menu-item" href="/storms/{id}/download">Download ZIP</a>
-              </div>
-            </details>
-          </div>
-          <div class="storm-node-preview">
-            <iframe src="{preview}" loading="lazy"
-              sandbox="allow-scripts allow-forms allow-modals"
-              referrerpolicy="no-referrer" tabindex="-1" aria-hidden="true" data-ignore></iframe>
-          </div>
-          <div class="storm-node-copy"><h3>{title_raw}</h3></div>
-        </div>
-        <div class="node-selection-chrome" aria-hidden="true">
-          <div class="node-selection-border"></div>
-          <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="-1"></div>
-          <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="-1"></div>
-          <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="-1"></div>
-          <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="0"></div>
-          <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="0"></div>
-          <div class="node-resize-handle" data-node-resize-handle data-resize-x="-1" data-resize-y="1"></div>
-          <div class="node-resize-handle" data-node-resize-handle data-resize-x="0" data-resize-y="1"></div>
-          <div class="node-resize-handle" data-node-resize-handle data-resize-x="1" data-resize-y="1"></div>
-        </div>
-      </article>"#,
-        id = run.id,
-        prompt = e(&run.prompt),
-        title = e(&run.title),
-        summary = e(&run.summary),
-        asummary = e(&run.assistant_summary),
-        preview = e(&run.preview_url),
-        created = run.created_iso(),
-        submitted = submitted,
-        submitted_class = submitted_class,
-        parents = parent_ids_csv,
-        px = position_x,
-        py = position_y,
-        label = run.created_label(),
-        title_raw = e(&run.title),
-    )
-}
-
-async fn render_storm_board_html(state: &AppState, user_id: Uuid) -> Result<String, AppError> {
-    let runs = viewer_run_summaries(state, user_id).await;
-    let board_nodes = load_board_nodes(state, user_id).await;
-    let edges = load_board_edges(state, user_id).await;
-    let edges_json = serde_json::to_string(&edges).unwrap_or_else(|_| "[]".to_string());
-    Ok(StormBoardTemplate {
-        runs: &runs,
-        board_nodes: &board_nodes,
-        edges_json: &edges_json,
-    }
-    .render()?)
-}
-
-fn render_board_node_html(node: &BoardNodeSummary) -> String {
-    BoardNodeTemplate { node }.render().unwrap_or_default()
-}
-
-async fn patch_edges_event(state: &AppState, user_id: Uuid) -> Event {
-    let edges = load_board_edges(state, user_id).await;
-    let edges_json = serde_json::to_string(&edges).unwrap_or_else(|_| "[]".to_string());
-    let script = format!(
-        r#"<script id="board-edges-data" type="application/json">{}</script>"#,
-        edges_json,
-    );
-    PatchElements::new(script)
-        .selector("#board-edges-data")
-        .mode(ElementPatchMode::Outer)
-        .write_as_axum_sse_event()
-}
-
 async fn viewer_run_summaries(state: &AppState, user_id: Uuid) -> Vec<StormRunSummary> {
     match sqlx::query_as::<_, StormRunRow>(
         r#"
         SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url,
-               submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height
+               submitted, created_at, workspace_dir, parent_ids, session_id, iterates_on_id,
+               position_x, position_y, width, height
         FROM storm_runs
         WHERE owner_user_id = $1
         ORDER BY created_at ASC
@@ -3291,10 +3376,6 @@ async fn viewer_run_summaries(state: &AppState, user_id: Uuid) -> Vec<StormRunSu
             Vec::new()
         }
     }
-}
-
-fn patch_signals(signals: String) -> Event {
-    PatchSignals::new(signals).write_as_axum_sse_event()
 }
 
 fn summarize_tool_args(args: &serde_json::Value) -> String {
@@ -3354,17 +3435,6 @@ fn strip_meta_refresh_tags(html: &str) -> (String, usize) {
     output.push_str(&html[cursor..]);
     (output, removed)
 }
-
-fn datastar_event_stream(
-    stream: Pin<Box<dyn futures_core::Stream<Item = Result<Event, Infallible>> + Send>>,
-) -> impl IntoResponse {
-    Sse::new(stream).keep_alive(
-        KeepAlive::new()
-            .interval(Duration::from_secs(15))
-            .text("keep-alive"),
-    )
-}
-
 async fn provider_status_view(
     state: &AppState,
     user_id: Uuid,
@@ -3477,7 +3547,8 @@ async fn load_provider_for_user(
     .await?;
 
     if let Some(row) = row {
-        let mut stored = decrypt_provider_config(&state.config.session_secret, &row.encrypted_config)?;
+        let mut stored =
+            decrypt_provider_config(&state.config.session_secret, &row.encrypted_config)?;
         info!(
             user_id = %user_id,
             provider_kind = stored.provider.kind().id(),
@@ -3563,7 +3634,7 @@ async fn clear_codex_pending(db: &PgPool, user_id: Uuid) -> Result<(), AppError>
     sqlx::query("DELETE FROM codex_device_auth_sessions WHERE user_id = $1")
         .bind(user_id)
         .execute(db)
-    .await?;
+        .await?;
     Ok(())
 }
 
@@ -3581,11 +3652,14 @@ async fn clear_provider_pending(db: &PgPool, user_id: Uuid) -> Result<(), AppErr
     Ok(())
 }
 
-fn encrypt_provider_config(secret: &str, config: &StoredProviderConfig) -> Result<String, AppError> {
+fn encrypt_provider_config(
+    secret: &str,
+    config: &StoredProviderConfig,
+) -> Result<String, AppError> {
     let plaintext = serde_json::to_vec(config)?;
     let key = derive_cipher_key(secret);
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(&key).map_err(|error| AppError::Internal(error.to_string()))?;
     let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
     let ciphertext = cipher
         .encrypt(&nonce, plaintext.as_ref())
@@ -3595,7 +3669,10 @@ fn encrypt_provider_config(secret: &str, config: &StoredProviderConfig) -> Resul
     Ok(STANDARD.encode(combined))
 }
 
-fn decrypt_provider_config(secret: &str, encrypted: &str) -> Result<StoredProviderConfig, AppError> {
+fn decrypt_provider_config(
+    secret: &str,
+    encrypted: &str,
+) -> Result<StoredProviderConfig, AppError> {
     let bytes = STANDARD
         .decode(encrypted)
         .map_err(|error| AppError::Internal(error.to_string()))?;
@@ -3606,8 +3683,8 @@ fn decrypt_provider_config(secret: &str, encrypted: &str) -> Result<StoredProvid
     }
     let (nonce_bytes, ciphertext) = bytes.split_at(12);
     let key = derive_cipher_key(secret);
-    let cipher = Aes256Gcm::new_from_slice(&key)
-        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let cipher =
+        Aes256Gcm::new_from_slice(&key).map_err(|error| AppError::Internal(error.to_string()))?;
     let plaintext = cipher
         .decrypt(Nonce::from_slice(nonce_bytes), ciphertext)
         .map_err(|error| AppError::Internal(error.to_string()))?;
@@ -3720,14 +3797,12 @@ async fn copy_assets_to_workspace_inputs(
     Ok(results)
 }
 
-async fn get_run(
-    state: &AppState,
-    run_id: Uuid,
-) -> Result<StormRunRecord, AppError> {
+async fn get_run(state: &AppState, run_id: Uuid) -> Result<StormRunRecord, AppError> {
     let run = sqlx::query_as::<_, StormRunRow>(
         r#"
         SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url,
-               submitted, created_at, workspace_dir, parent_ids, position_x, position_y, width, height
+               submitted, created_at, workspace_dir, parent_ids, session_id, iterates_on_id,
+               position_x, position_y, width, height
         FROM storm_runs
         WHERE id = $1
         "#,
@@ -3767,12 +3842,14 @@ async fn store_storm_run(db: &PgPool, record: &StormRunRecord) -> Result<(), App
             created_at,
             workspace_dir,
             parent_ids,
+            session_id,
+            iterates_on_id,
             position_x,
             position_y,
             width,
             height
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         ON CONFLICT (id) DO UPDATE
         SET prompt = EXCLUDED.prompt,
             title = EXCLUDED.title,
@@ -3783,6 +3860,8 @@ async fn store_storm_run(db: &PgPool, record: &StormRunRecord) -> Result<(), App
             created_at = EXCLUDED.created_at,
             workspace_dir = EXCLUDED.workspace_dir,
             parent_ids = EXCLUDED.parent_ids,
+            session_id = EXCLUDED.session_id,
+            iterates_on_id = EXCLUDED.iterates_on_id,
             position_x = EXCLUDED.position_x,
             position_y = EXCLUDED.position_y,
             width = EXCLUDED.width,
@@ -3800,6 +3879,8 @@ async fn store_storm_run(db: &PgPool, record: &StormRunRecord) -> Result<(), App
     .bind(record.created_at)
     .bind(record.workspace_dir.to_string_lossy().to_string())
     .bind(&record.parent_ids)
+    .bind(record.session_id)
+    .bind(record.iterates_on_id)
     .bind(record.position_x)
     .bind(record.position_y)
     .bind(record.width)
@@ -3808,6 +3889,571 @@ async fn store_storm_run(db: &PgPool, record: &StormRunRecord) -> Result<(), App
     .await?;
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct StudioMakeDesignCall {
+    prompt: String,
+    reference_handles: Vec<String>,
+    iterates_on_id: Option<Uuid>,
+    title: Option<String>,
+}
+
+struct SessionToolProvider {
+    session_id: Uuid,
+    allowed_reference_handles: Vec<String>,
+    default_iterates_on_id: Option<Uuid>,
+    pending_call: Arc<Mutex<Option<StudioMakeDesignCall>>>,
+}
+
+impl SessionToolProvider {
+    fn new(
+        session_id: Uuid,
+        allowed_reference_handles: Vec<String>,
+        default_iterates_on_id: Option<Uuid>,
+        pending_call: Arc<Mutex<Option<StudioMakeDesignCall>>>,
+    ) -> Self {
+        Self {
+            session_id,
+            allowed_reference_handles,
+            default_iterates_on_id,
+            pending_call,
+        }
+    }
+
+    async fn make_design(&self, args: &serde_json::Value) -> ToolResult {
+        let Some(prompt) = args
+            .get("prompt")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return ToolResult::err_fmt("Missing required parameter: prompt");
+        };
+
+        let title = args
+            .get("title")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToString::to_string);
+
+        let mut reference_handles = args
+            .get("reference_ids")
+            .and_then(|value| value.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| self.allowed_reference_handles.clone());
+        reference_handles = normalize_reference_handles(reference_handles);
+
+        for handle in &reference_handles {
+            if !self
+                .allowed_reference_handles
+                .iter()
+                .any(|allowed| allowed == handle)
+            {
+                return ToolResult::err_fmt(format_args!(
+                    "Unknown reference handle: {handle}. Use only handles from the selected references."
+                ));
+            }
+        }
+
+        let iterates_on_id = match args.get("iterates_on_id").and_then(|value| value.as_str()) {
+            Some(value) if !value.trim().is_empty() => match Uuid::parse_str(value.trim()) {
+                Ok(parsed) => Some(parsed),
+                Err(_) => return ToolResult::err_fmt("iterates_on_id must be a UUID string"),
+            },
+            _ => self.default_iterates_on_id,
+        };
+
+        let mut pending = self.pending_call.lock().await;
+        if pending.is_some() {
+            return ToolResult::err_fmt("make_design can only be called once per turn");
+        }
+        *pending = Some(StudioMakeDesignCall {
+            prompt: prompt.to_string(),
+            reference_handles,
+            iterates_on_id,
+            title: title.clone(),
+        });
+
+        ToolResult::ok(json!({
+            "queued": true,
+            "sessionId": self.session_id,
+            "title": title.unwrap_or_else(|| derive_design_title(prompt)),
+            "iteratesOnId": iterates_on_id,
+        }))
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolProvider for SessionToolProvider {
+    fn definitions(&self) -> Vec<ToolDefinition> {
+        vec![ToolDefinition {
+            name: "make_design".into(),
+            description: vec![lash_core::ToolText::new(
+                "Queue one asynchronous design generation job for this session. Use it when the user wants new designs, refinements, branches, or iterations. Pass only reference_ids from the selected handles listed in the prompt.",
+                [lash_core::ExecutionMode::NativeTools],
+            )],
+            params: vec![
+                ToolParam::typed("prompt", "str"),
+                ToolParam::optional("reference_ids", "list[str]"),
+                ToolParam::optional("iterates_on_id", "str"),
+                ToolParam::optional("title", "str"),
+            ],
+            returns: "dict".into(),
+            examples: vec![],
+            hidden: false,
+            inject_into_prompt: true,
+        }]
+    }
+
+    async fn execute(&self, name: &str, args: &serde_json::Value) -> ToolResult {
+        info!(
+            session_id = %self.session_id,
+            tool = name,
+            args = %summarize_tool_args(args),
+            "session tool call started"
+        );
+        let started = Instant::now();
+        let result = match name {
+            "make_design" => self.make_design(args).await,
+            _ => ToolResult::err_fmt(format_args!("Unknown tool: {name}")),
+        };
+        info!(
+            session_id = %self.session_id,
+            tool = name,
+            elapsed_ms = started.elapsed().as_millis(),
+            success = result.success,
+            result = %truncate_for_log(&result.result.to_string(), 320),
+            "session tool call finished"
+        );
+        result
+    }
+}
+
+fn session_prompt_overrides() -> Vec<PromptSectionOverride> {
+    vec![
+        PromptSectionOverride {
+            section: PromptSectionName::Identity,
+            mode: PromptOverrideMode::Replace,
+            content: "You are Design Storm Director, a chat-forward design agent that helps steer a session and can queue async design jobs.".to_string(),
+        },
+        PromptSectionOverride {
+            section: PromptSectionName::Personality,
+            mode: PromptOverrideMode::Replace,
+            content: "Be direct, visually literate, and concise. Prefer concrete design language over generic product phrasing.".to_string(),
+        },
+        PromptSectionOverride {
+            section: PromptSectionName::ExecutionContract,
+            mode: PromptOverrideMode::Replace,
+            content: "Either answer conversationally or call make_design exactly once when the user is asking for designs to be made, refined, branched, or iterated. Keep the final reply short.".to_string(),
+        },
+        PromptSectionOverride {
+            section: PromptSectionName::ToolAccess,
+            mode: PromptOverrideMode::Replace,
+            content: "The only custom tool is make_design. There is no shell, filesystem, or hidden workspace. Never invent reference handles or use more than one make_design call.".to_string(),
+        },
+        PromptSectionOverride {
+            section: PromptSectionName::Guidelines,
+            mode: PromptOverrideMode::Replace,
+            content: "Use the selected references when they matter. If the user is still discussing intent, respond without calling tools. If the user wants output now, queue a job.".to_string(),
+        },
+        PromptSectionOverride {
+            section: PromptSectionName::Memory,
+            mode: PromptOverrideMode::Disable,
+            content: String::new(),
+        },
+        PromptSectionOverride {
+            section: PromptSectionName::MemoryApi,
+            mode: PromptOverrideMode::Disable,
+            content: String::new(),
+        },
+        PromptSectionOverride {
+            section: PromptSectionName::Builtins,
+            mode: PromptOverrideMode::Disable,
+            content: String::new(),
+        },
+    ]
+}
+
+fn compose_session_agent_prompt(
+    messages: &[SessionMessageRow],
+    reference_snapshot: &serde_json::Value,
+    iterates_on: Option<&StormRunRecord>,
+) -> String {
+    let transcript = messages
+        .iter()
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|message| {
+            format!(
+                "{}: {}",
+                if message.role == "user" {
+                    "User"
+                } else {
+                    "Assistant"
+                },
+                message.body
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    let references = render_reference_snapshot_for_prompt(reference_snapshot);
+    let iterates_on_text = iterates_on
+        .map(|run| {
+            format!(
+                "Default iteration target:\n- id: {}\n- title: {}\n- summary: {}\n- prompt: {}",
+                run.id,
+                run.title,
+                run.summary,
+                truncate_for_log(&run.prompt, 240)
+            )
+        })
+        .unwrap_or_else(|| "Default iteration target: none".to_string());
+
+    format!(
+        "You are replying inside a single design session.\n\nRules:\n- If the user wants new output, variations, a branch, or a refinement, call make_design exactly once.\n- If the user is only discussing direction or asking a question, reply without calling tools.\n- Keep the final assistant reply to one or two sentences.\n\nSelected reference handles and details:\n{references}\n\n{iterates_on_text}\n\nRecent conversation:\n{transcript}"
+    )
+}
+
+async fn run_session_agent(
+    state: &AppState,
+    viewer: &Viewer,
+    session_id: Uuid,
+    messages: &[SessionMessageRow],
+    selected_reference_handles: Vec<String>,
+    reference_snapshot: &serde_json::Value,
+    iterates_on: Option<&StormRunRecord>,
+) -> Result<(lash_core::AssembledTurn, Option<StudioMakeDesignCall>), AppError> {
+    let loaded_provider = load_provider_for_user(state, viewer.id).await?;
+    let Some(loaded_provider) = loaded_provider else {
+        return Err(AppError::BadRequest(
+            "Connect Codex in settings before chatting with the design agent.".to_string(),
+        ));
+    };
+
+    let pending_call = Arc::new(Mutex::new(None));
+    let provider = SessionToolProvider::new(
+        session_id,
+        selected_reference_handles,
+        iterates_on.map(|run| run.id),
+        pending_call.clone(),
+    );
+    let tools = Arc::new(ToolSet::new() + provider);
+    let config = RuntimeConfig {
+        capabilities: build_runtime_capabilities(false),
+        model: loaded_provider
+            .provider
+            .default_agent_model("high")
+            .map(|(model, _)| model.to_string())
+            .unwrap_or_else(|| {
+                state
+                    .config
+                    .storm_model
+                    .clone()
+                    .unwrap_or_else(|| loaded_provider.provider.default_model().to_string())
+            }),
+        provider: loaded_provider.provider,
+        execution_mode: lash_core::ExecutionMode::NativeTools,
+        host_profile: HostProfile::Embedded,
+        headless: true,
+        session_id: Some(format!("studio-{}", Uuid::new_v4())),
+        prompt_overrides: session_prompt_overrides(),
+        ..RuntimeConfig::default()
+    };
+    let mut engine = LashRuntime::from_state(config, tools, AgentStateEnvelope::default())
+        .await
+        .map_err(|error| AppError::Internal(error.to_string()))?;
+    let input = TurnInput {
+        items: vec![InputItem::Text {
+            text: compose_session_agent_prompt(messages, reference_snapshot, iterates_on),
+        }],
+        image_blobs: HashMap::new(),
+        mode: None,
+        plan_file: None,
+    };
+    let turn = engine.run_turn_assembled(input, CancellationToken::new());
+    tokio::pin!(turn);
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let result = loop {
+        tokio::select! {
+            result = &mut turn => {
+                break result.map_err(|error| AppError::Internal(error.to_string()))?;
+            }
+            _ = heartbeat.tick() => {
+                info!(session_id = %session_id, user_id = %viewer.id, "session agent still running");
+            }
+        }
+    };
+    let call = pending_call.lock().await.clone();
+    Ok((result, call))
+}
+
+async fn create_design_job_record(
+    db: &PgPool,
+    user_id: Uuid,
+    session_id: Uuid,
+    call: &StudioMakeDesignCall,
+    reference_snapshot_json: serde_json::Value,
+) -> Result<DesignJobRow, AppError> {
+    let title = call
+        .title
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| derive_design_title(&call.prompt));
+    let row = sqlx::query_as::<_, DesignJobRow>(
+        r#"
+        INSERT INTO design_jobs (
+            session_id,
+            owner_user_id,
+            status,
+            prompt,
+            title,
+            iterates_on_id,
+            reference_snapshot_json
+        )
+        VALUES ($1, $2, 'pending', $3, $4, $5, $6)
+        RETURNING id, session_id, owner_user_id, status, prompt, title, iterates_on_id,
+                  result_run_id, reference_snapshot_json, error, created_at, started_at, completed_at
+        "#,
+    )
+    .bind(session_id)
+    .bind(user_id)
+    .bind(&call.prompt)
+    .bind(title)
+    .bind(call.iterates_on_id)
+    .bind(reference_snapshot_json)
+    .fetch_one(db)
+    .await?;
+    touch_design_session(db, user_id, session_id).await?;
+    Ok(row)
+}
+
+async fn load_design_job_record(
+    db: &PgPool,
+    user_id: Uuid,
+    job_id: Uuid,
+) -> Result<Option<DesignJobRow>, AppError> {
+    Ok(sqlx::query_as::<_, DesignJobRow>(
+        r#"
+        SELECT id, session_id, owner_user_id, status, prompt, title, iterates_on_id,
+               result_run_id, reference_snapshot_json, error, created_at, started_at, completed_at
+        FROM design_jobs
+        WHERE id = $1 AND owner_user_id = $2
+        "#,
+    )
+    .bind(job_id)
+    .bind(user_id)
+    .fetch_optional(db)
+    .await?)
+}
+
+fn spawn_design_job_runner(state: AppState, viewer: Viewer, job_id: Uuid) {
+    tokio::spawn(async move {
+        if let Err(error) = run_design_job(state.clone(), viewer.clone(), job_id).await {
+            error!(user_id = %viewer.id, job_id = %job_id, error = %error, "design job worker failed");
+            let _ = sqlx::query(
+                r#"
+                UPDATE design_jobs
+                SET status = 'failed',
+                    error = COALESCE(error, $2),
+                    completed_at = now()
+                WHERE id = $1 AND owner_user_id = $3
+                "#,
+            )
+            .bind(job_id)
+            .bind(error.to_string())
+            .bind(viewer.id)
+            .execute(&state.db)
+            .await;
+        }
+    });
+}
+
+async fn run_design_job(state: AppState, viewer: Viewer, job_id: Uuid) -> Result<(), AppError> {
+    let Some(job) = load_design_job_record(&state.db, viewer.id, job_id).await? else {
+        return Ok(());
+    };
+    if job.status == "completed" {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE design_jobs
+        SET status = 'running',
+            started_at = COALESCE(started_at, now()),
+            error = NULL
+        WHERE id = $1 AND owner_user_id = $2
+        "#,
+    )
+    .bind(job_id)
+    .bind(viewer.id)
+    .execute(&state.db)
+    .await?;
+    touch_design_session(&state.db, viewer.id, job.session_id).await?;
+
+    let iterates_on = match job.iterates_on_id {
+        Some(run_id) => get_owned_run(&state, viewer.id, run_id).await.ok(),
+        None => None,
+    };
+    let (prompt, source_ids, asset_ids) = build_generation_prompt(
+        &job.prompt,
+        &job.reference_snapshot_json,
+        iterates_on.as_ref(),
+    );
+    let generation_input = StormGenerationInput {
+        prompt,
+        draft_mode: None,
+        source_ids,
+        asset_ids,
+        session_id: Some(job.session_id),
+        iterates_on_id: job.iterates_on_id,
+        fallback_title: Some(job.title.clone()),
+    };
+
+    match generate_storm_internal(&state, &viewer, generation_input).await {
+        Ok(response) => {
+            sqlx::query(
+                r#"
+                UPDATE design_jobs
+                SET status = 'completed',
+                    result_run_id = $2,
+                    error = NULL,
+                    completed_at = now()
+                WHERE id = $1 AND owner_user_id = $3
+                "#,
+            )
+            .bind(job_id)
+            .bind(response.run.id)
+            .bind(viewer.id)
+            .execute(&state.db)
+            .await?;
+            touch_design_session(&state.db, viewer.id, job.session_id).await?;
+            Ok(())
+        }
+        Err(error) => {
+            sqlx::query(
+                r#"
+                UPDATE design_jobs
+                SET status = 'failed',
+                    error = $2,
+                    completed_at = now()
+                WHERE id = $1 AND owner_user_id = $3
+                "#,
+            )
+            .bind(job_id)
+            .bind(error.to_string())
+            .bind(viewer.id)
+            .execute(&state.db)
+            .await?;
+            touch_design_session(&state.db, viewer.id, job.session_id).await?;
+            Ok(())
+        }
+    }
+}
+
+async fn handle_session_message(
+    state: &AppState,
+    viewer: &Viewer,
+    session_id: Uuid,
+    payload: SessionMessageRequest,
+) -> Result<String, AppError> {
+    let session = get_owned_design_session(&state.db, viewer.id, session_id).await?;
+    let has_provider = load_provider_for_user(state, viewer.id).await?.is_some();
+    if !has_provider {
+        return Err(AppError::BadRequest(
+            "Connect Codex in settings before chatting with the design agent.".to_string(),
+        ));
+    }
+    let body = payload.body.trim().to_string();
+    if body.is_empty() {
+        return Err(AppError::BadRequest(
+            "Message body is required.".to_string(),
+        ));
+    }
+
+    let selected_reference_handles = normalize_reference_handles(payload.reference_ids);
+    let default_iterates_on_id =
+        parse_optional_uuid(payload.iterates_on_id.as_deref(), "iterates_on_id")?;
+    let iterates_on = match default_iterates_on_id {
+        Some(run_id) => Some(get_owned_run(state, viewer.id, run_id).await?),
+        None => None,
+    };
+    let reference_snapshot =
+        resolve_reference_snapshot(state, viewer.id, &selected_reference_handles).await?;
+
+    insert_session_message(&state.db, session_id, "user", &body, None).await?;
+    if session.title == "Untitled Session" {
+        update_design_session_title(
+            &state.db,
+            viewer.id,
+            session_id,
+            &derive_design_title(&body),
+        )
+        .await?;
+    } else {
+        touch_design_session(&state.db, viewer.id, session_id).await?;
+    }
+
+    let messages = load_session_messages(&state.db, viewer.id, session_id).await?;
+    let (turn, queued_call) = run_session_agent(
+        state,
+        viewer,
+        session_id,
+        &messages,
+        selected_reference_handles.clone(),
+        &reference_snapshot,
+        iterates_on.as_ref(),
+    )
+    .await?;
+
+    let assistant_body = turn.assistant_output.safe_text.trim().to_string();
+    let queued_job = if let Some(call) = queued_call {
+        let resolved_snapshot =
+            resolve_reference_snapshot(state, viewer.id, &call.reference_handles).await?;
+        let job =
+            create_design_job_record(&state.db, viewer.id, session_id, &call, resolved_snapshot)
+                .await?;
+        spawn_design_job_runner(state.clone(), viewer.clone(), job.id);
+        Some(job)
+    } else {
+        None
+    };
+
+    let assistant_message = if assistant_body.is_empty() {
+        if let Some(job) = queued_job.as_ref() {
+            format!("Queued \"{}\".", job.title)
+        } else {
+            "Captured. Tell me when you want me to make designs from it.".to_string()
+        }
+    } else {
+        assistant_body
+    };
+    insert_session_message(
+        &state.db,
+        session_id,
+        "assistant",
+        &assistant_message,
+        queued_job.as_ref().map(|job| job.id),
+    )
+    .await?;
+    touch_design_session(&state.db, viewer.id, session_id).await?;
+
+    Ok(queued_job
+        .as_ref()
+        .map(|job| format!("Queued {}.", job.title))
+        .unwrap_or_else(|| truncate_for_log(&assistant_message, 120)))
 }
 
 fn build_runtime_capabilities(with_web: bool) -> AgentCapabilities {
@@ -4050,7 +4696,13 @@ fn artifact_archive_key(user_id: Uuid, run_id: Uuid) -> String {
 fn sanitize_download_name(title: &str, run_id: Uuid) -> String {
     let mut base = title
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect::<String>();
     while base.contains("--") {
         base = base.replace("--", "-");
@@ -4087,7 +4739,9 @@ async fn persist_workspace_archive(
         .body(ByteStream::from(archive_bytes))
         .send()
         .await
-        .map_err(|error| AppError::Internal(format!("Failed to upload artifact archive: {error}")))?;
+        .map_err(|error| {
+            AppError::Internal(format!("Failed to upload artifact archive: {error}"))
+        })?;
 
     Ok(())
 }
@@ -4138,7 +4792,11 @@ async fn load_persisted_workspace_archive(
         .body
         .collect()
         .await
-        .map_err(|error| AppError::Internal(format!("Failed to read persisted artifact archive: {error}")))?
+        .map_err(|error| {
+            AppError::Internal(format!(
+                "Failed to read persisted artifact archive: {error}"
+            ))
+        })?
         .into_bytes()
         .to_vec();
     Ok(Some(bytes))
@@ -4178,7 +4836,10 @@ fn zip_workspace_dir(workspace_dir: &StdPath) -> Result<Vec<u8>, AppError> {
     Ok(cursor.into_inner())
 }
 
-fn extract_zip_entry(archive_bytes: &[u8], logical_path: &str) -> Result<Option<Vec<u8>>, AppError> {
+fn extract_zip_entry(
+    archive_bytes: &[u8],
+    logical_path: &str,
+) -> Result<Option<Vec<u8>>, AppError> {
     let cursor = Cursor::new(archive_bytes.to_vec());
     let mut archive =
         ZipArchive::new(cursor).map_err(|error| AppError::Internal(error.to_string()))?;
@@ -4217,846 +4878,4 @@ fn html_escape(input: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
-}
-
-// ─── Board nodes & edges: data loaders ───
-
-async fn load_board_nodes(state: &AppState, user_id: Uuid) -> Vec<BoardNodeSummary> {
-    match sqlx::query_as::<_, BoardNodeRow>(
-        r#"
-        SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height
-        FROM board_nodes
-        WHERE owner_user_id = $1
-        ORDER BY created_at ASC
-        "#,
-    )
-    .bind(user_id)
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(rows) => rows.into_iter().map(BoardNodeSummary::from).collect(),
-        Err(error) => {
-            error!(user_id = %user_id, error = %error, "failed to load board nodes");
-            Vec::new()
-        }
-    }
-}
-
-async fn load_board_edges(state: &AppState, user_id: Uuid) -> Vec<BoardEdgeSummary> {
-    match sqlx::query_as::<_, BoardEdgeRow>(
-        r#"
-        SELECT id, owner_user_id, source_id, source_type, target_id, target_type,
-               source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-               source_slot, target_slot
-        FROM board_edges
-        WHERE owner_user_id = $1
-        ORDER BY created_at ASC
-        "#,
-    )
-    .bind(user_id)
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(rows) => rows.into_iter().map(BoardEdgeSummary::from).collect(),
-        Err(error) => {
-            error!(user_id = %user_id, error = %error, "failed to load board edges");
-            Vec::new()
-        }
-    }
-}
-
-// ─── Wikipedia random page ───
-
-// ─── OKLCH color harmony computation ───
-
-fn hex_to_oklch(hex: &str) -> (f64, f64, f64) {
-    let hex = hex.trim_start_matches('#');
-    let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0) as f64 / 255.0;
-    let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0) as f64 / 255.0;
-    let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0) as f64 / 255.0;
-    // sRGB to linear
-    let to_linear = |c: f64| if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) };
-    let lr = to_linear(r);
-    let lg = to_linear(g);
-    let lb = to_linear(b);
-    // Linear sRGB to LMS (via OKLab M1)
-    let l = 0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb;
-    let m = 0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb;
-    let s = 0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb;
-    // Cube root
-    let l_ = l.cbrt();
-    let m_ = m.cbrt();
-    let s_ = s.cbrt();
-    // LMS to OKLab (M2)
-    let ok_l = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_;
-    let ok_a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_;
-    let ok_b = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_;
-    // OKLab to OKLCH
-    let c = (ok_a * ok_a + ok_b * ok_b).sqrt();
-    let h = ok_b.atan2(ok_a).to_degrees();
-    let h = if h < 0.0 { h + 360.0 } else { h };
-    (ok_l, c, h)
-}
-
-fn oklch_to_hex(l: f64, c: f64, h: f64) -> String {
-    let h_rad = h.to_radians();
-    let ok_a = c * h_rad.cos();
-    let ok_b = c * h_rad.sin();
-    // OKLab to LMS (M2 inverse)
-    let l_ = l + 0.3963377774 * ok_a + 0.2158037573 * ok_b;
-    let m_ = l - 0.1055613458 * ok_a - 0.0638541728 * ok_b;
-    let s_ = l - 0.0894841775 * ok_a - 1.2914855480 * ok_b;
-    let lms_l = l_ * l_ * l_;
-    let lms_m = m_ * m_ * m_;
-    let lms_s = s_ * s_ * s_;
-    // LMS to linear sRGB (M1 inverse)
-    let lr =  4.0767416621 * lms_l - 3.3077115913 * lms_m + 0.2309699292 * lms_s;
-    let lg = -1.2684380046 * lms_l + 2.6097574011 * lms_m - 0.3413193965 * lms_s;
-    let lb = -0.0041960863 * lms_l - 0.7034186147 * lms_m + 1.7076147010 * lms_s;
-    // Linear to sRGB
-    let from_linear = |c: f64| {
-        let c = c.clamp(0.0, 1.0);
-        if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
-    };
-    let r = (from_linear(lr) * 255.0).round() as u8;
-    let g = (from_linear(lg) * 255.0).round() as u8;
-    let b = (from_linear(lb) * 255.0).round() as u8;
-    format!("#{:02x}{:02x}{:02x}", r, g, b)
-}
-
-fn compute_harmony_colors(base_hex: &str, mode: &str) -> Vec<String> {
-    let (l, c, h) = hex_to_oklch(base_hex);
-    let wrap = |angle: f64| ((angle % 360.0) + 360.0) % 360.0;
-    match mode {
-        "complementary" => vec![
-            base_hex.to_string(),
-            oklch_to_hex(l, c, wrap(h + 180.0)),
-        ],
-        "analogous" => vec![
-            oklch_to_hex(l, c, wrap(h - 30.0)),
-            base_hex.to_string(),
-            oklch_to_hex(l, c, wrap(h + 30.0)),
-        ],
-        "triadic" => vec![
-            base_hex.to_string(),
-            oklch_to_hex(l, c, wrap(h + 120.0)),
-            oklch_to_hex(l, c, wrap(h + 240.0)),
-        ],
-        "split_complementary" => vec![
-            base_hex.to_string(),
-            oklch_to_hex(l, c, wrap(h + 150.0)),
-            oklch_to_hex(l, c, wrap(h + 210.0)),
-        ],
-        "tetradic" => vec![
-            base_hex.to_string(),
-            oklch_to_hex(l, c, wrap(h + 90.0)),
-            oklch_to_hex(l, c, wrap(h + 180.0)),
-            oklch_to_hex(l, c, wrap(h + 270.0)),
-        ],
-        _ => vec![base_hex.to_string()],
-    }
-}
-
-async fn fetch_wikipedia_random(http: &Client) -> Result<serde_json::Value, AppError> {
-    // Follow the random redirect to get the resolved page URL and title
-    let resp = http
-        .get("https://en.wikipedia.org/wiki/Special:Random")
-        .header("User-Agent", "DesignStorm/1.0 (contact@designstorm.app)")
-        .send()
-        .await?;
-    let url = resp.url().to_string();
-    let title = url
-        .rsplit_once("/wiki/")
-        .map(|(_, slug)| {
-            // Decode percent-encoded UTF-8 in the slug
-            let bytes: Vec<u8> = slug.as_bytes().iter().copied().collect();
-            let mut decoded = Vec::with_capacity(bytes.len());
-            let mut i = 0;
-            while i < bytes.len() {
-                if bytes[i] == b'%' && i + 2 < bytes.len() {
-                    if let (Some(hi), Some(lo)) = (
-                        char::from(bytes[i + 1]).to_digit(16),
-                        char::from(bytes[i + 2]).to_digit(16),
-                    ) {
-                        decoded.push((hi * 16 + lo) as u8);
-                        i += 3;
-                        continue;
-                    }
-                }
-                decoded.push(bytes[i]);
-                i += 1;
-            }
-            String::from_utf8(decoded)
-                .unwrap_or_else(|_| slug.to_string())
-                .replace('_', " ")
-        })
-        .unwrap_or_else(|| "Random page".to_string());
-    Ok(json!({
-        "title": title,
-        "url": url,
-    }))
-}
-
-// ─── Board node route handlers ───
-
-fn valid_board_node_type(node_type: &str) -> bool {
-    matches!(
-        node_type,
-        "entropy"
-            | "user_input"
-            | "generate"
-            | "color"
-            | "color_palette"
-            | "color_harmony"
-            | "pick_k"
-            | "set"
-            | "image"
-            | "draw"
-            | "int_value"
-            | "float_value"
-            | "string_value"
-            | "bool_value"
-            | "font"
-            | "conditional"
-    )
-}
-
-struct SlotDef {
-    name: &'static str,
-    direction: &'static str,
-    value_type: &'static str,
-}
-
-fn node_slots(node_type: &str) -> &'static [SlotDef] {
-    match node_type {
-        "entropy" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref" }],
-        "user_input" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref" }],
-        "design" => &[
-            SlotDef { name: "generated_by", direction: "in", value_type: "node_ref" },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
-        ],
-        "generate" => &[
-            SlotDef { name: "sources", direction: "in", value_type: "node_ref" },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
-        ],
-        "color" => &[
-            SlotDef { name: "hue", direction: "in", value_type: "float" },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
-        ],
-        "color_palette" => &[
-            SlotDef { name: "members", direction: "in", value_type: "node_ref" },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
-        ],
-        "image" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref" }],
-        "draw" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref" }],
-        "set" => &[
-            SlotDef { name: "members", direction: "in", value_type: "node_ref" },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
-        ],
-        "pick_k" => &[
-            SlotDef { name: "sources", direction: "in", value_type: "node_ref" },
-            SlotDef { name: "k", direction: "in", value_type: "int" },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
-        ],
-        "int_value" => &[SlotDef { name: "value", direction: "out", value_type: "int" }],
-        "float_value" => &[SlotDef { name: "value", direction: "out", value_type: "float" }],
-        "string_value" => &[SlotDef { name: "value", direction: "out", value_type: "string" }],
-        "bool_value" => &[SlotDef { name: "value", direction: "out", value_type: "bool" }],
-        "font" => &[
-            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
-        ],
-        "color_harmony" => &[
-            SlotDef { name: "source", direction: "in", value_type: "node_ref" },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
-        ],
-        "conditional" => &[
-            SlotDef { name: "condition", direction: "in", value_type: "bool" },
-            SlotDef { name: "if_true", direction: "in", value_type: "node_ref" },
-            SlotDef { name: "if_false", direction: "in", value_type: "node_ref" },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
-        ],
-        _ => &[],
-    }
-}
-
-fn slot_lane_t(index: usize, count: usize) -> f64 {
-    if count <= 1 {
-        0.5
-    } else {
-        (index + 1) as f64 / (count + 1) as f64
-    }
-}
-
-fn slot_anchor(node_type: &str, slot_name: &str) -> Option<(&'static str, f64)> {
-    let slots = node_slots(node_type);
-    let slot = slots.iter().find(|candidate| candidate.name == slot_name)?;
-    let lane_slots: Vec<&SlotDef> = slots
-        .iter()
-        .filter(|candidate| candidate.direction == slot.direction)
-        .collect();
-    let lane_index = lane_slots.iter().position(|candidate| candidate.name == slot_name)?;
-    let side = if slot.direction == "in" { "left" } else { "right" };
-    Some((side, slot_lane_t(lane_index, lane_slots.len())))
-}
-
-fn valid_slot_connection(
-    source_type: &str, source_slot: &str,
-    target_type: &str, target_slot: &str,
-) -> bool {
-    let src_slots = node_slots(source_type);
-    let tgt_slots = node_slots(target_type);
-    let src = src_slots.iter().find(|s| s.name == source_slot && s.direction == "out");
-    let tgt = tgt_slots.iter().find(|s| s.name == target_slot && s.direction == "in");
-    match (src, tgt) {
-        (Some(s), Some(t)) => {
-            s.value_type == t.value_type
-                || s.value_type == "any"
-                || t.value_type == "any"
-        }
-        _ => false,
-    }
-}
-
-fn valid_board_connection(source_type: &str, target_type: &str) -> bool {
-    // Check if there's any valid slot connection between these types
-    let src_slots = node_slots(source_type);
-    let tgt_slots = node_slots(target_type);
-    for s in src_slots {
-        if s.direction != "out" { continue; }
-        for t in tgt_slots {
-            if t.direction != "in" { continue; }
-            if s.value_type == t.value_type || s.value_type == "any" || t.value_type == "any" {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-fn default_slots_for_connection(source_type: &str, target_type: &str) -> (&'static str, &'static str) {
-    let src_slots = node_slots(source_type);
-    let tgt_slots = node_slots(target_type);
-    for s in src_slots {
-        if s.direction != "out" { continue; }
-        for t in tgt_slots {
-            if t.direction != "in" { continue; }
-            if s.value_type == t.value_type || s.value_type == "any" || t.value_type == "any" {
-                return (s.name, t.name);
-            }
-        }
-    }
-    ("out", "sources")
-}
-
-async fn default_board_node_content(
-    state: &AppState,
-    node_type: &str,
-) -> Result<serde_json::Value, AppError> {
-    match node_type {
-        "entropy" => fetch_wikipedia_random(&state.http).await,
-        "color" => Ok(json!({"value": "#5b9cb8"})),
-        "color_palette" => Ok(json!({"colors": []})),
-        "pick_k" => Ok(json!({"k": 1, "replace": false})),
-        "set" => Ok(json!({"title": "Set", "description": ""})),
-        "image" => Ok(json!({"url": "", "alt": ""})),
-        "draw" => Ok(json!({"url": "", "alt": "drawing"})),
-        "int_value" => Ok(json!({"value": 0, "min": 0, "max": 100, "random": false})),
-        "float_value" => Ok(json!({"value": 0.0, "min": 0.0, "max": 1.0, "step": 0.01, "random": false})),
-        "string_value" => Ok(json!({"value": ""})),
-        "bool_value" => Ok(json!({"value": false})),
-        "font" => Ok(json!({"family": "", "weight": "400", "size": "16", "lineHeight": "1.5"})),
-        "color_harmony" => Ok(json!({"mode": "complementary"})),
-        "conditional" => Ok(json!({"label": "If / Else"})),
-        _ => Ok(json!({})),
-    }
-}
-
-async fn insert_board_node(
-    state: &AppState,
-    user_id: Uuid,
-    node_type: &str,
-    position_x: f64,
-    position_y: f64,
-) -> Result<BoardNodeRow, AppError> {
-    insert_board_node_with_preset(state, user_id, node_type, position_x, position_y, None).await
-}
-
-async fn insert_board_node_with_preset(
-    state: &AppState,
-    user_id: Uuid,
-    node_type: &str,
-    position_x: f64,
-    position_y: f64,
-    preset_id: Option<&str>,
-) -> Result<BoardNodeRow, AppError> {
-    let content = if let Some(pid) = preset_id {
-        if let Some(preset) = find_preset(pid) {
-            let value = random_preset_value(preset);
-            json!({"value": value, "preset": pid})
-        } else {
-            default_board_node_content(state, node_type).await?
-        }
-    } else {
-        default_board_node_content(state, node_type).await?
-    };
-    Ok(sqlx::query_as::<_, BoardNodeRow>(
-        r#"
-        INSERT INTO board_nodes (owner_user_id, node_type, position_x, position_y, content)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height
-        "#,
-    )
-    .bind(user_id)
-    .bind(node_type)
-    .bind(position_x)
-    .bind(position_y)
-    .bind(&content)
-    .fetch_one(&state.db)
-    .await?)
-}
-
-async fn duplicate_board_node(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<DuplicateNodeRequest>,
-) -> Result<Json<BoardNodeSummary>, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    let source = sqlx::query_as::<_, BoardNodeRow>(
-        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
-    )
-    .bind(payload.source_id)
-    .bind(viewer.id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::BadRequest("Source node not found.".to_string()))?;
-
-    let offset = 40.0;
-    let row = sqlx::query_as::<_, BoardNodeRow>(
-        r#"
-        INSERT INTO board_nodes (owner_user_id, node_type, position_x, position_y, content, width, height)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height
-        "#,
-    )
-    .bind(viewer.id)
-    .bind(&source.node_type)
-    .bind(payload.position_x.unwrap_or(source.position_x + offset))
-    .bind(payload.position_y.unwrap_or(source.position_y + offset))
-    .bind(&source.content)
-    .bind(source.width)
-    .bind(source.height)
-    .fetch_one(&state.db)
-    .await?;
-
-    info!(
-        user_id = %viewer.id,
-        node_id = %row.id,
-        source_id = %payload.source_id,
-        node_type = %row.node_type,
-        "duplicated board node"
-    );
-
-    Ok(Json(BoardNodeSummary::from(row)))
-}
-
-async fn create_board_node(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<CreateNodeRequest>,
-) -> Result<Json<BoardNodeSummary>, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    if !valid_board_node_type(&payload.node_type) {
-        return Err(AppError::BadRequest(format!(
-            "Invalid node_type: {}",
-            payload.node_type
-        )));
-    }
-    let row = insert_board_node(
-        &state,
-        viewer.id,
-        &payload.node_type,
-        payload.position_x,
-        payload.position_y,
-    )
-    .await?;
-
-    info!(
-        user_id = %viewer.id,
-        node_id = %row.id,
-        node_type = %row.node_type,
-        "created board node"
-    );
-
-    Ok(Json(BoardNodeSummary::from(row)))
-}
-
-async fn create_board_node_datastar(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Form(payload): Form<CreateNodeFormRequest>,
-) -> Result<impl IntoResponse, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    if !valid_board_node_type(&payload.node_type) {
-        return Ok(datastar_event_stream(Box::pin(stream! {
-            yield Ok::<_, Infallible>(patch_signals(json!({
-                "_status": format!("Invalid node type: {}", payload.node_type),
-            }).to_string()));
-            })));
-    }
-
-    if let Some(source_type) = payload.source_type.as_deref()
-        && payload.source_id.is_some()
-        && !valid_board_connection(source_type, &payload.node_type)
-    {
-        return Ok(datastar_event_stream(Box::pin(stream! {
-            yield Ok::<_, Infallible>(patch_signals(json!({
-                "_status": "Invalid node connection.",
-            }).to_string()));
-        })));
-    }
-
-    let preset_id = payload.preset.as_deref().filter(|s| !s.is_empty());
-    let (effective_node_type, effective_preset) = if preset_id.is_some() {
-        ("string_value", preset_id)
-    } else {
-        (payload.node_type.as_str(), None)
-    };
-
-    let row = insert_board_node_with_preset(
-        &state,
-        viewer.id,
-        effective_node_type,
-        payload.position_x,
-        payload.position_y,
-        effective_preset,
-    )
-    .await?;
-
-    if let (Some(source_id), Some(source_type)) = (payload.source_id, payload.source_type.as_deref()) {
-        let (src_slot, tgt_slot) = default_slots_for_connection(source_type, &payload.node_type);
-        if !valid_slot_connection(source_type, src_slot, &payload.node_type, tgt_slot) {
-            return Ok(datastar_event_stream(Box::pin(stream! {
-                yield Ok::<_, Infallible>(patch_signals(json!({
-                    "_status": "Invalid node connection.",
-                }).to_string()));
-            })));
-        }
-        let (source_anchor_side, source_anchor_t) = match slot_anchor(source_type, src_slot) {
-            Some((side, t)) => (Some(side.to_string()), Some(t)),
-            None => (payload.source_anchor_side.clone(), payload.source_anchor_t),
-        };
-        let (target_anchor_side, target_anchor_t) = match slot_anchor(&payload.node_type, tgt_slot) {
-            Some((side, t)) => (Some(side.to_string()), Some(t)),
-            None => (None, None),
-        };
-        let _ = sqlx::query_as::<_, BoardEdgeRow>(
-            r#"
-            INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type,
-                                     source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                                     source_slot, target_slot)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            ON CONFLICT (source_id, source_slot, target_id, target_slot) DO UPDATE SET
-                source_type = EXCLUDED.source_type,
-                source_anchor_side = EXCLUDED.source_anchor_side,
-                source_anchor_t = EXCLUDED.source_anchor_t,
-                target_anchor_side = EXCLUDED.target_anchor_side,
-                target_anchor_t = EXCLUDED.target_anchor_t
-            RETURNING id, owner_user_id, source_id, source_type, target_id, target_type,
-                      source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                      source_slot, target_slot
-            "#,
-        )
-        .bind(viewer.id)
-        .bind(source_id)
-        .bind(source_type)
-        .bind(row.id)
-        .bind(&payload.node_type)
-        .bind(&source_anchor_side)
-        .bind(source_anchor_t)
-        .bind(&target_anchor_side)
-        .bind(target_anchor_t)
-        .bind(src_slot)
-        .bind(tgt_slot)
-        .fetch_one(&state.db)
-        .await?;
-    }
-
-    let node_summary = BoardNodeSummary::from(row);
-    let node_html = render_board_node_html(&node_summary);
-    let has_edge = payload.source_id.is_some();
-    Ok(datastar_event_stream(Box::pin(stream! {
-        yield Ok::<_, Infallible>(
-            PatchElements::new(node_html)
-                .selector("#storm-runs")
-                .mode(ElementPatchMode::Append)
-                .write_as_axum_sse_event(),
-        );
-        if has_edge {
-            yield Ok::<_, Infallible>(patch_edges_event(&state, viewer.id).await);
-        }
-    })))
-}
-
-async fn list_presets() -> impl IntoResponse {
-    let list: Vec<serde_json::Value> = PRESETS.iter().map(|p| json!({
-        "id": p.id, "label": p.label, "icon": p.icon,
-    })).collect();
-    Json(list)
-}
-
-async fn reroll_board_node(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-) -> Result<impl IntoResponse, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-
-    // Check if this is a preset node — if so, reroll from the preset list
-    let existing = sqlx::query_as::<_, BoardNodeRow>(
-        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
-    )
-    .bind(id)
-    .bind(viewer.id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| AppError::BadRequest("Node not found.".to_string()))?;
-
-    let content = if let Some(preset_id) = existing.content.get("preset").and_then(|v| v.as_str()) {
-        if let Some(preset) = find_preset(preset_id) {
-            let value = random_preset_value(preset);
-            json!({"value": value, "preset": preset_id})
-        } else {
-            fetch_wikipedia_random(&state.http).await?
-        }
-    } else {
-        fetch_wikipedia_random(&state.http).await?
-    };
-
-    sqlx::query(
-        r#"UPDATE board_nodes SET content = $1 WHERE id = $2 AND owner_user_id = $3"#,
-    )
-    .bind(&content)
-    .bind(id)
-    .bind(viewer.id)
-    .execute(&state.db)
-    .await?;
-
-    let updated = sqlx::query_as::<_, BoardNodeRow>(
-        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
-    )
-    .bind(id)
-    .bind(viewer.id)
-    .fetch_one(&state.db)
-    .await?;
-    let node_summary = BoardNodeSummary::from(updated);
-    let node_html = render_board_node_html(&node_summary);
-    let selector = format!("#node-{}", id);
-    Ok(datastar_event_stream(Box::pin(stream! {
-        yield Ok::<_, Infallible>(
-            PatchElements::new(node_html)
-                .selector(&selector)
-                .mode(ElementPatchMode::Outer)
-                .write_as_axum_sse_event(),
-        );
-    })))
-}
-
-async fn toggle_board_node_lock(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-) -> Result<impl IntoResponse, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-
-    sqlx::query(
-        r#"UPDATE board_nodes SET locked = NOT locked WHERE id = $1 AND owner_user_id = $2"#,
-    )
-    .bind(id)
-    .bind(viewer.id)
-    .execute(&state.db)
-    .await?;
-
-    let updated = sqlx::query_as::<_, BoardNodeRow>(
-        "SELECT id, owner_user_id, node_type, position_x, position_y, content, locked, created_at, width, height FROM board_nodes WHERE id = $1 AND owner_user_id = $2",
-    )
-    .bind(id)
-    .bind(viewer.id)
-    .fetch_one(&state.db)
-    .await?;
-    let node_summary = BoardNodeSummary::from(updated);
-    let node_html = render_board_node_html(&node_summary);
-    let selector = format!("#node-{}", id);
-    Ok(datastar_event_stream(Box::pin(stream! {
-        yield Ok::<_, Infallible>(
-            PatchElements::new(node_html)
-                .selector(&selector)
-                .mode(ElementPatchMode::Outer)
-                .write_as_axum_sse_event(),
-        );
-    })))
-}
-
-async fn update_board_node_position(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-    Json(payload): Json<UpdatePositionRequest>,
-) -> Result<StatusCode, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    sqlx::query(
-        r#"UPDATE board_nodes SET position_x = $1, position_y = $2, width = $3, height = $4 WHERE id = $5 AND owner_user_id = $6"#,
-    )
-    .bind(payload.position_x)
-    .bind(payload.position_y)
-    .bind(payload.width)
-    .bind(payload.height)
-    .bind(id)
-    .bind(viewer.id)
-    .execute(&state.db)
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn update_storm_run_position(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-    Json(payload): Json<UpdatePositionRequest>,
-) -> Result<StatusCode, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    sqlx::query(
-        r#"UPDATE storm_runs SET position_x = $1, position_y = $2, width = $3, height = $4 WHERE id = $5 AND owner_user_id = $6"#,
-    )
-    .bind(payload.position_x)
-    .bind(payload.position_y)
-    .bind(payload.width)
-    .bind(payload.height)
-    .bind(id)
-    .bind(viewer.id)
-    .execute(&state.db)
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn update_board_node_content(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-    Json(payload): Json<serde_json::Value>,
-) -> Result<StatusCode, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    sqlx::query(
-        r#"UPDATE board_nodes SET content = $1 WHERE id = $2 AND owner_user_id = $3"#,
-    )
-    .bind(&payload)
-    .bind(id)
-    .bind(viewer.id)
-    .execute(&state.db)
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
-}
-
-async fn delete_board_node(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-) -> Result<impl IntoResponse, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-
-    // Delete edges referencing this node
-    sqlx::query(
-        r#"DELETE FROM board_edges WHERE owner_user_id = $1 AND (source_id = $2 OR target_id = $2)"#,
-    )
-    .bind(viewer.id)
-    .bind(id)
-    .execute(&state.db)
-    .await?;
-
-    sqlx::query(r#"DELETE FROM board_nodes WHERE id = $1 AND owner_user_id = $2"#)
-        .bind(id)
-        .bind(viewer.id)
-        .execute(&state.db)
-        .await?;
-
-    let selector = format!("#node-{}", id);
-    Ok(datastar_event_stream(Box::pin(stream! {
-        yield Ok::<_, Infallible>(
-            PatchElements::new_remove(&selector)
-                .write_as_axum_sse_event(),
-        );
-        yield Ok::<_, Infallible>(patch_edges_event(&state, viewer.id).await);
-    })))
-}
-
-async fn create_board_edge(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<CreateEdgeRequest>,
-) -> Result<Json<BoardEdgeSummary>, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-
-    if !valid_slot_connection(
-        &payload.source_type, &payload.source_slot,
-        &payload.target_type, &payload.target_slot,
-    ) {
-        return Err(AppError::BadRequest(format!(
-            "Invalid connection: {}.{} → {}.{}",
-            payload.source_type, payload.source_slot, payload.target_type, payload.target_slot
-        )));
-    }
-    let (source_anchor_side, source_anchor_t) = match slot_anchor(&payload.source_type, &payload.source_slot) {
-        Some((side, t)) => (Some(side.to_string()), Some(t)),
-        None => (payload.source_anchor_side.clone(), payload.source_anchor_t),
-    };
-    let (target_anchor_side, target_anchor_t) = match slot_anchor(&payload.target_type, &payload.target_slot) {
-        Some((side, t)) => (Some(side.to_string()), Some(t)),
-        None => (payload.target_anchor_side.clone(), payload.target_anchor_t),
-    };
-
-    let row = sqlx::query_as::<_, BoardEdgeRow>(
-        r#"
-        INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type,
-                                 source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                                 source_slot, target_slot)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        ON CONFLICT (source_id, source_slot, target_id, target_slot) DO UPDATE SET
-            source_type = EXCLUDED.source_type,
-            source_anchor_side = EXCLUDED.source_anchor_side,
-            source_anchor_t = EXCLUDED.source_anchor_t,
-            target_anchor_side = EXCLUDED.target_anchor_side,
-            target_anchor_t = EXCLUDED.target_anchor_t
-        RETURNING id, owner_user_id, source_id, source_type, target_id, target_type,
-                  source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
-                  source_slot, target_slot
-        "#,
-    )
-    .bind(viewer.id)
-    .bind(payload.source_id)
-    .bind(&payload.source_type)
-    .bind(payload.target_id)
-    .bind(&payload.target_type)
-    .bind(&source_anchor_side)
-    .bind(source_anchor_t)
-    .bind(&target_anchor_side)
-    .bind(target_anchor_t)
-    .bind(&payload.source_slot)
-    .bind(&payload.target_slot)
-    .fetch_one(&state.db)
-    .await?;
-
-    Ok(Json(BoardEdgeSummary::from(row)))
-}
-
-async fn delete_board_edge(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<Uuid>,
-) -> Result<StatusCode, AppError> {
-    let viewer = require_viewer(&state, &headers).await?;
-    sqlx::query(r#"DELETE FROM board_edges WHERE id = $1 AND owner_user_id = $2"#)
-        .bind(id)
-        .bind(viewer.id)
-        .execute(&state.db)
-        .await?;
-    Ok(StatusCode::NO_CONTENT)
 }
