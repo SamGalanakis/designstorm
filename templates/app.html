@@ -9,64 +9,30 @@
   data-signals:_settings-open="false"
   data-signals:_sessions-open="false"
   data-signals:_refs-open="false"
-  data-on:keydown__window="evt.key === 'Escape' && ($_settingsOpen ? ($_settingsOpen = false, $_accountOpen = true) : ($_accountOpen = false, $_settingsOpen = false, $_sessionsOpen = false))"
+  data-on:keydown__window="evt.key === 'Escape' && ($_settingsOpen ? ($_settingsOpen = false, $_accountOpen = true) : ($_accountOpen = false, $_settingsOpen = false, $_sessionsOpen = false, $_refsOpen = false))"
 >
-  <!-- ═══ Top bar ═══ -->
-  <header class="studio-topbar">
-    <div class="studio-brand">
-      <span class="studio-brand-name">Design Storm</span>
+  <!-- ═══ Left sidebar ═══ -->
+  <aside class="sidebar" data-class:is-open="$_sessionsOpen">
+    <div class="sidebar-top">
+      <span class="sidebar-brand">Design Storm</span>
+      <button id="new-session-button" class="btn btn-accent btn-sm" type="button">+ New</button>
     </div>
 
-    <!-- Session switcher dropdown -->
-    <div class="session-switcher" data-on:click__outside="$_sessionsOpen = false">
-      <button
-        class="session-switcher-btn"
-        type="button"
-        data-on:click="$_sessionsOpen = !$_sessionsOpen"
-        aria-haspopup="true"
-        data-attr:aria-expanded="$_sessionsOpen"
-      >
-        <span class="session-switcher-title">{{ active_session_title }}</span>
-        <span class="session-switcher-arrow" aria-hidden="true">&#9662;</span>
-      </button>
+    <nav id="session-list" class="session-list" aria-label="Sessions">
+      {{ session_list_html|safe }}
+    </nav>
 
-      <div
-        class="session-dropdown"
-        data-show="$_sessionsOpen"
-        style="display: none"
-      >
-        <div style="padding: 4px 6px 8px; display: flex; align-items: center; justify-content: flex-end;">
-          <button id="new-session-button" class="btn btn-accent btn-sm" type="button">New</button>
-        </div>
-        <nav id="session-list" class="session-list" aria-label="Sessions">
-          {{ session_list_html|safe }}
-        </nav>
-      </div>
-    </div>
-
-    <input
-      id="active-session-title"
-      class="session-title-input"
-      type="text"
-      value="{{ active_session_title }}"
-      autocomplete="off"
-      aria-label="Session title"
-    />
-
-    <span id="active-session-updated" class="session-title-meta" style="position: absolute; left: -9999px;">{{ active_session_updated_label }}</span>
-
-    <span id="studio-status"></span>
-
-    <div class="topbar-actions">
+    <div class="sidebar-bottom">
       <div class="account-shell" data-on:click__outside="$_accountOpen = false; $_settingsOpen = false">
         <button
           id="avatar-button"
-          class="avatar-btn"
+          class="sidebar-account-btn"
           type="button"
           aria-label="Open account menu"
           data-on:click="$_accountOpen = !$_accountOpen; $_settingsOpen = false"
         >
           <span id="avatar-fallback" class="avatar-fallback" data-name="{{ viewer.name }}"></span>
+          <span class="sidebar-account-name">{{ viewer.name }}</span>
         </button>
 
         <section
@@ -126,88 +92,115 @@
         </section>
       </div>
     </div>
-  </header>
+  </aside>
 
-  <!-- ═══ Main body ═══ -->
-  <div class="studio-body">
-    <!-- Conversation column -->
-    <div class="studio-conversation">
-      <!-- Scrollable thread -->
-      <div class="chat-thread-wrap">
-        <div id="session-messages" class="chat-thread">
-          {{ messages_html|safe }}
-        </div>
+  <!-- ═══ Main area ═══ -->
+  <div class="studio-main">
+    <!-- Topbar — minimal -->
+    <header class="studio-topbar">
+      <button
+        class="sidebar-toggle"
+        type="button"
+        data-on:click="$_sessionsOpen = !$_sessionsOpen"
+        data-attr:aria-expanded="$_sessionsOpen"
+        aria-label="Toggle sidebar"
+      >
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+      </button>
 
-        <!-- Design gallery renders inline below messages -->
-        <div id="design-gallery" class="design-gallery">
-          {{ gallery_html|safe }}
-        </div>
+      <input
+        id="active-session-title"
+        class="session-title-input"
+        type="text"
+        value="{{ active_session_title }}"
+        autocomplete="off"
+        aria-label="Session title"
+      />
+
+      <span id="active-session-updated" class="session-title-meta" style="position: absolute; left: -9999px;">{{ active_session_updated_label }}</span>
+
+      <span id="studio-status"></span>
+
+      <div class="topbar-actions">
+        <button
+          class="ref-toggle"
+          type="button"
+          data-on:click="$_refsOpen = !$_refsOpen"
+          data-class:is-active="$_refsOpen"
+        >
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+          Refs
+        </button>
       </div>
+    </header>
 
-      <!-- Fixed composer -->
-      <div class="composer-bar">
-        <div class="composer-inner">
-          <!-- Context chips + draft iteration inline -->
-          <div class="composer-context">
-            <div id="selected-references" class="selected-reference-list"></div>
-            <div id="draft-iteration" class="draft-iteration" hidden></div>
-            <button id="clear-selected-references" class="mini-link" type="button" style="font-size: 9px; display: none;">&times;</button>
+    <!-- ═══ Body: conversation + refs ═══ -->
+    <div class="studio-body">
+      <div class="studio-conversation">
+        <!-- Scrollable thread -->
+        <div class="chat-thread-wrap">
+          <div id="session-messages" class="chat-thread">
+            {{ messages_html|safe }}
           </div>
 
-          <!-- Refs toggle (moved from top bar) -->
-          <button
-            class="ref-toggle"
-            type="button"
-            data-on:click="$_refsOpen = !$_refsOpen"
-            data-class:is-active="$_refsOpen"
-            style="position: absolute; right: 24px; bottom: calc(100% + 8px); z-index: 3;"
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
-            Refs
-          </button>
+          <!-- Design gallery renders below messages -->
+          <div id="design-gallery" class="design-gallery">
+            {{ gallery_html|safe }}
+          </div>
+        </div>
 
-          <!-- Input row -->
-          <form id="session-message-form" class="session-message-form">
-            <textarea id="session-composer" rows="1" placeholder="Describe a direction, refine a design, or discuss..."></textarea>
-            <div id="mention-menu" class="mention-menu" hidden></div>
-            <button id="session-send" class="btn btn-accent" type="submit">Send</button>
-          </form>
+        <!-- Fixed composer -->
+        <div class="composer-bar">
+          <div class="composer-inner">
+            <div class="composer-context">
+              <div id="selected-references" class="selected-reference-list"></div>
+              <div id="draft-iteration" class="draft-iteration" hidden></div>
+              <button id="clear-selected-references" class="mini-link" type="button" style="font-size: 9px; display: none;">&times;</button>
+            </div>
+
+            <form id="session-message-form" class="session-message-form">
+              <textarea id="session-composer" rows="1" placeholder="Describe a direction, refine a design, or discuss..."></textarea>
+              <div id="mention-menu" class="mention-menu" hidden></div>
+              <button id="session-send" class="btn btn-accent" type="submit">Send</button>
+            </form>
+          </div>
         </div>
       </div>
+
+      <!-- Reference drawer (toggleable) -->
+      <aside class="reference-drawer" data-class:is-open="$_refsOpen">
+        <div class="reference-drawer-head">
+          <span class="eyebrow">References</span>
+          <button class="btn btn-ghost btn-sm" type="button" data-on:click="$_refsOpen = false" style="height: 24px; padding: 0 8px; font-size: 10px;">&times;</button>
+        </div>
+
+        <div class="reference-drawer-body">
+          <div class="reference-create-grid">
+            <form id="reference-note-form" class="reference-form">
+              <input id="reference-note-title" type="text" placeholder="Note title" />
+              <textarea id="reference-note-body" rows="2" placeholder="Art direction note or constraint"></textarea>
+              <button class="btn btn-ghost btn-sm" type="submit">Add</button>
+            </form>
+
+            <form id="reference-link-form" class="reference-form">
+              <input id="reference-link-title" type="text" placeholder="Link title" />
+              <input id="reference-link-url" type="url" placeholder="https://example.com" />
+              <textarea id="reference-link-body" rows="1" placeholder=""></textarea>
+              <button class="btn btn-ghost btn-sm" type="submit">Add</button>
+            </form>
+
+            <label class="reference-upload">
+              <span>Upload image reference</span>
+              <input id="reference-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+            </label>
+          </div>
+
+          <div id="reference-list" class="reference-list">
+            {{ reference_list_html|safe }}
+          </div>
+        </div>
+      </aside>
     </div>
-
-    <!-- Reference drawer (toggleable) -->
-    <aside class="reference-drawer" data-class:is-open="$_refsOpen">
-      <div class="reference-drawer-head">
-        <button class="btn btn-ghost btn-sm" type="button" data-on:click="$_refsOpen = false" style="height: 24px; padding: 0 8px; font-size: 10px;">&times;</button>
-      </div>
-
-      <div class="reference-drawer-body">
-        <div class="reference-create-grid">
-          <form id="reference-note-form" class="reference-form">
-            <input id="reference-note-title" type="text" placeholder="Note title" />
-            <textarea id="reference-note-body" rows="2" placeholder="Art direction note or constraint"></textarea>
-            <button class="btn btn-ghost btn-sm" type="submit">Add</button>
-          </form>
-
-          <form id="reference-link-form" class="reference-form">
-            <input id="reference-link-title" type="text" placeholder="Link title" />
-            <input id="reference-link-url" type="url" placeholder="https://example.com" />
-            <textarea id="reference-link-body" rows="1" placeholder=""></textarea>
-            <button class="btn btn-ghost btn-sm" type="submit">Add</button>
-          </form>
-
-          <label class="reference-upload">
-            <span>Upload image reference</span>
-            <input id="reference-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
-          </label>
-        </div>
-
-        <div id="reference-list" class="reference-list">
-          {{ reference_list_html|safe }}
-        </div>
-      </div>
-    </aside>
   </div>
 </div>
 {% endblock %}

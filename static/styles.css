@@ -31,6 +31,8 @@
 
   --r: 8px;
   --r-lg: 14px;
+
+  --sidebar-w: 260px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -216,7 +218,6 @@ h1, h2, h3 {
   position: relative;
 }
 
-/* Crop marks on landing card */
 .landing-card::before,
 .landing-card::after {
   content: "";
@@ -322,8 +323,8 @@ h1, h2, h3 {
 
 .sheet {
   position: fixed;
-  top: 58px;
-  right: 16px;
+  bottom: 60px;
+  left: 12px;
   z-index: 100;
   width: min(360px, calc(100vw - 32px));
   display: grid;
@@ -492,119 +493,58 @@ h1, h2, h3 {
 
 
 /* ═══════════════════════════════════════════════
-   STUDIO — Light Table Layout
+   STUDIO — Sidebar + Main Layout
    ═══════════════════════════════════════════════ */
 
 .studio-app {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   min-height: 100vh;
 }
 
-/* ─── Top bar ─── */
+/* ─── Left sidebar ─── */
 
-.studio-topbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(17, 19, 24, 0.96);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  z-index: 10;
-  position: relative;
+.sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  min-height: 0;
+  z-index: 20;
 }
 
-.studio-brand {
+.sidebar-top {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  flex-shrink: 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
 }
 
-.studio-brand-name {
+.sidebar-brand {
   font-family: "Archivo", sans-serif;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
   letter-spacing: -0.02em;
 }
 
-/* Session switcher */
-.session-switcher {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.session-switcher-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 10px;
-  border-radius: var(--r);
-  background: transparent;
-  border: 1px solid transparent;
-  transition: all 150ms;
-}
-
-.session-switcher-btn:hover {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: var(--border);
-}
-
-.session-switcher-title {
-  font-family: "Archivo", sans-serif;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.session-switcher-arrow {
-  font-size: 10px;
-  color: var(--text-3);
-  transition: transform 200ms;
-}
-
-.session-switcher-btn[aria-expanded="true"] .session-switcher-arrow {
-  transform: rotate(180deg);
-}
-
-/* Session dropdown */
-.session-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 40;
-  width: 280px;
-  max-height: 340px;
-  overflow-y: auto;
-  padding: 6px;
-  background: rgba(17, 19, 24, 0.98);
-  border: 1px solid var(--border-2);
-  border-radius: var(--r);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
-  animation: slide-in 120ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.session-dropdown[hidden] { display: none; }
-
 .session-list {
   display: grid;
   gap: 2px;
+  padding: 8px;
+  overflow-y: auto;
+  align-content: start;
 }
 
 .session-link {
   display: grid;
   gap: 2px;
-  padding: 8px 10px;
-  border-radius: calc(var(--r) - 2px);
+  padding: 10px 12px;
+  border-radius: var(--r);
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-2);
@@ -624,9 +564,12 @@ h1, h2, h3 {
 
 .session-link-title {
   font-family: "Archivo", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-link-meta {
@@ -638,23 +581,111 @@ h1, h2, h3 {
 }
 
 .session-list-empty {
-  padding: 10px;
+  padding: 16px 12px;
   color: var(--text-3);
   font-size: 12px;
 }
 
-/* Title input in topbar */
+.sidebar-bottom {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.sidebar-account-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--r);
+  transition: background 150ms;
+}
+
+.sidebar-account-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-account-btn .avatar-fallback {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.sidebar-account-name {
+  font-family: "Archivo", sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sidebar toggle (visible on mobile, hidden on desktop) */
+.sidebar-toggle {
+  display: none;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r);
+  color: var(--text-2);
+  flex-shrink: 0;
+  transition: background 150ms, color 150ms;
+}
+
+.sidebar-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+/* Session switcher — keep the DOM elements but hide on desktop (sidebar replaces it) */
+.session-switcher {
+  display: none;
+}
+
+.session-dropdown {
+  display: none;
+}
+
+/* ─── Main area ─── */
+
+.studio-main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+/* ─── Top bar ─── */
+
+.studio-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px;
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(17, 19, 24, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 10;
+  position: relative;
+}
+
 .session-title-input {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 8px;
+  width: 280px;
+  max-width: 40%;
+  padding: 4px 10px;
   border: 1px solid transparent;
   border-radius: var(--r);
   background: transparent;
   color: var(--text);
   font-family: "Archivo", sans-serif;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   outline: none;
   transition: all 150ms;
 }
@@ -759,22 +790,26 @@ h1, h2, h3 {
 .chat-thread {
   display: grid;
   gap: 2px;
-  max-width: 720px;
+  max-width: 780px;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 0 32px;
 }
 
 .chat-empty {
-  padding: 40px 20px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
   color: var(--text-3);
-  font-size: 13px;
+  font-size: 14px;
+  font-family: "Archivo", sans-serif;
+  font-weight: 300;
 }
 
 .chat-message {
   display: grid;
   gap: 6px;
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-radius: var(--r);
   border: 1px solid transparent;
   background: transparent;
@@ -783,6 +818,11 @@ h1, h2, h3 {
 .chat-message.is-user {
   background: var(--cyan-bg);
   border-left: 2px solid var(--cyan);
+}
+
+.chat-message.is-assistant {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
 }
 
 .chat-message-head {
@@ -819,15 +859,15 @@ h1, h2, h3 {
   line-height: 1.6;
 }
 
-/* ─── Inline design cards (in conversation) ─── */
+/* ─── Design gallery ─── */
 
 .design-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
-  max-width: 720px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+  max-width: 780px;
   margin: 0 auto;
-  padding: 8px 24px 16px;
+  padding: 12px 32px 24px;
   position: relative;
   z-index: 1;
 }
@@ -892,7 +932,7 @@ h1, h2, h3 {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   font-family: "JetBrains Mono", monospace;
   font-size: 9px;
   font-weight: 500;
@@ -903,7 +943,7 @@ h1, h2, h3 {
 }
 
 .gallery-card-preview-shell {
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 3 / 2;
   overflow: hidden;
   background: var(--bg);
 }
@@ -917,14 +957,14 @@ h1, h2, h3 {
 
 .gallery-card-body {
   display: grid;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 12px 14px;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
 }
 
 .gallery-card-title {
   font-family: "Archivo", sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--lit-text);
   line-height: 1.2;
@@ -934,6 +974,10 @@ h1, h2, h3 {
   color: var(--lit-mute);
   font-size: 12px;
   line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .gallery-job-error {
@@ -960,7 +1004,7 @@ h1, h2, h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  padding: 0 12px 10px;
+  padding: 0 14px 12px;
 }
 
 .gallery-action,
@@ -1007,11 +1051,11 @@ h1, h2, h3 {
   background: rgba(17, 19, 24, 0.94);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  padding: 12px 24px 14px;
+  padding: 14px 32px 16px;
 }
 
 .composer-inner {
-  max-width: 720px;
+  max-width: 780px;
   margin: 0 auto;
   display: grid;
   gap: 8px;
@@ -1071,23 +1115,24 @@ h1, h2, h3 {
 
 .session-message-form textarea {
   flex: 1;
-  min-height: 40px;
+  min-height: 44px;
   max-height: 160px;
-  padding: 9px 14px;
+  padding: 10px 14px;
   resize: none;
   color: var(--text);
-  background: rgba(10, 11, 14, 0.5);
-  border: 1px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border-2);
   border-radius: var(--r);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   outline: none;
-  transition: border-color 150ms, background 150ms;
+  transition: border-color 150ms, background 150ms, box-shadow 150ms;
 }
 
 .session-message-form textarea:focus {
-  border-color: rgba(0, 212, 255, 0.3);
-  background: rgba(10, 11, 14, 0.7);
+  border-color: rgba(0, 212, 255, 0.35);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08);
 }
 
 .session-message-form textarea::placeholder {
@@ -1167,7 +1212,7 @@ h1, h2, h3 {
 .reference-drawer-head {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 8px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
@@ -1336,13 +1381,38 @@ h1, h2, h3 {
 /* ─── Responsive ─── */
 
 @media (max-width: 860px) {
+  .studio-app {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: var(--sidebar-w);
+    transform: translateX(-100%);
+    transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: none;
+    z-index: 50;
+  }
+
+  .sidebar.is-open {
+    transform: translateX(0);
+    box-shadow: 16px 0 48px rgba(0, 0, 0, 0.4);
+  }
+
+  .sidebar-toggle {
+    display: flex;
+  }
+
   .reference-drawer.is-open {
     width: 280px;
   }
 
   .sheet {
-    right: 10px;
-    top: 54px;
+    left: 10px;
+    bottom: 54px;
     width: min(340px, calc(100vw - 20px));
   }
 }
@@ -1351,15 +1421,11 @@ h1, h2, h3 {
   .studio-topbar {
     padding: 8px 12px;
     gap: 8px;
-    flex-wrap: wrap;
-  }
-
-  .session-switcher-title {
-    max-width: 120px;
   }
 
   .session-title-input {
-    font-size: 12px;
+    font-size: 13px;
+    max-width: 50%;
   }
 
   .chat-thread {
@@ -1385,8 +1451,8 @@ h1, h2, h3 {
   }
 
   .sheet {
-    right: 6px;
     left: 6px;
+    right: 6px;
     width: auto;
   }
 }
