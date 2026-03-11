@@ -987,8 +987,6 @@ h1, h2, h3 {
   box-shadow: 0 0 6px var(--accent-glow);
 }
 
-/* Connection handles are now dynamic — see .edge-handle below */
-
 /* ─── Live wire ─── */
 
 .storm-wire {
@@ -1034,8 +1032,6 @@ h1, h2, h3 {
   border-color: var(--accent-strong);
   box-shadow: 0 0 24px var(--accent-glow), 0 20px 60px rgba(0,0,0,0.4);
 }
-
-/* Wire source handled by .edge-handle.is-visible */
 
 body.is-wiring { cursor: crosshair !important; }
 body.is-wiring .storm-node { cursor: crosshair; }
@@ -2194,7 +2190,7 @@ body.is-shift-held .board-node { cursor: grab; }
 .draw-node-footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 5px 10px;
   border-top: 1px solid rgba(130, 180, 210, 0.1);
   background: rgba(130, 180, 210, 0.03);
@@ -2206,46 +2202,6 @@ body.is-shift-held .board-node { cursor: grab; }
   font-size: 9px;
   letter-spacing: 0.04em;
   color: rgba(130, 180, 210, 0.35);
-}
-
-.draw-out-port {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  cursor: crosshair;
-  padding: 2px 6px 2px 4px;
-  border-radius: 10px;
-  border: 1px solid rgba(130, 180, 210, 0.15);
-  background: rgba(130, 180, 210, 0.04);
-  transition: border-color 0.12s, background 0.12s;
-}
-
-.draw-out-port:hover {
-  border-color: rgba(130, 180, 210, 0.4);
-  background: rgba(130, 180, 210, 0.08);
-}
-
-.draw-out-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: rgba(130, 180, 210, 0.5);
-  border: 1.5px solid rgba(130, 180, 210, 0.7);
-  transition: background 0.12s, transform 0.12s;
-}
-
-.draw-out-port:hover .draw-out-dot {
-  background: rgba(130, 180, 210, 0.8);
-  transform: scale(1.2);
-}
-
-.draw-out-label {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 8px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(130, 180, 210, 0.5);
 }
 
 .board-node-draw.is-wire-target .draw-node-shell {
@@ -3113,26 +3069,6 @@ body.is-shift-held .board-node { cursor: grab; }
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
-
-/* ─── Dynamic edge handles ─── */
-
-.edge-handle {
-  position: absolute;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: transparent;
-  border: none;
-  opacity: 0;
-  pointer-events: auto;
-  cursor: crosshair;
-  z-index: 10;
-}
-
-.edge-handle[data-side="top"] { top: -5px; }
-.edge-handle[data-side="bottom"] { bottom: -5px; }
-.edge-handle[data-side="left"] { left: -5px; }
-.edge-handle[data-side="right"] { right: -5px; }
 
 /* ─── Resize handles ─── */
 

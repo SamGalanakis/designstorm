@@ -96,49 +96,52 @@ type BoardEdge = {
   targetSlot: string;
 };
 
-type SlotDef = { name: string; direction: "in" | "out"; valueType: string; multiple: boolean };
+type SlotDef = { name: string; direction: "in" | "out"; valueType: string };
 
 const NODE_SLOTS: Record<string, SlotDef[]> = {
-  entropy: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
-  user_input: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
-  design: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  entropy: [{ name: "out", direction: "out", valueType: "node_ref" }],
+  user_input: [{ name: "out", direction: "out", valueType: "node_ref" }],
+  design: [
+    { name: "generated_by", direction: "in", valueType: "node_ref" },
+    { name: "out", direction: "out", valueType: "node_ref" },
+  ],
   generate: [
-    { name: "sources", direction: "in", valueType: "node_ref", multiple: true },
-    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+    { name: "sources", direction: "in", valueType: "node_ref" },
+    { name: "out", direction: "out", valueType: "node_ref" },
   ],
   color: [
-    { name: "hue", direction: "in", valueType: "float", multiple: false },
-    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+    { name: "hue", direction: "in", valueType: "float" },
+    { name: "out", direction: "out", valueType: "node_ref" },
   ],
   color_palette: [
-    { name: "members", direction: "in", valueType: "node_ref", multiple: true },
-    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+    { name: "members", direction: "in", valueType: "node_ref" },
+    { name: "out", direction: "out", valueType: "node_ref" },
   ],
-  image: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
-  draw: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  image: [{ name: "out", direction: "out", valueType: "node_ref" }],
+  draw: [{ name: "out", direction: "out", valueType: "node_ref" }],
   set: [
-    { name: "members", direction: "in", valueType: "node_ref", multiple: true },
-    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+    { name: "members", direction: "in", valueType: "node_ref" },
+    { name: "out", direction: "out", valueType: "node_ref" },
   ],
   pick_k: [
-    { name: "sources", direction: "in", valueType: "node_ref", multiple: true },
-    { name: "k", direction: "in", valueType: "int", multiple: false },
-    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+    { name: "sources", direction: "in", valueType: "node_ref" },
+    { name: "k", direction: "in", valueType: "int" },
+    { name: "out", direction: "out", valueType: "node_ref" },
   ],
-  int_value: [{ name: "value", direction: "out", valueType: "int", multiple: false }],
-  float_value: [{ name: "value", direction: "out", valueType: "float", multiple: false }],
-  string_value: [{ name: "value", direction: "out", valueType: "string", multiple: false }],
-  bool_value: [{ name: "value", direction: "out", valueType: "bool", multiple: false }],
-  font: [{ name: "out", direction: "out", valueType: "node_ref", multiple: false }],
+  int_value: [{ name: "value", direction: "out", valueType: "int" }],
+  float_value: [{ name: "value", direction: "out", valueType: "float" }],
+  string_value: [{ name: "value", direction: "out", valueType: "string" }],
+  bool_value: [{ name: "value", direction: "out", valueType: "bool" }],
+  font: [{ name: "out", direction: "out", valueType: "node_ref" }],
   color_harmony: [
-    { name: "source", direction: "in", valueType: "node_ref", multiple: false },
-    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+    { name: "source", direction: "in", valueType: "node_ref" },
+    { name: "out", direction: "out", valueType: "node_ref" },
   ],
   conditional: [
-    { name: "condition", direction: "in", valueType: "bool", multiple: false },
-    { name: "if_true", direction: "in", valueType: "node_ref", multiple: true },
-    { name: "if_false", direction: "in", valueType: "node_ref", multiple: true },
-    { name: "out", direction: "out", valueType: "node_ref", multiple: false },
+    { name: "condition", direction: "in", valueType: "bool" },
+    { name: "if_true", direction: "in", valueType: "node_ref" },
+    { name: "if_false", direction: "in", valueType: "node_ref" },
+    { name: "out", direction: "out", valueType: "node_ref" },
   ],
 };
 
@@ -305,7 +308,6 @@ const HARMONY_NODE_WIDTH = 200;
 const HARMONY_NODE_HEIGHT = 140;
 const CONDITIONAL_NODE_WIDTH = 180;
 const CONDITIONAL_NODE_HEIGHT = 120;
-const EDGE_HANDLE_PROXIMITY = 30;
 const PORT_ANCHOR_OFFSET = 20;
 const PORT_HIT_RADIUS = 28;
 const INITIAL_PAN: Point = { x: 160, y: 120 };
@@ -712,24 +714,8 @@ function getSlotAnchor(nodeId: string, slotName: string): AnchorPoint | null {
   return { side: "right", t, worldX: pos.x + w + PORT_ANCHOR_OFFSET, worldY: pos.y + h * t };
 }
 
-function getRunPortAnchor(nodeId: string, portName: string): AnchorPoint | null {
-  if (!state.runs.find((run) => run.id === nodeId)) return null;
-  const pos = state.positions.get(nodeId);
-  if (!pos) return null;
-  const { w, h } = getNodeDimensions(nodeId);
-  const t = getSlotLaneT(0, 1);
-
-  if (portName === "generated_by") {
-    return { side: "left", t, worldX: pos.x - PORT_ANCHOR_OFFSET, worldY: pos.y + h * t };
-  }
-  if (portName === "out") {
-    return { side: "right", t, worldX: pos.x + w + PORT_ANCHOR_OFFSET, worldY: pos.y + h * t };
-  }
-  return null;
-}
-
 function getRenderablePortAnchor(nodeId: string, portName: string): AnchorPoint | null {
-  return getRunPortAnchor(nodeId, portName) ?? getSlotAnchor(nodeId, portName);
+  return getSlotAnchor(nodeId, portName);
 }
 
 function getEdgeAnchorPoint(
@@ -771,6 +757,7 @@ function getNearestSlotSnap(
     const anchor = getSlotAnchor(nodeId, slot.name);
     if (!anchor) continue;
     const dist = Math.hypot(world.x - anchor.worldX, world.y - anchor.worldY);
+    if (dist > PORT_HIT_RADIUS) continue;
     if (!best || dist < best.dist) {
       best = { anchor, slotName: slot.name, dist };
     }
@@ -779,46 +766,34 @@ function getNearestSlotSnap(
   return best ? { anchor: best.anchor, slotName: best.slotName } : null;
 }
 
+function getWireTargetSnap(
+  sourceId: string,
+  world: Point,
+  sourceValueType?: string,
+): { nodeId: string; nodeType: string; anchor: AnchorPoint; slotName: string } | null {
+  let best: { nodeId: string; nodeType: string; anchor: AnchorPoint; slotName: string; dist: number } | null = null;
+
+  for (const node of state.boardNodes) {
+    if (node.id === sourceId) continue;
+    const slotSnap = getSlotSnapAnchor(node.id, world, sourceValueType);
+    if (!slotSnap) continue;
+    const dist = Math.hypot(world.x - slotSnap.anchor.worldX, world.y - slotSnap.anchor.worldY);
+    if (!best || dist < best.dist) {
+      best = { nodeId: node.id, nodeType: node.nodeType, anchor: slotSnap.anchor, slotName: slotSnap.slotName, dist };
+    }
+  }
+
+  return best
+    ? { nodeId: best.nodeId, nodeType: best.nodeType, anchor: best.anchor, slotName: best.slotName }
+    : null;
+}
+
 function isPointNearBoardNodePort(nodeId: string, worldPt: Point): boolean {
   const slots = NODE_SLOTS[getNodeType(nodeId)] ?? [];
   return slots.some((slot) => {
     const anchor = getSlotAnchor(nodeId, slot.name);
     return !!anchor && Math.hypot(worldPt.x - anchor.worldX, worldPt.y - anchor.worldY) <= PORT_HIT_RADIUS;
   });
-}
-
-function getEdgeProximity(nodeId: string, worldPt: Point): AnchorPoint | null {
-  const pos = state.positions.get(nodeId);
-  if (!pos) return null;
-  const { w, h } = getNodeDimensions(nodeId);
-
-  const sides: { side: AnchorSide; dist: number; t: number; wx: number; wy: number }[] = [];
-
-  // Top edge
-  if (worldPt.x >= pos.x && worldPt.x <= pos.x + w) {
-    const d = Math.abs(worldPt.y - pos.y);
-    if (d < EDGE_HANDLE_PROXIMITY) sides.push({ side: "top", dist: d, t: (worldPt.x - pos.x) / w, wx: worldPt.x, wy: pos.y });
-  }
-  // Bottom edge
-  if (worldPt.x >= pos.x && worldPt.x <= pos.x + w) {
-    const d = Math.abs(worldPt.y - (pos.y + h));
-    if (d < EDGE_HANDLE_PROXIMITY) sides.push({ side: "bottom", dist: d, t: (worldPt.x - pos.x) / w, wx: worldPt.x, wy: pos.y + h });
-  }
-  // Left edge
-  if (worldPt.y >= pos.y && worldPt.y <= pos.y + h) {
-    const d = Math.abs(worldPt.x - pos.x);
-    if (d < EDGE_HANDLE_PROXIMITY) sides.push({ side: "left", dist: d, t: (worldPt.y - pos.y) / h, wx: pos.x, wy: worldPt.y });
-  }
-  // Right edge
-  if (worldPt.y >= pos.y && worldPt.y <= pos.y + h) {
-    const d = Math.abs(worldPt.x - (pos.x + w));
-    if (d < EDGE_HANDLE_PROXIMITY) sides.push({ side: "right", dist: d, t: (worldPt.y - pos.y) / h, wx: pos.x + w, wy: worldPt.y });
-  }
-
-  if (sides.length === 0) return null;
-  sides.sort((a, b) => a.dist - b.dist);
-  const best = sides[0];
-  return { side: best.side, t: Math.max(0.1, Math.min(0.9, best.t)), worldX: best.wx, worldY: best.wy };
 }
 
 /** Snap a wire target to the nearest compatible input slot anchor. */
@@ -833,25 +808,6 @@ function getSourceSlotSnap(
   nodeId: string, world: Point,
 ): { anchor: AnchorPoint; slotName: string } | null {
   return getNearestSlotSnap(nodeId, world, "out");
-}
-
-function computeNearestAnchor(nodeId: string, world: Point): AnchorPoint | null {
-  const anchor = getEdgeProximity(nodeId, world);
-  if (anchor) return anchor;
-  const pos = state.positions.get(nodeId);
-  if (!pos) return null;
-  const dim = getNodeDimensions(nodeId);
-  const cx = pos.x + dim.w / 2;
-  const cy = pos.y + dim.h / 2;
-  const dx = world.x - cx;
-  const dy = world.y - cy;
-  const absDx = Math.abs(dx) / dim.w;
-  const absDy = Math.abs(dy) / dim.h;
-  let side: AnchorSide;
-  if (absDx > absDy) side = dx > 0 ? "right" : "left";
-  else side = dy > 0 ? "bottom" : "top";
-  const anchorPos = getAnchorWorldPos(nodeId, side, 0.5);
-  return { side, t: 0.5, worldX: anchorPos.x, worldY: anchorPos.y };
 }
 
 function getOccupiedWorldBounds(): WorldBounds | null {
@@ -1911,8 +1867,8 @@ function renderConnections(): void {
     parents.forEach((pid) => {
       const parent = state.positions.get(pid);
       if (!parent) return;
-      const sourceAnchor = getRunPortAnchor(pid, "out");
-      const targetAnchor = getRunPortAnchor(runId, "generated_by");
+      const sourceAnchor = getRenderablePortAnchor(pid, "out");
+      const targetAnchor = getRenderablePortAnchor(runId, "generated_by");
       if (!sourceAnchor || !targetAnchor) return;
       const sx = sourceAnchor.worldX - bounds.minX;
       const sy = sourceAnchor.worldY - bounds.minY;
@@ -2605,7 +2561,6 @@ function bindNodeInteractions(): void {
     if (wireJustCompleted) { wireJustCompleted = false; return; }
     const target = e.target as HTMLElement;
     if (target.closest("[data-node-menu]")) return;
-    if (target.closest(".edge-handle")) return;
     if (target.closest(".node-port")) return;
     const action = target.closest<HTMLElement>("[data-run-action]")?.dataset.runAction;
     const stormNode = target.closest<HTMLElement>(".storm-node");
@@ -2674,7 +2629,7 @@ function bindNodeInteractions(): void {
       return;
     }
 
-    if (target.closest(".board-node") && !target.closest(".edge-handle")) return;
+    if (target.closest(".board-node")) return;
 
     // Shift held: resize handles and drag mode
     if (e.shiftKey) {
@@ -2728,48 +2683,7 @@ function bindNodeInteractions(): void {
       return;
     }
 
-    // Wire mode: dragging from a dynamic edge handle
-    if (target.closest(".edge-handle")) {
-      const handleEl = target.closest<HTMLElement>(".edge-handle");
-      const stormNode = target.closest<HTMLElement>(".storm-node");
-      const boardNode = target.closest<HTMLElement>(".board-node");
-      const nodeEl = stormNode ?? boardNode;
-      const nodeId = stormNode?.dataset.runId ?? boardNode?.dataset.nodeId;
-      if (!nodeEl || !nodeId || !handleEl) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const side = (handleEl.dataset.side ?? "bottom") as AnchorSide;
-      const t = parseFloat(handleEl.dataset.t ?? "0.5");
-      const anchorPos = getAnchorWorldPos(nodeId, side, t);
-      const srcType = getNodeType(nodeId);
-      const slotSnap = boardNode ? getSourceSlotSnap(nodeId, { x: anchorPos.x, y: anchorPos.y }) : null;
-      const sourceAnchor: AnchorPoint = slotSnap?.anchor ?? { side, t, worldX: anchorPos.x, worldY: anchorPos.y };
-      const sourceSlot = slotSnap?.slotName;
-      state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nodeId, sourceType: srcType, sourceAnchor, startWorld: { x: sourceAnchor.worldX, y: sourceAnchor.worldY }, currentWorld: { x: sourceAnchor.worldX, y: sourceAnchor.worldY }, targetRunId: null, targetType: null, targetAnchor: null, sourceSlot };
-      nodeEl.classList.add("is-wire-source");
-      document.body.classList.add("is-wiring");
-      nodeEl.setPointerCapture(e.pointerId);
-      return;
-    }
-
-    // Default (no shift): enter wire-pending (promotes to wire on drag)
-    {
-      const stormNode = target.closest<HTMLElement>(".storm-node");
-      const boardNode = target.closest<HTMLElement>(".board-node");
-      const nodeEl = stormNode ?? boardNode;
-      const nodeId = stormNode?.dataset.runId ?? boardNode?.dataset.nodeId;
-      if (!nodeEl || !nodeId) return;
-
-      const world = clientToWorld(e.clientX, e.clientY);
-      const slotSnap = boardNode ? getSourceSlotSnap(nodeId, world) : null;
-      const anchor = slotSnap?.anchor ?? computeNearestAnchor(nodeId, world);
-      if (!anchor) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-      state.pointerState = { mode: "wire-pending", pointerId: e.pointerId, nodeId, nodeEl, startClient: { x: e.clientX, y: e.clientY }, sourceAnchor: anchor, sourceSlot: slotSnap?.slotName };
-      nodeEl.setPointerCapture(e.pointerId);
-    }
+    if (target.closest(".storm-node")) return;
   });
 
   window.addEventListener("pointermove", (e) => {
@@ -2825,48 +2739,32 @@ function bindNodeInteractions(): void {
       e.preventDefault();
       const world = clientToWorld(e.clientX, e.clientY);
       state.pointerState.currentWorld = world;
-      const hit = hitTestNode(world, state.pointerState.sourceRunId);
+      const wireState = state.pointerState as Extract<PointerState, { mode: "wire" }>;
+      const srcSlots = NODE_SLOTS[wireState.sourceType] ?? [];
+      const srcSlotDef = wireState.sourceSlot
+        ? srcSlots.find((s) => s.name === wireState.sourceSlot)
+        : srcSlots.find((s) => s.direction === "out");
+      const srcValueType = srcSlotDef?.valueType;
+      const targetSnap = getWireTargetSnap(wireState.sourceRunId, world, srcValueType);
+      const targetId = targetSnap?.nodeId ?? null;
 
       // Update target highlight and target anchor
-      if (hit !== state.pointerState.targetRunId) {
+      if (targetId !== state.pointerState.targetRunId) {
         if (state.pointerState.targetRunId) {
           const prevEl = container.querySelector(`.storm-node[data-run-id="${state.pointerState.targetRunId}"]`)
             ?? container.querySelector(`.board-node[data-node-id="${state.pointerState.targetRunId}"]`);
           prevEl?.classList.remove("is-wire-target", "is-wire-invalid");
         }
-        state.pointerState.targetRunId = hit;
-        state.pointerState.targetType = hit ? getNodeType(hit) : null;
-        if (hit) {
-          const hitEl = container.querySelector(`.storm-node[data-run-id="${hit}"]`)
-            ?? container.querySelector(`.board-node[data-node-id="${hit}"]`);
-          const hitType = getNodeType(hit);
-          const valid = canConnect(state.pointerState.sourceType, hitType);
-          hitEl?.classList.add(valid ? "is-wire-target" : "is-wire-invalid");
+        state.pointerState.targetRunId = targetId;
+        state.pointerState.targetType = targetSnap?.nodeType ?? null;
+        if (targetId) {
+          const hitEl = container.querySelector(`.storm-node[data-run-id="${targetId}"]`)
+            ?? container.querySelector(`.board-node[data-node-id="${targetId}"]`);
+          hitEl?.classList.add("is-wire-target");
         }
       }
-      // Track target anchor for snapping — board nodes only snap to their input chips.
-      if (hit) {
-        // Determine source value type for compatibility filtering
-        const wireState = state.pointerState as Extract<PointerState, { mode: "wire" }>;
-        const srcSlots = NODE_SLOTS[wireState.sourceType] ?? [];
-        const srcSlotDef = wireState.sourceSlot
-          ? srcSlots.find((s) => s.name === wireState.sourceSlot)
-          : srcSlots.find((s) => s.direction === "out");
-        const srcValueType = srcSlotDef?.valueType;
-        const slotSnap = getSlotSnapAnchor(hit, world, srcValueType);
-        if (slotSnap) {
-          state.pointerState.targetAnchor = slotSnap.anchor;
-          state.pointerState.targetSlot = slotSnap.slotName;
-        } else {
-          state.pointerState.targetAnchor = state.boardNodes.some((node) => node.id === hit)
-            ? null
-            : getEdgeProximity(hit, world);
-          state.pointerState.targetSlot = undefined;
-        }
-      } else {
-        state.pointerState.targetAnchor = null;
-        state.pointerState.targetSlot = undefined;
-      }
+      state.pointerState.targetAnchor = targetSnap?.anchor ?? null;
+      state.pointerState.targetSlot = targetSnap?.slotName;
       renderWire();
       return;
     }
@@ -2946,26 +2844,28 @@ function bindNodeInteractions(): void {
         tgtEl?.classList.remove("is-wire-target", "is-wire-invalid");
       }
       document.body.classList.remove("is-wiring");
-      removeEdgeHandles();
       state.pointerState = null;
       wireJustCompleted = true;
       renderWire();
 
-      if (targetRunId && targetRunId !== sourceRunId) {
+      if (targetRunId && targetAnchor && targetSlot && targetRunId !== sourceRunId) {
         const resolvedTargetType = targetType ?? getNodeType(targetRunId);
         if (!canConnect(sourceType, resolvedTargetType)) {
           // Invalid connection — ignore silently
         } else {
-          const finalTargetAnchor = targetAnchor ?? { side: "top" as AnchorSide, t: 0.5, worldX: 0, worldY: 0 };
           createBoardEdge(
             sourceRunId, sourceType, targetRunId, resolvedTargetType,
-            sourceAnchor, finalTargetAnchor,
+            sourceAnchor, targetAnchor,
             sourceSlot, targetSlot,
           );
         }
       } else if (!targetRunId) {
         // Dropped on empty canvas: open radial menu to pick node type, then auto-connect
         const dropWorld = clientToWorld(e.clientX, e.clientY);
+        if (hitTestNode(dropWorld, sourceRunId)) {
+          if (srcEl instanceof HTMLElement && srcEl.hasPointerCapture(e.pointerId)) srcEl.releasePointerCapture(e.pointerId);
+          return;
+        }
         pendingWireSource = { id: sourceRunId, type: sourceType, anchor: sourceAnchor, dropWorld };
         deselectAll();
         openRadialMenu(e.clientX, e.clientY);
@@ -3041,7 +2941,6 @@ function bindNodeInteractions(): void {
         targetEl?.classList.remove("is-wire-target", "is-wire-invalid");
       }
       document.body.classList.remove("is-wiring");
-      removeEdgeHandles();
       renderWire();
     }
     state.pointerState = null;
@@ -3409,38 +3308,6 @@ async function deleteRun(runId: string): Promise<void> {
   renderFocus();
 
   syncUrl(false);
-}
-
-// ─── Dynamic edge handles ───
-
-let activeEdgeHandle: HTMLElement | null = null;
-
-function showEdgeHandle(nodeEl: HTMLElement, anchor: AnchorPoint): void {
-  removeEdgeHandles();
-  const handle = document.createElement("div");
-  handle.className = "edge-handle is-visible";
-  handle.dataset.side = anchor.side;
-  handle.dataset.t = String(anchor.t);
-
-  const { w, h } = getNodeDimensions(nodeEl.dataset.runId ?? nodeEl.dataset.nodeId ?? "");
-  switch (anchor.side) {
-    case "top": handle.style.left = `${anchor.t * w - 5}px`; handle.style.top = "-5px"; break;
-    case "bottom": handle.style.left = `${anchor.t * w - 5}px`; handle.style.bottom = "-5px"; break;
-    case "left": handle.style.top = `${anchor.t * h - 5}px`; handle.style.left = "-5px"; break;
-    case "right": handle.style.top = `${anchor.t * h - 5}px`; handle.style.right = "-5px"; break;
-  }
-
-  // Append to the shell element (first child)
-  const shell = nodeEl.firstElementChild as HTMLElement;
-  if (shell) shell.appendChild(handle);
-  activeEdgeHandle = handle;
-}
-
-function removeEdgeHandles(): void {
-  if (activeEdgeHandle) {
-    activeEdgeHandle.remove();
-    activeEdgeHandle = null;
-  }
 }
 
 function positionRenderedNodePorts(): void {
@@ -4382,31 +4249,6 @@ function renderSlotHandles(): void {
   }
 }
 
-function bindEdgeHover(): void {
-  const canvas = $("storm-canvas");
-  if (!canvas) return;
-
-  canvas.addEventListener("pointermove", (e) => {
-    if (state.pointerState) return; // don't show handles while dragging/wiring
-    const world = clientToWorld(e.clientX, e.clientY);
-    const container = $("storm-runs");
-    if (!container) return;
-
-    // Board nodes expose their own slot chips. Hover handles remain only for storm cards.
-    const allNodes = state.runs.map((run) => ({ id: run.id, sel: `.storm-node[data-run-id="${run.id}"]` }));
-
-    for (const { id, sel } of allNodes) {
-      const anchor = getEdgeProximity(id, world);
-      if (anchor) {
-        const nodeEl = container.querySelector<HTMLElement>(sel);
-        if (nodeEl) showEdgeHandle(nodeEl, anchor);
-        return;
-      }
-    }
-    removeEdgeHandles();
-  }, { passive: true });
-}
-
 function bindBoardNodeInteractions(): void {
   const container = $("storm-board");
   if (!container) return;
@@ -4420,7 +4262,6 @@ function bindBoardNodeInteractions(): void {
 
     // Reroll/lock/run buttons are handled by Datastar or JS
     if (target.closest(".entropy-btn")) return;
-    if (target.closest(".edge-handle")) return;
     if (target.closest(".node-port")) return;
     if (target.closest(".input-body")) return; // let contenteditable handle clicks
     if (target.closest(".generate-run-btn")) return; // handled by Datastar @post
@@ -4524,7 +4365,6 @@ function bindBoardNodeInteractions(): void {
       initDrawCanvas(nodeId);
       return;
     }
-    if (target.closest(".draw-out-port")) return; // let wire system handle it
     // Image: click drop zone
     if (target.closest("[data-action='upload-image']")) {
       triggerImageUpload(nodeId);
@@ -4711,7 +4551,7 @@ function bindBoardNodeInteractions(): void {
     if (state.spacePanHeld || state.boardTool === "pan") return;
     const target = e.target as HTMLElement;
     if (target.closest("[data-node-action]")) return;
-    if (target.closest(".edge-handle")) return;
+    if (target.closest(".node-port")) return;
     if (target.closest(".entropy-btn")) return; // let Datastar handle reroll/lock clicks
     if (target.closest(".input-body")) return; // don't drag while editing text
     if (target.closest(".set-title")) return;
@@ -4780,15 +4620,6 @@ function bindBoardNodeInteractions(): void {
       }
       return;
     }
-
-    // Default (no shift): enter wire-pending (promotes to wire on drag)
-    const world = clientToWorld(e.clientX, e.clientY);
-    const anchor = computeNearestAnchor(nodeId, world);
-    if (!anchor) return;
-    e.preventDefault();
-    e.stopPropagation();
-    state.pointerState = { mode: "wire-pending", pointerId: e.pointerId, nodeId, nodeEl: boardNode, startClient: { x: e.clientX, y: e.clientY }, sourceAnchor: anchor };
-    boardNode.setPointerCapture(e.pointerId);
   });
 }
 
@@ -5681,7 +5512,6 @@ function bindStormApp(): void {
   bindCanvasInteractions();
   bindNodeInteractions();
   bindBoardNodeInteractions();
-  bindEdgeHover();
   bindAppChrome();
   bindToolDock();
   bindPalette();

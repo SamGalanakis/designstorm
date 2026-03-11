@@ -395,18 +395,6 @@ impl StormRunSummary {
         self.created_at.to_rfc3339()
     }
 
-    fn status_label(&self) -> &'static str {
-        if self.submitted { "submitted" } else { "draft" }
-    }
-
-    fn status_class(&self) -> &'static str {
-        if self.submitted {
-            "pill pill-accent"
-        } else {
-            "pill pill-muted"
-        }
-    }
-
     fn parent_ids_csv(&self) -> String {
         self.parent_ids
             .iter()
@@ -1082,13 +1070,6 @@ impl BoardNodeSummary {
             .unwrap_or("Random page")
     }
 
-    fn entropy_url(&self) -> &str {
-        self.content
-            .get("url")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-    }
-
     fn input_text(&self) -> &str {
         self.content
             .get("text")
@@ -1205,10 +1186,6 @@ impl BoardNodeSummary {
 
     fn harmony_mode(&self) -> &str {
         self.content.get("mode").and_then(|v| v.as_str()).unwrap_or("complementary")
-    }
-
-    fn conditional_label(&self) -> &str {
-        self.content.get("label").and_then(|v| v.as_str()).unwrap_or("If / Else")
     }
 
     fn has_preset(&self) -> bool {
@@ -2455,16 +2432,29 @@ async fn run_generate_node_inner(
                 let new_run_id = response.run.id;
 
                 // Create board_edge from generate node → new design run
-                let _ = sqlx::query(
-                    r#"INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type, source_slot, target_slot)
-                       VALUES ($1, $2, 'generate', $3, 'design', 'out', 'sources')
-                       ON CONFLICT (source_id, source_slot, target_id, target_slot) DO NOTHING"#,
-                )
-                .bind(viewer.id)
-                .bind(gen_node_id)
-                .bind(new_run_id)
-                .execute(&state.db)
-                .await;
+                if let (Some((source_anchor_side, source_anchor_t)), Some((target_anchor_side, target_anchor_t))) = (
+                    slot_anchor("generate", "out"),
+                    slot_anchor("design", "generated_by"),
+                ) {
+                    let _ = sqlx::query(
+                        r#"INSERT INTO board_edges (
+                               owner_user_id, source_id, source_type, target_id, target_type,
+                               source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
+                               source_slot, target_slot
+                           )
+                           VALUES ($1, $2, 'generate', $3, 'design', $4, $5, $6, $7, 'out', 'generated_by')
+                           ON CONFLICT (source_id, source_slot, target_id, target_slot) DO NOTHING"#,
+                    )
+                    .bind(viewer.id)
+                    .bind(gen_node_id)
+                    .bind(new_run_id)
+                    .bind(source_anchor_side)
+                    .bind(source_anchor_t)
+                    .bind(target_anchor_side)
+                    .bind(target_anchor_t)
+                    .execute(&state.db)
+                    .await;
+                }
 
                 let run = &response.run;
                 let placeholder_sel = format!(
@@ -4435,56 +4425,78 @@ struct SlotDef {
     name: &'static str,
     direction: &'static str,
     value_type: &'static str,
-    multiple: bool,
 }
 
 fn node_slots(node_type: &str) -> &'static [SlotDef] {
     match node_type {
-        "entropy" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
-        "user_input" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
-        "design" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
+        "entropy" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref" }],
+        "user_input" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref" }],
+        "design" => &[
+            SlotDef { name: "generated_by", direction: "in", value_type: "node_ref" },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
+        ],
         "generate" => &[
-            SlotDef { name: "sources", direction: "in", value_type: "node_ref", multiple: true },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "sources", direction: "in", value_type: "node_ref" },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
         ],
         "color" => &[
-            SlotDef { name: "hue", direction: "in", value_type: "float", multiple: false },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "hue", direction: "in", value_type: "float" },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
         ],
         "color_palette" => &[
-            SlotDef { name: "members", direction: "in", value_type: "node_ref", multiple: true },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "members", direction: "in", value_type: "node_ref" },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
         ],
-        "image" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
-        "draw" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false }],
+        "image" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref" }],
+        "draw" => &[SlotDef { name: "out", direction: "out", value_type: "node_ref" }],
         "set" => &[
-            SlotDef { name: "members", direction: "in", value_type: "node_ref", multiple: true },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "members", direction: "in", value_type: "node_ref" },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
         ],
         "pick_k" => &[
-            SlotDef { name: "sources", direction: "in", value_type: "node_ref", multiple: true },
-            SlotDef { name: "k", direction: "in", value_type: "int", multiple: false },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "sources", direction: "in", value_type: "node_ref" },
+            SlotDef { name: "k", direction: "in", value_type: "int" },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
         ],
-        "int_value" => &[SlotDef { name: "value", direction: "out", value_type: "int", multiple: false }],
-        "float_value" => &[SlotDef { name: "value", direction: "out", value_type: "float", multiple: false }],
-        "string_value" => &[SlotDef { name: "value", direction: "out", value_type: "string", multiple: false }],
-        "bool_value" => &[SlotDef { name: "value", direction: "out", value_type: "bool", multiple: false }],
+        "int_value" => &[SlotDef { name: "value", direction: "out", value_type: "int" }],
+        "float_value" => &[SlotDef { name: "value", direction: "out", value_type: "float" }],
+        "string_value" => &[SlotDef { name: "value", direction: "out", value_type: "string" }],
+        "bool_value" => &[SlotDef { name: "value", direction: "out", value_type: "bool" }],
         "font" => &[
-            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
         ],
         "color_harmony" => &[
-            SlotDef { name: "source", direction: "in", value_type: "node_ref", multiple: false },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "source", direction: "in", value_type: "node_ref" },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
         ],
         "conditional" => &[
-            SlotDef { name: "condition", direction: "in", value_type: "bool", multiple: false },
-            SlotDef { name: "if_true", direction: "in", value_type: "node_ref", multiple: true },
-            SlotDef { name: "if_false", direction: "in", value_type: "node_ref", multiple: true },
-            SlotDef { name: "out", direction: "out", value_type: "node_ref", multiple: false },
+            SlotDef { name: "condition", direction: "in", value_type: "bool" },
+            SlotDef { name: "if_true", direction: "in", value_type: "node_ref" },
+            SlotDef { name: "if_false", direction: "in", value_type: "node_ref" },
+            SlotDef { name: "out", direction: "out", value_type: "node_ref" },
         ],
         _ => &[],
     }
+}
+
+fn slot_lane_t(index: usize, count: usize) -> f64 {
+    if count <= 1 {
+        0.5
+    } else {
+        (index + 1) as f64 / (count + 1) as f64
+    }
+}
+
+fn slot_anchor(node_type: &str, slot_name: &str) -> Option<(&'static str, f64)> {
+    let slots = node_slots(node_type);
+    let slot = slots.iter().find(|candidate| candidate.name == slot_name)?;
+    let lane_slots: Vec<&SlotDef> = slots
+        .iter()
+        .filter(|candidate| candidate.direction == slot.direction)
+        .collect();
+    let lane_index = lane_slots.iter().position(|candidate| candidate.name == slot_name)?;
+    let side = if slot.direction == "in" { "left" } else { "right" };
+    Some((side, slot_lane_t(lane_index, lane_slots.len())))
 }
 
 fn valid_slot_connection(
@@ -4722,12 +4734,27 @@ async fn create_board_node_datastar(
 
     if let (Some(source_id), Some(source_type)) = (payload.source_id, payload.source_type.as_deref()) {
         let (src_slot, tgt_slot) = default_slots_for_connection(source_type, &payload.node_type);
+        if !valid_slot_connection(source_type, src_slot, &payload.node_type, tgt_slot) {
+            return Ok(datastar_event_stream(Box::pin(stream! {
+                yield Ok::<_, Infallible>(patch_signals(json!({
+                    "_status": "Invalid node connection.",
+                }).to_string()));
+            })));
+        }
+        let (source_anchor_side, source_anchor_t) = match slot_anchor(source_type, src_slot) {
+            Some((side, t)) => (Some(side.to_string()), Some(t)),
+            None => (payload.source_anchor_side.clone(), payload.source_anchor_t),
+        };
+        let (target_anchor_side, target_anchor_t) = match slot_anchor(&payload.node_type, tgt_slot) {
+            Some((side, t)) => (Some(side.to_string()), Some(t)),
+            None => (None, None),
+        };
         let _ = sqlx::query_as::<_, BoardEdgeRow>(
             r#"
             INSERT INTO board_edges (owner_user_id, source_id, source_type, target_id, target_type,
                                      source_anchor_side, source_anchor_t, target_anchor_side, target_anchor_t,
                                      source_slot, target_slot)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'top', 0.5, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (source_id, source_slot, target_id, target_slot) DO UPDATE SET
                 source_type = EXCLUDED.source_type,
                 source_anchor_side = EXCLUDED.source_anchor_side,
@@ -4744,8 +4771,10 @@ async fn create_board_node_datastar(
         .bind(source_type)
         .bind(row.id)
         .bind(&payload.node_type)
-        .bind(&payload.source_anchor_side)
-        .bind(payload.source_anchor_t)
+        .bind(&source_anchor_side)
+        .bind(source_anchor_t)
+        .bind(&target_anchor_side)
+        .bind(target_anchor_t)
         .bind(src_slot)
         .bind(tgt_slot)
         .fetch_one(&state.db)
@@ -4975,6 +5004,14 @@ async fn create_board_edge(
             payload.source_type, payload.source_slot, payload.target_type, payload.target_slot
         )));
     }
+    let (source_anchor_side, source_anchor_t) = match slot_anchor(&payload.source_type, &payload.source_slot) {
+        Some((side, t)) => (Some(side.to_string()), Some(t)),
+        None => (payload.source_anchor_side.clone(), payload.source_anchor_t),
+    };
+    let (target_anchor_side, target_anchor_t) = match slot_anchor(&payload.target_type, &payload.target_slot) {
+        Some((side, t)) => (Some(side.to_string()), Some(t)),
+        None => (payload.target_anchor_side.clone(), payload.target_anchor_t),
+    };
 
     let row = sqlx::query_as::<_, BoardEdgeRow>(
         r#"
@@ -4998,10 +5035,10 @@ async fn create_board_edge(
     .bind(&payload.source_type)
     .bind(payload.target_id)
     .bind(&payload.target_type)
-    .bind(&payload.source_anchor_side)
-    .bind(payload.source_anchor_t)
-    .bind(&payload.target_anchor_side)
-    .bind(payload.target_anchor_t)
+    .bind(&source_anchor_side)
+    .bind(source_anchor_t)
+    .bind(&target_anchor_side)
+    .bind(target_anchor_t)
     .bind(&payload.source_slot)
     .bind(&payload.target_slot)
     .fetch_one(&state.db)

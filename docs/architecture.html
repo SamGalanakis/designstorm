@@ -814,7 +814,7 @@ stateDiagram-v2
     Idle --> Pan: Space + drag / Hand tool
     Idle --> DragNode: Pointer down on node
     Idle --> ResizeNode: Drag resize handle
-    Idle --> Wire: Pointer down on edge handle
+    Idle --> Wire: Pointer down on output anchor chip
     Idle --> RadialMenu: Right-click / Backtick
 
     Pan --> Idle: Pointer up
@@ -836,7 +836,9 @@ stateDiagram-v2
             <code>drag</code>, <code>drag-board-node</code>, <code>wire</code>, and <code>resize</code>.
             The board now uses Figma-style navigation: wheel pans, <code>Ctrl</code>/<code>Cmd</code> + wheel zooms,
             and the bottom tool dock controls select vs hand mode. Radial-created nodes spawn at the invocation point,
-            while toolbar-created nodes spawn centered in the current viewport.
+            while toolbar-created nodes spawn centered in the current viewport. Wiring is now anchor-only:
+            output chips start wires, input chips are the only valid drop targets, and generated result cards expose
+            <code>generated_by</code> and <code>out</code> ports for lineage and downstream connections.
           </p>
         </div>
       </div>
@@ -948,7 +950,8 @@ flowchart LR
             Each source type contributes to the prompt differently: entropy provides reference URLs,
             user input provides direction text, and design nodes provide context from previous generations.
             Generate-node execution is server-owned and returns Datastar SSE patches that refresh the
-            board HTML, roots navigator, and local generation signals.
+            board HTML, roots navigator, and local generation signals. The resulting design run is then
+            auto-linked back to the generate node through the run card's <code>generated_by</code> anchor.
           </p>
         </div>
       </div>
