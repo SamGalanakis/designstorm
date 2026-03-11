@@ -306,6 +306,8 @@ const HARMONY_NODE_HEIGHT = 140;
 const CONDITIONAL_NODE_WIDTH = 180;
 const CONDITIONAL_NODE_HEIGHT = 120;
 const EDGE_HANDLE_PROXIMITY = 30;
+const PORT_ANCHOR_OFFSET = 20;
+const PORT_HIT_RADIUS = 28;
 const INITIAL_PAN: Point = { x: 160, y: 120 };
 const BACKGROUND_CHUNK_WORLD_SIZE = 1536;
 const BACKGROUND_CHUNK_PIXEL_SIZE = 768;
@@ -685,6 +687,91 @@ function getAnchorWorldPos(nodeId: string, side: AnchorSide, t: number): { x: nu
   }
 }
 
+function getSlotLaneT(index: number, count: number): number {
+  if (count <= 1) return 0.5;
+  return (index + 1) / (count + 1);
+}
+
+function getSlotAnchor(nodeId: string, slotName: string): AnchorPoint | null {
+  const slots = NODE_SLOTS[getNodeType(nodeId)] ?? [];
+  const slot = slots.find((candidate) => candidate.name === slotName);
+  if (!slot) return null;
+
+  const laneSlots = slots.filter((candidate) => candidate.direction === slot.direction);
+  const laneIndex = laneSlots.findIndex((candidate) => candidate.name === slotName);
+  if (laneIndex < 0) return null;
+
+  const pos = state.positions.get(nodeId);
+  if (!pos) return null;
+  const { w, h } = getNodeDimensions(nodeId);
+  const t = getSlotLaneT(laneIndex, laneSlots.length);
+
+  if (slot.direction === "in") {
+    return { side: "left", t, worldX: pos.x - PORT_ANCHOR_OFFSET, worldY: pos.y + h * t };
+  }
+  return { side: "right", t, worldX: pos.x + w + PORT_ANCHOR_OFFSET, worldY: pos.y + h * t };
+}
+
+function getRenderableSlotAnchor(nodeId: string, slotName: string): AnchorPoint | null {
+  if (!state.boardNodes.find((node) => node.id === nodeId)) return null;
+  return getSlotAnchor(nodeId, slotName);
+}
+
+function getEdgeAnchorPoint(
+  nodeId: string,
+  slotName: string | null | undefined,
+  storedSide: string | null,
+  storedT: number | null,
+  fallbackSide: AnchorSide,
+): AnchorPoint {
+  const slotAnchor = slotName ? getRenderableSlotAnchor(nodeId, slotName) : null;
+  if (slotAnchor) return slotAnchor;
+
+  const side = (storedSide ?? fallbackSide) as AnchorSide;
+  const t = storedT ?? 0.5;
+  const anchor = getAnchorWorldPos(nodeId, side, t);
+  return { side, t, worldX: anchor.x, worldY: anchor.y };
+}
+
+function getNearestSlotSnap(
+  nodeId: string,
+  world: Point,
+  direction: "in" | "out",
+  sourceValueType?: string,
+): { anchor: AnchorPoint; slotName: string } | null {
+  const slots = (NODE_SLOTS[getNodeType(nodeId)] ?? []).filter((slot) => slot.direction === direction);
+  if (slots.length === 0) return null;
+
+  let best: { anchor: AnchorPoint; slotName: string; dist: number } | null = null;
+  for (const slot of slots) {
+    if (
+      direction === "in"
+      && sourceValueType
+      && slot.valueType !== sourceValueType
+      && slot.valueType !== "any"
+      && sourceValueType !== "any"
+    ) {
+      continue;
+    }
+    const anchor = getSlotAnchor(nodeId, slot.name);
+    if (!anchor) continue;
+    const dist = Math.hypot(world.x - anchor.worldX, world.y - anchor.worldY);
+    if (!best || dist < best.dist) {
+      best = { anchor, slotName: slot.name, dist };
+    }
+  }
+
+  return best ? { anchor: best.anchor, slotName: best.slotName } : null;
+}
+
+function isPointNearBoardNodePort(nodeId: string, worldPt: Point): boolean {
+  const slots = NODE_SLOTS[getNodeType(nodeId)] ?? [];
+  return slots.some((slot) => {
+    const anchor = getSlotAnchor(nodeId, slot.name);
+    return !!anchor && Math.hypot(worldPt.x - anchor.worldX, worldPt.y - anchor.worldY) <= PORT_HIT_RADIUS;
+  });
+}
+
 function getEdgeProximity(nodeId: string, worldPt: Point): AnchorPoint | null {
   const pos = state.positions.get(nodeId);
   if (!pos) return null;
@@ -719,92 +806,18 @@ function getEdgeProximity(nodeId: string, worldPt: Point): AnchorPoint | null {
   return { side: best.side, t: Math.max(0.1, Math.min(0.9, best.t)), worldX: best.wx, worldY: best.wy };
 }
 
-/** For multi-slot nodes, snap to the nearest compatible slot handle position.
- *  Returns the anchor + slotName, or falls back to getEdgeProximity for single-slot nodes. */
+/** Snap a wire target to the nearest compatible input slot anchor. */
 function getSlotSnapAnchor(
   nodeId: string, world: Point, sourceValueType?: string,
 ): { anchor: AnchorPoint; slotName: string } | null {
-  const nodeType = getNodeType(nodeId);
-  const slots = NODE_SLOTS[nodeType];
-  if (!slots || slots.length <= 1) return null; // single-slot → free-form
-
-  const pos = state.positions.get(nodeId);
-  if (!pos) return null;
-  const { w, h } = getNodeDimensions(nodeId);
-
-  const inSlots = slots.filter((s) => s.direction === "in");
-  const outSlots = slots.filter((s) => s.direction === "out");
-
-  let best: { anchor: AnchorPoint; slotName: string; dist: number } | null = null;
-
-  // Check input slot handles (left edge)
-  inSlots.forEach((slot, i) => {
-    const t = (i + 1) / (inSlots.length + 1);
-    const sx = pos.x;
-    const sy = pos.y + t * h;
-    const dist = Math.hypot(world.x - sx, world.y - sy);
-    if (dist < EDGE_HANDLE_PROXIMITY && (!best || dist < best.dist)) {
-      // If we know the source type, check compatibility
-      if (sourceValueType && slot.valueType !== sourceValueType && slot.valueType !== "any" && sourceValueType !== "any") return;
-      best = { anchor: { side: "left", t, worldX: sx, worldY: sy }, slotName: slot.name, dist };
-    }
-  });
-
-  // Check output slot handles (right edge)
-  outSlots.forEach((slot, i) => {
-    const t = (i + 1) / (outSlots.length + 1);
-    const sx = pos.x + w;
-    const sy = pos.y + t * h;
-    const dist = Math.hypot(world.x - sx, world.y - sy);
-    if (dist < EDGE_HANDLE_PROXIMITY && (!best || dist < best.dist)) {
-      if (sourceValueType && slot.valueType !== sourceValueType && slot.valueType !== "any" && sourceValueType !== "any") return;
-      best = { anchor: { side: "right", t, worldX: sx, worldY: sy }, slotName: slot.name, dist };
-    }
-  });
-
-  return best;
+  return getNearestSlotSnap(nodeId, world, "in", sourceValueType);
 }
 
-/** For multi-slot nodes starting a wire, find which slot handle is nearest to the cursor. */
+/** Pick the nearest output slot anchor when starting a wire from a board node. */
 function getSourceSlotSnap(
   nodeId: string, world: Point,
 ): { anchor: AnchorPoint; slotName: string } | null {
-  const nodeType = getNodeType(nodeId);
-  const slots = NODE_SLOTS[nodeType];
-  if (!slots || slots.length <= 1) return null;
-
-  const pos = state.positions.get(nodeId);
-  if (!pos) return null;
-  const { w, h } = getNodeDimensions(nodeId);
-
-  const outSlots = slots.filter((s) => s.direction === "out");
-  const inSlots = slots.filter((s) => s.direction === "in");
-
-  let best: { anchor: AnchorPoint; slotName: string; dist: number } | null = null;
-
-  // Output handles on right edge
-  outSlots.forEach((slot, i) => {
-    const t = (i + 1) / (outSlots.length + 1);
-    const sx = pos.x + w;
-    const sy = pos.y + t * h;
-    const dist = Math.hypot(world.x - sx, world.y - sy);
-    if (!best || dist < best.dist) {
-      best = { anchor: { side: "right", t, worldX: sx, worldY: sy }, slotName: slot.name, dist };
-    }
-  });
-
-  // Input handles on left edge
-  inSlots.forEach((slot, i) => {
-    const t = (i + 1) / (inSlots.length + 1);
-    const sx = pos.x;
-    const sy = pos.y + t * h;
-    const dist = Math.hypot(world.x - sx, world.y - sy);
-    if (!best || dist < best.dist) {
-      best = { anchor: { side: "left", t, worldX: sx, worldY: sy }, slotName: slot.name, dist };
-    }
-  });
-
-  return best;
+  return getNearestSlotSnap(nodeId, world, "out");
 }
 
 function computeNearestAnchor(nodeId: string, world: Point): AnchorPoint | null {
@@ -1900,32 +1913,26 @@ function renderConnections(): void {
     const srcPos = state.positions.get(edge.sourceId);
     const tgtPos = state.positions.get(edge.targetId);
     if (!srcPos || !tgtPos) return;
-    const srcDim = getNodeDimensions(edge.sourceId);
-    const tgtDim = getNodeDimensions(edge.targetId);
-
-    let sx: number, sy: number, ex: number, ey: number;
-    let srcSide: AnchorSide = "bottom";
-    let tgtSide: AnchorSide = "top";
-
-    if (edge.sourceAnchorSide && edge.sourceAnchorT != null) {
-      srcSide = edge.sourceAnchorSide as AnchorSide;
-      const anchor = getAnchorWorldPos(edge.sourceId, srcSide, edge.sourceAnchorT);
-      sx = anchor.x - bounds.minX;
-      sy = anchor.y - bounds.minY;
-    } else {
-      sx = srcPos.x + srcDim.w * 0.5 - bounds.minX;
-      sy = srcPos.y + srcDim.h - bounds.minY;
-    }
-
-    if (edge.targetAnchorSide && edge.targetAnchorT != null) {
-      tgtSide = edge.targetAnchorSide as AnchorSide;
-      const anchor = getAnchorWorldPos(edge.targetId, tgtSide, edge.targetAnchorT);
-      ex = anchor.x - bounds.minX;
-      ey = anchor.y - bounds.minY;
-    } else {
-      ex = tgtPos.x + tgtDim.w * 0.5 - bounds.minX;
-      ey = tgtPos.y - bounds.minY;
-    }
+    const sourceAnchor = getEdgeAnchorPoint(
+      edge.sourceId,
+      edge.sourceSlot,
+      edge.sourceAnchorSide,
+      edge.sourceAnchorT,
+      "bottom",
+    );
+    const targetAnchor = getEdgeAnchorPoint(
+      edge.targetId,
+      edge.targetSlot,
+      edge.targetAnchorSide,
+      edge.targetAnchorT,
+      "top",
+    );
+    const sx = sourceAnchor.worldX - bounds.minX;
+    const sy = sourceAnchor.worldY - bounds.minY;
+    const ex = targetAnchor.worldX - bounds.minX;
+    const ey = targetAnchor.worldY - bounds.minY;
+    const srcSide = sourceAnchor.side;
+    const tgtSide = targetAnchor.side;
 
     const dx = ex - sx;
     const dy = ey - sy;
@@ -2061,6 +2068,9 @@ function hitTestNode(worldPt: Point, excludeId?: string): string | null {
     if (worldPt.x >= pos.x && worldPt.x <= pos.x + dim.w && worldPt.y >= pos.y && worldPt.y <= pos.y + dim.h) {
       return node.id;
     }
+    if (isPointNearBoardNodePort(node.id, worldPt)) {
+      return node.id;
+    }
   }
   return null;
 }
@@ -2190,7 +2200,6 @@ function hydrateBoardFromDom(): void {
   updateColorFromHueInputs();
   updateHarmonyPreviews();
   updateConditionalPreviews();
-  renderSlotHandles();
   renderInspector();
   renderFocus();
 
@@ -2256,6 +2265,7 @@ function renderBoardNodes(): void {
     el.style.width = `${w}px`;
     el.style.height = `${h}px`;
   });
+  positionRenderedNodePorts();
 }
 
 function renderInspector(): void {
@@ -2573,6 +2583,7 @@ function bindNodeInteractions(): void {
     const target = e.target as HTMLElement;
     if (target.closest("[data-node-menu]")) return;
     if (target.closest(".edge-handle")) return;
+    if (target.closest(".node-port")) return;
     const action = target.closest<HTMLElement>("[data-run-action]")?.dataset.runAction;
     const stormNode = target.closest<HTMLElement>(".storm-node");
     const boardNode = target.closest<HTMLElement>(".board-node");
@@ -2617,6 +2628,29 @@ function bindNodeInteractions(): void {
     const target = e.target as HTMLElement;
     if (target.closest("[data-run-action]")) return;
     if (target.closest("[data-node-menu]")) return;
+
+    const outputPort = target.closest<HTMLElement>(".node-port[data-direction='out']");
+    const outputBoardNode = outputPort?.closest<HTMLElement>(".board-node");
+    const outputNodeId = outputBoardNode?.dataset.nodeId;
+    if (outputPort && outputBoardNode && outputNodeId) {
+      const slotName = outputPort.dataset.slot;
+      const anchor = slotName ? getSlotAnchor(outputNodeId, slotName) : null;
+      if (!slotName || !anchor) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      state.pointerState = {
+        mode: "wire-pending",
+        pointerId: e.pointerId,
+        nodeId: outputNodeId,
+        nodeEl: outputBoardNode,
+        startClient: { x: e.clientX, y: e.clientY },
+        sourceAnchor: anchor,
+        sourceSlot: slotName,
+      };
+      outputBoardNode.setPointerCapture(e.pointerId);
+      return;
+    }
+
     if (target.closest(".board-node") && !target.closest(".edge-handle")) return;
 
     // Shift held: resize handles and drag mode
@@ -2685,8 +2719,7 @@ function bindNodeInteractions(): void {
       const t = parseFloat(handleEl.dataset.t ?? "0.5");
       const anchorPos = getAnchorWorldPos(nodeId, side, t);
       const srcType = getNodeType(nodeId);
-      // Snap to nearest slot handle for multi-slot nodes
-      const slotSnap = getSourceSlotSnap(nodeId, { x: anchorPos.x, y: anchorPos.y });
+      const slotSnap = boardNode ? getSourceSlotSnap(nodeId, { x: anchorPos.x, y: anchorPos.y }) : null;
       const sourceAnchor: AnchorPoint = slotSnap?.anchor ?? { side, t, worldX: anchorPos.x, worldY: anchorPos.y };
       const sourceSlot = slotSnap?.slotName;
       state.pointerState = { mode: "wire", pointerId: e.pointerId, sourceRunId: nodeId, sourceType: srcType, sourceAnchor, startWorld: { x: sourceAnchor.worldX, y: sourceAnchor.worldY }, currentWorld: { x: sourceAnchor.worldX, y: sourceAnchor.worldY }, targetRunId: null, targetType: null, targetAnchor: null, sourceSlot };
@@ -2705,8 +2738,7 @@ function bindNodeInteractions(): void {
       if (!nodeEl || !nodeId) return;
 
       const world = clientToWorld(e.clientX, e.clientY);
-      // Snap to slot handle for multi-slot nodes
-      const slotSnap = getSourceSlotSnap(nodeId, world);
+      const slotSnap = boardNode ? getSourceSlotSnap(nodeId, world) : null;
       const anchor = slotSnap?.anchor ?? computeNearestAnchor(nodeId, world);
       if (!anchor) return;
 
@@ -2789,7 +2821,7 @@ function bindNodeInteractions(): void {
           hitEl?.classList.add(valid ? "is-wire-target" : "is-wire-invalid");
         }
       }
-      // Track target anchor for snapping — prefer slot handles for multi-slot nodes
+      // Track target anchor for snapping — board nodes only snap to their input chips.
       if (hit) {
         // Determine source value type for compatibility filtering
         const wireState = state.pointerState as Extract<PointerState, { mode: "wire" }>;
@@ -2803,7 +2835,9 @@ function bindNodeInteractions(): void {
           state.pointerState.targetAnchor = slotSnap.anchor;
           state.pointerState.targetSlot = slotSnap.slotName;
         } else {
-          state.pointerState.targetAnchor = getEdgeProximity(hit, world);
+          state.pointerState.targetAnchor = state.boardNodes.some((node) => node.id === hit)
+            ? null
+            : getEdgeProximity(hit, world);
           state.pointerState.targetSlot = undefined;
         }
       } else {
@@ -3059,6 +3093,8 @@ async function createBoardEdge(
   sourceSlot?: string, targetSlot?: string,
 ): Promise<void> {
   const slots = (sourceSlot && targetSlot) ? { sourceSlot, targetSlot } : defaultSlotsForConnection(sourceType, targetType);
+  const resolvedSourceAnchor = sourceAnchor ?? getRenderableSlotAnchor(sourceId, slots.sourceSlot) ?? undefined;
+  const resolvedTargetAnchor = targetAnchor ?? getRenderableSlotAnchor(targetId, slots.targetSlot) ?? undefined;
   try {
     const resp = await fetch("/edges", {
       method: "POST",
@@ -3067,10 +3103,10 @@ async function createBoardEdge(
       body: JSON.stringify({
         source_id: sourceId, source_type: sourceType,
         target_id: targetId, target_type: targetType,
-        source_anchor_side: sourceAnchor?.side ?? null,
-        source_anchor_t: sourceAnchor?.t ?? null,
-        target_anchor_side: targetAnchor?.side ?? null,
-        target_anchor_t: targetAnchor?.t ?? null,
+        source_anchor_side: resolvedSourceAnchor?.side ?? null,
+        source_anchor_t: resolvedSourceAnchor?.t ?? null,
+        target_anchor_side: resolvedTargetAnchor?.side ?? null,
+        target_anchor_t: resolvedTargetAnchor?.t ?? null,
         source_slot: slots.sourceSlot,
         target_slot: slots.targetSlot,
       }),
@@ -3183,30 +3219,28 @@ function hitTestEdge(worldPt: Point, maxDist: number = 24): string | null {
     const srcPos = state.positions.get(edge.sourceId);
     const tgtPos = state.positions.get(edge.targetId);
     if (!srcPos || !tgtPos) continue;
-    const srcDim = getNodeDimensions(edge.sourceId);
-    const tgtDim = getNodeDimensions(edge.targetId);
-
-    let sx: number, sy: number, ex: number, ey: number;
-
-    if (edge.sourceAnchorSide && edge.sourceAnchorT != null) {
-      const anchor = getAnchorWorldPos(edge.sourceId, edge.sourceAnchorSide as AnchorSide, edge.sourceAnchorT);
-      sx = anchor.x; sy = anchor.y;
-    } else {
-      sx = srcPos.x + srcDim.w * 0.5;
-      sy = srcPos.y + srcDim.h;
-    }
-
-    if (edge.targetAnchorSide && edge.targetAnchorT != null) {
-      const anchor = getAnchorWorldPos(edge.targetId, edge.targetAnchorSide as AnchorSide, edge.targetAnchorT);
-      ex = anchor.x; ey = anchor.y;
-    } else {
-      ex = tgtPos.x + tgtDim.w * 0.5;
-      ey = tgtPos.y;
-    }
+    const sourceAnchor = getEdgeAnchorPoint(
+      edge.sourceId,
+      edge.sourceSlot,
+      edge.sourceAnchorSide,
+      edge.sourceAnchorT,
+      "bottom",
+    );
+    const targetAnchor = getEdgeAnchorPoint(
+      edge.targetId,
+      edge.targetSlot,
+      edge.targetAnchorSide,
+      edge.targetAnchorT,
+      "top",
+    );
+    const sx = sourceAnchor.worldX;
+    const sy = sourceAnchor.worldY;
+    const ex = targetAnchor.worldX;
+    const ey = targetAnchor.worldY;
 
     // Sample the cubic bezier and find min distance
-    const srcSide = (edge.sourceAnchorSide ?? "bottom") as AnchorSide;
-    const tgtSide = (edge.targetAnchorSide ?? "top") as AnchorSide;
+    const srcSide = sourceAnchor.side;
+    const tgtSide = targetAnchor.side;
     const dx = ex - sx;
     const dy = ey - sy;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -3384,6 +3418,20 @@ function removeEdgeHandles(): void {
     activeEdgeHandle.remove();
     activeEdgeHandle = null;
   }
+}
+
+function positionRenderedNodePorts(): void {
+  document.querySelectorAll<HTMLElement>(".board-node[data-node-id]").forEach((nodeEl) => {
+    const nodeId = nodeEl.dataset.nodeId;
+    if (!nodeId) return;
+    nodeEl.querySelectorAll<HTMLElement>(".node-port[data-slot]").forEach((portEl) => {
+      const slotName = portEl.dataset.slot;
+      if (!slotName) return;
+      const anchor = getSlotAnchor(nodeId, slotName);
+      if (!anchor) return;
+      portEl.style.setProperty("--port-t", String(anchor.t));
+    });
+  });
 }
 
 function getSourceLabel(edge: BoardEdge): string {
@@ -4321,20 +4369,10 @@ function bindEdgeHover(): void {
     const container = $("storm-runs");
     if (!container) return;
 
-    // Check all nodes for edge proximity
-    const allNodes = [
-      ...state.runs.map((r) => ({ id: r.id, sel: `.storm-node[data-run-id="${r.id}"]` })),
-      ...state.boardNodes.map((n) => ({ id: n.id, sel: `.board-node[data-node-id="${n.id}"]` })),
-    ];
+    // Board nodes expose their own slot chips. Hover handles remain only for storm cards.
+    const allNodes = state.runs.map((run) => ({ id: run.id, sel: `.storm-node[data-run-id="${run.id}"]` }));
 
     for (const { id, sel } of allNodes) {
-      // For multi-slot nodes, snap hover handle to slot positions
-      const slotSnap = getSlotSnapAnchor(id, world);
-      if (slotSnap) {
-        const nodeEl = container.querySelector<HTMLElement>(sel);
-        if (nodeEl) showEdgeHandle(nodeEl, slotSnap.anchor);
-        return;
-      }
       const anchor = getEdgeProximity(id, world);
       if (anchor) {
         const nodeEl = container.querySelector<HTMLElement>(sel);
@@ -4360,6 +4398,7 @@ function bindBoardNodeInteractions(): void {
     // Reroll/lock/run buttons are handled by Datastar or JS
     if (target.closest(".entropy-btn")) return;
     if (target.closest(".edge-handle")) return;
+    if (target.closest(".node-port")) return;
     if (target.closest(".input-body")) return; // let contenteditable handle clicks
     if (target.closest(".generate-run-btn")) return; // handled by Datastar @post
     if (target.closest(".set-title")) return;

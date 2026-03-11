@@ -2735,43 +2735,48 @@ body.is-shift-held .board-node { cursor: grab; }
 
 .node-ports {
   position: absolute;
-  bottom: -20px;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 0 8px;
+  inset: 0;
   pointer-events: none;
   z-index: 4;
 }
 
-.node-ports-end {
-  justify-content: flex-end;
-}
-
 .node-port {
+  --port-gap: 12px;
+  position: absolute;
+  top: calc(var(--port-t, 0.5) * 100%);
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 1px 5px;
-  border-radius: 6px;
-  background: rgba(8, 12, 22, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 5px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(8, 12, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.22);
   cursor: crosshair;
   pointer-events: auto;
-  transition: border-color 0.12s, background 0.12s;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  transition: border-color 0.12s, background 0.12s, transform 0.12s;
+}
+
+.node-port-in {
+  right: calc(100% + var(--port-gap));
+  flex-direction: row-reverse;
+}
+
+.node-port-out {
+  left: calc(100% + var(--port-gap));
 }
 
 .node-port:hover {
   border-color: rgba(255, 255, 255, 0.2);
   background: rgba(8, 12, 22, 0.95);
+  transform: translateY(-50%) translateX(1px);
 }
 
 .node-port-dot {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
   transition: transform 0.12s, background 0.12s;
@@ -2783,9 +2788,9 @@ body.is-shift-held .board-node { cursor: grab; }
 
 .node-port-label {
   font-family: "IBM Plex Mono", monospace;
-  font-size: 7px;
+  font-size: 8px;
   font-weight: 500;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   line-height: 1;
 }
