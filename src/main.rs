@@ -2601,7 +2601,7 @@ fn render_messages_html(
     jobs_by_id: &HashMap<Uuid, DesignJobRow>,
 ) -> String {
     if messages.is_empty() {
-        return "<div class=\"chat-empty\">Start with a brief, a direction, or an iteration request.</div>".to_string();
+        return "<div class=\"chat-empty\">\u{2014}</div>".to_string();
     }
 
     messages
@@ -2641,7 +2641,7 @@ fn render_messages_html(
 
 fn render_reference_list_html(references: &[ReferenceItemRow]) -> String {
     if references.is_empty() {
-        return "<div class=\"reference-empty\">Add notes, links, or images to build the session context.</div>".to_string();
+        return "<div class=\"reference-empty\"></div>".to_string();
     }
 
     references
@@ -2686,7 +2686,7 @@ fn render_reference_list_html(references: &[ReferenceItemRow]) -> String {
                 String::new()
             };
             format!(
-                r#"<button class="reference-item" type="button" data-reference-handle="{handle}" data-reference-label="{label}" data-reference-kind="{kind}" title="Shift-click to add to the draft">
+                r#"<button class="reference-item" type="button" data-reference-handle="{handle}" data-reference-label="{label}" data-reference-kind="{kind}">
   <span class="reference-item-top">
     <span class="reference-item-kind">{kind}</span>
     <span class="reference-item-date">{date}</span>
@@ -2754,7 +2754,7 @@ fn render_gallery_html(
             .map(|title| format!(r#"<span class="gallery-lineage">Iterates on {}</span>"#, html_escape(title)))
             .unwrap_or_default();
         format!(
-            r#"<article class="gallery-card design-card" data-design-id="{id}" data-design-handle="design:{id}" data-design-label="{title}" tabindex="0" title="Shift-click to add as a reference">
+            r#"<article class="gallery-card design-card" data-design-id="{id}" data-design-handle="design:{id}" data-design-label="{title}" tabindex="0">
   <div class="gallery-card-meta">
     <span class="gallery-card-status">{status}</span>
     <span class="gallery-card-date">{date}</span>
@@ -2788,7 +2788,7 @@ fn render_gallery_html(
         .collect::<Vec<_>>()
         .join("");
     if html.is_empty() {
-        "<div class=\"gallery-empty\">Pending jobs and finished designs will show up here.</div>"
+        "<div class=\"gallery-empty\"></div>"
             .to_string()
     } else {
         html

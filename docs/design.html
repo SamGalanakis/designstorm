@@ -3,65 +3,85 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Design Storm / Indigo Design System</title>
+  <title>Design Storm / Light Table Design System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@300;400;500;600;700;800;900&family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      themeVariables: {
+        background: '#0c0d10',
+        primaryColor: '#1a1d24',
+        secondaryColor: '#141618',
+        tertiaryColor: '#1e2128',
+        primaryTextColor: '#e2e4e8',
+        primaryBorderColor: '#2a2e36',
+        lineColor: '#00d4ff',
+        fontFamily: "'JetBrains Mono', monospace",
+        fontSize: '11px'
+      }
+    });
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0b1120;
-      --bg-rgb: 11, 17, 32;
-      --surface: #131d2e;
-      --surface-rgb: 19, 29, 46;
-      --surface-strong: #1a2740;
-      --surface-strong-rgb: 26, 39, 64;
-      --text: #dce4ed;
-      --text-rgb: 220, 228, 237;
-      --text-soft: #8d9bab;
-      --text-soft-rgb: 141, 155, 171;
-      --muted: #6b7a8d;
-      --muted-rgb: 107, 122, 141;
-      --line: #283548;
-      --line-rgb: 40, 53, 72;
-      --accent: #7ba3b8;
-      --accent-rgb: 123, 163, 184;
-      --accent-soft: #1e3040;
-      --accent-soft-rgb: 30, 48, 64;
-      --accent-2: #a08b72;
-      --accent-2-rgb: 160, 139, 114;
-      --mark: #1e2b3f;
-      --mark-rgb: 30, 43, 63;
-      --shadow-rgb: 3, 6, 12;
-      --ambient:
-        radial-gradient(circle at 20% 12%, rgba(78, 107, 136, 0.22) 0%, rgba(78, 107, 136, 0) 26%),
-        radial-gradient(circle at 78% 14%, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0) 20%),
-        radial-gradient(circle at 50% 100%, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0) 36%);
+      --bg: #0a0b0e;
+      --surface: #111318;
+      --surface-2: #181b22;
+      --text: #e8eaee;
+      --text-2: #9da3ae;
+      --text-3: #5c6370;
+      --border: rgba(255, 255, 255, 0.06);
+      --border-2: rgba(255, 255, 255, 0.1);
+
+      --lit: #f4f5f8;
+      --lit-warm: #faf8f5;
+      --lit-text: #111318;
+      --lit-mute: #6b6e75;
+      --lit-border: rgba(0, 0, 0, 0.06);
+
+      --cyan: #00d4ff;
+      --cyan-2: #00a8cc;
+      --cyan-bg: rgba(0, 212, 255, 0.08);
+      --cyan-border: rgba(0, 212, 255, 0.2);
+      --cyan-glow: rgba(0, 212, 255, 0.15);
+
+      --red: #ff4f5e;
+      --red-dim: rgba(255, 79, 94, 0.4);
+
+      --warm: #f0c060;
+      --warm-bg: rgba(240, 192, 96, 0.08);
     }
 
-    html {
-      font-size: 16px;
-      scroll-behavior: smooth;
-    }
+    html { font-size: 16px; scroll-behavior: smooth; }
 
     body {
       min-height: 100vh;
-      font-family: 'Manrope', sans-serif;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-weight: 400;
       color: var(--text);
-      line-height: 1.65;
+      background: var(--bg);
+      line-height: 1.6;
       -webkit-font-smoothing: antialiased;
-      text-rendering: optimizeLegibility;
       overflow-x: hidden;
     }
 
-    #grain-canvas {
+    /* ═══ Atmospheric layers ═══ */
+
+    body::before {
+      content: '';
       position: fixed;
       inset: 0;
       z-index: 0;
       pointer-events: none;
-      width: 100%;
-      height: 100%;
+      background:
+        radial-gradient(ellipse 80% 50% at 30% 0%, rgba(0, 212, 255, 0.06) 0%, transparent 60%),
+        radial-gradient(ellipse 60% 40% at 80% 10%, rgba(255, 79, 94, 0.03) 0%, transparent 50%),
+        radial-gradient(ellipse 70% 50% at 50% 100%, rgba(0, 0, 0, 0.4) 0%, transparent 60%);
     }
 
     body::after {
@@ -70,1754 +90,1158 @@
       inset: 0;
       z-index: 0;
       pointer-events: none;
-      background: var(--ambient);
+      opacity: 0.4;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
     }
 
-    ::selection {
-      background: rgba(var(--accent-rgb), 0.22);
+    ::selection { background: rgba(0, 212, 255, 0.25); }
+
+    /* ═══ Tab navigation ═══ */
+
+    .tab-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 28px;
+      height: 48px;
+      background: rgba(10, 11, 14, 0.92);
+      backdrop-filter: blur(20px) saturate(1.6);
+      -webkit-backdrop-filter: blur(20px) saturate(1.6);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .tab-brand {
+      font-family: 'Archivo', sans-serif;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.03em;
+      margin-right: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .tab-brand-sub {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      padding: 2px 7px;
+      border: 1px solid var(--cyan-border);
+      border-radius: 4px;
+      background: var(--cyan-bg);
+    }
+
+    .tab-btn {
+      padding: 0 14px;
+      height: 32px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text-3);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 180ms cubic-bezier(0.2, 0.9, 0.3, 1);
+      position: relative;
+    }
+
+    .tab-btn:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .tab-btn.is-active {
+      color: var(--bg);
+      background: var(--cyan);
+      font-weight: 700;
+      box-shadow: 0 0 20px var(--cyan-glow), 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    /* ═══ Panels ═══ */
+
+    .tab-panel {
+      display: none;
+      position: relative;
+      z-index: 1;
+    }
+
+    .tab-panel.is-visible {
+      display: block;
+      animation: panel-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    @keyframes panel-in {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .shell {
+      max-width: 1060px;
+      margin: 0 auto;
+      padding: 56px 36px 100px;
+    }
+
+    /* ═══ Hero header ═══ */
+
+    .hero {
+      margin-bottom: 48px;
+      position: relative;
+    }
+
+    .hero-eyebrow {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--cyan);
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .hero-eyebrow::before {
+      content: '';
+      width: 20px;
+      height: 1px;
+      background: var(--cyan);
+    }
+
+    .hero-title {
+      font-family: 'Archivo', sans-serif;
+      font-size: clamp(40px, 6vw, 72px);
+      font-weight: 800;
+      letter-spacing: -0.05em;
+      line-height: 0.92;
+      color: var(--text);
+      margin-bottom: 16px;
+    }
+
+    .hero-title span {
+      background: linear-gradient(135deg, var(--text) 40%, var(--cyan) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-desc {
+      font-size: 15px;
+      color: var(--text-2);
+      max-width: 540px;
+      line-height: 1.7;
+    }
+
+    /* ═══ Sections ═══ */
+
+    .sect {
+      margin-top: 52px;
+      animation: sect-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+
+    .sect:nth-child(2) { animation-delay: 0.05s; }
+    .sect:nth-child(3) { animation-delay: 0.1s; }
+    .sect:nth-child(4) { animation-delay: 0.15s; }
+    .sect:nth-child(5) { animation-delay: 0.2s; }
+    .sect:nth-child(6) { animation-delay: 0.25s; }
+
+    @keyframes sect-in {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .sect-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 18px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sect-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, var(--border-2), transparent 60%);
+    }
+
+    .sect-note {
+      font-size: 14px;
+      color: var(--text-2);
+      line-height: 1.65;
+      margin-bottom: 18px;
+      max-width: 600px;
+    }
+
+    /* ═══ Grids ═══ */
+
+    .g2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+    .g3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+    .g4 { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+
+    /* ═══ Dark card ═══ */
+
+    .dk {
+      padding: 20px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      position: relative;
+      transition: all 280ms cubic-bezier(0.2, 0.9, 0.3, 1);
+      overflow: hidden;
+    }
+
+    .dk::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
+      transition: background 280ms;
+    }
+
+    .dk:hover {
+      border-color: var(--border-2);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.03);
+    }
+
+    .dk:hover::before {
+      background: linear-gradient(90deg, transparent, rgba(0, 212, 255, 0.2), transparent);
+    }
+
+    .dk-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-bottom: 10px;
+    }
+
+    .dk p, .dk-body {
+      font-size: 13px;
+      color: var(--text-2);
+      line-height: 1.6;
+    }
+
+    /* ═══ Lit card (transparency) ═══ */
+
+    .lt {
+      padding: 24px;
+      border-radius: 14px;
+      border: 1px solid rgba(0, 0, 0, 0.04);
+      background: var(--lit);
+      color: var(--lit-text);
+      position: relative;
+      transition: all 320ms cubic-bezier(0.2, 0.9, 0.3, 1);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    /* Crop marks */
+    .lt::before, .lt::after {
+      content: '';
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      pointer-events: none;
+      transition: opacity 250ms;
+    }
+
+    .lt::before {
+      top: 8px; left: 8px;
+      border-top: 2px solid var(--red-dim);
+      border-left: 2px solid var(--red-dim);
+    }
+
+    .lt::after {
+      bottom: 8px; right: 8px;
+      border-bottom: 2px solid var(--red-dim);
+      border-right: 2px solid var(--red-dim);
+    }
+
+    .lt:hover {
+      transform: translateY(-4px) scale(1.01);
+      box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.2),
+        0 0 80px rgba(244, 245, 248, 0.05),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+
+    .lt:hover::before, .lt:hover::after { opacity: 1; }
+
+    .lt h4 {
+      font-family: 'Archivo', sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--lit-text);
+      margin-bottom: 6px;
+      letter-spacing: -0.02em;
+    }
+
+    .lt p {
+      font-size: 13px;
+      color: var(--lit-mute);
+      line-height: 1.6;
+    }
+
+    /* ═══ Swatches ═══ */
+
+    .sw-lg {
+      width: 100%;
+      height: 56px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      margin-bottom: 10px;
+      transition: transform 200ms ease, box-shadow 200ms ease;
+    }
+
+    .dk:hover .sw-lg {
+      transform: scale(1.03);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .sw-name {
+      font-family: 'Archivo', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+
+    .sw-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--text-3);
+    }
+
+    /* ═══ Type specimen ═══ */
+
+    .spec {
+      padding: 32px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      margin-bottom: 16px;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 250ms;
+    }
+
+    .spec::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--cyan), transparent);
+      opacity: 0;
+      transition: opacity 300ms;
+    }
+
+    .spec:hover { border-color: var(--border-2); }
+    .spec:hover::after { opacity: 0.5; }
+
+    .spec-head {
+      font-family: 'Archivo', sans-serif;
+      font-weight: 300;
+      line-height: 1.1;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .spec-body {
+      font-family: 'Inter', sans-serif;
+      font-weight: 400;
+      line-height: 1.65;
+      color: var(--text-2);
+    }
+
+    .spec-mono {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-2);
+      line-height: 1.5;
+    }
+
+    .spec-tag {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-3);
+      margin-top: 14px;
+    }
+
+    /* ═══ Buttons ═══ */
+
+    .btn-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+
+    .db {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      height: 36px;
+      padding: 0 18px;
+      border-radius: 8px;
+      font-family: 'Archivo', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      cursor: default;
+      transition: all 200ms ease;
+      letter-spacing: -0.01em;
+    }
+
+    .db:hover { transform: translateY(-2px); }
+
+    .db-cy {
+      background: var(--cyan);
+      color: var(--bg);
+      box-shadow: 0 2px 12px var(--cyan-glow);
+    }
+
+    .db-cy:hover { box-shadow: 0 6px 24px rgba(0, 212, 255, 0.25); }
+
+    .db-gh {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-2);
+      color: var(--text-2);
+    }
+
+    .db-gh:hover { background: rgba(255, 255, 255, 0.08); color: var(--text); }
+
+    .db-dk {
+      background: var(--surface-2);
+      border: 1px solid var(--border-2);
       color: var(--text);
     }
 
-    /* ─── Navigation ─── */
+    .db-sm { height: 30px; padding: 0 14px; font-size: 12px; }
 
-    .direction-nav {
-      position: sticky;
-      top: 0;
-      z-index: 1000;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      padding: 14px 24px;
-      background: rgba(var(--bg-rgb), 0.82);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border-bottom: 1px solid rgba(var(--line-rgb), 0.6);
-      box-shadow: 0 8px 28px rgba(var(--shadow-rgb), 0.12);
-    }
+    /* ═══ Badges ═══ */
 
-    .direction-nav a {
-      color: rgba(var(--text-rgb), 0.5);
-      text-decoration: none;
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      white-space: nowrap;
-      padding: 6px 12px;
-      border-radius: 999px;
-      transition: color 0.25s ease, background 0.25s ease;
-    }
+    .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 
-    .direction-nav a:hover {
-      color: rgba(var(--text-rgb), 0.88);
-      background: rgba(var(--text-rgb), 0.06);
-    }
-
-    .nav-title {
-      flex: 1;
-      text-align: center;
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 1rem;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: rgba(var(--text-rgb), 0.5);
-    }
-
-    .nav-home {
-      padding-right: 18px;
-      margin-right: 2px;
-      border-right: 1px solid rgba(var(--line-rgb), 0.8);
-      font-size: 11px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-    }
-
-    /* ─── Direction shell ─── */
-
-    .direction {
-      position: relative;
-      z-index: 1;
-      min-height: 100vh;
-    }
-
-    .direction-header,
-    .direction-showcase,
-    .direction-rationale {
-      position: relative;
-      z-index: 1;
-      width: min(1180px, calc(100vw - 48px));
-      margin: 0 auto;
-    }
-
-    .direction-header {
-      padding: 96px 0 44px;
-    }
-
-    .direction-number {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 11px;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.8);
-      margin-bottom: 10px;
-    }
-
-    .direction-tag {
+    .bdg {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      margin-bottom: 20px;
-      padding: 8px 14px;
-      border-radius: 999px;
-      background: rgba(var(--surface-rgb), 0.8);
-      border: 1px solid rgba(var(--line-rgb), 0.85);
-      box-shadow: 0 14px 40px rgba(var(--shadow-rgb), 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: rgba(var(--text-rgb), 0.6);
+      gap: 6px;
+      padding: 4px 12px;
+      border-radius: 8px;
+      font-family: 'Archivo', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      transition: transform 150ms;
     }
 
-    .direction-name {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: clamp(4.2rem, 10vw, 7.4rem);
-      font-weight: 600;
-      line-height: 0.92;
-      letter-spacing: -0.035em;
-      color: rgba(var(--text-rgb), 0.96);
-      margin-bottom: 10px;
+    .bdg::before {
+      content: '';
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
     }
 
-    .direction-subtitle {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: clamp(1.45rem, 3vw, 2.1rem);
-      font-style: italic;
-      letter-spacing: 0.04em;
-      color: rgba(var(--accent-rgb), 0.88);
-      margin-bottom: 28px;
+    .bdg:hover { transform: scale(1.04); }
+
+    .bdg-d {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: var(--text-2);
     }
+    .bdg-d::before { background: var(--text-3); }
 
-    .header-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.9fr);
-      gap: 28px;
-      align-items: start;
+    .bdg-c {
+      background: var(--cyan-bg);
+      border: 1px solid var(--cyan-border);
+      color: var(--cyan);
     }
+    .bdg-c::before { background: var(--cyan); box-shadow: 0 0 6px var(--cyan-glow); }
 
-    .direction-desc {
-      max-width: 680px;
-      font-size: 17px;
-      line-height: 1.95;
-      color: rgba(var(--text-soft-rgb), 0.96);
+    .bdg-w {
+      background: var(--warm-bg);
+      border: 1px solid rgba(240, 192, 96, 0.2);
+      color: var(--warm);
     }
+    .bdg-w::before { background: var(--warm); }
 
-    .direction-aside {
-      display: grid;
-      gap: 14px;
-    }
+    /* ═══ Crop mark demo ═══ */
 
-    .aside-card {
-      padding: 18px 18px 16px;
-      border-radius: 22px;
-      background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.88), rgba(var(--surface-strong-rgb), 0.75));
-      border: 1px solid rgba(var(--line-rgb), 0.8);
-      box-shadow: 0 22px 45px rgba(var(--shadow-rgb), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-    }
-
-    .meta-label {
-      display: inline-block;
-      margin-bottom: 10px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.9);
-    }
-
-    .aside-card p {
-      font-size: 13px;
-      line-height: 1.8;
-      color: rgba(var(--text-soft-rgb), 0.92);
-    }
-
-    /* ─── Divider ─── */
-
-    .quiet-divider {
-      width: min(1180px, calc(100vw - 48px));
-      margin: 0 auto 22px;
-      display: flex;
-      justify-content: center;
-    }
-
-    .quiet-divider span {
-      width: min(260px, 42vw);
-      height: 1px;
-      background: linear-gradient(90deg, rgba(var(--line-rgb), 0) 0%, rgba(var(--line-rgb), 0.9) 50%, rgba(var(--line-rgb), 0) 100%);
+    .crop-box {
       position: relative;
+      padding: 40px;
+      border-radius: 14px;
+      background: var(--lit);
+      border: 1px solid var(--lit-border);
+      min-height: 140px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 300ms cubic-bezier(0.2, 0.9, 0.3, 1);
     }
 
-    .quiet-divider span::after {
+    .crop-box::before, .crop-box::after {
       content: '';
       position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 9px;
-      height: 9px;
-      transform: translate(-50%, -50%);
-      border-radius: 999px;
-      background: rgba(var(--accent-rgb), 0.38);
-      box-shadow: 0 0 0 8px rgba(var(--accent-rgb), 0.06);
+      width: 16px;
+      height: 16px;
+      transition: all 300ms;
+    }
+    .crop-box::before { top: 10px; left: 10px; border-top: 2px solid var(--red-dim); border-left: 2px solid var(--red-dim); }
+    .crop-box::after { bottom: 10px; right: 10px; border-bottom: 2px solid var(--red-dim); border-right: 2px solid var(--red-dim); }
+
+    .crop-box:hover {
+      box-shadow: 0 0 100px rgba(244, 245, 248, 0.08), 0 20px 50px rgba(0, 0, 0, 0.15);
+      transform: scale(1.02);
+    }
+    .crop-box:hover::before, .crop-box:hover::after {
+      border-color: var(--red);
     }
 
-    /* ─── Showcase panels ─── */
-
-    .direction-showcase {
-      padding: 18px 0 36px;
+    .crop-box-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--lit-mute);
     }
 
-    .showcase-grid {
-      display: grid;
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      gap: 24px;
-    }
+    /* ═══ Mermaid ═══ */
 
-    .showcase-panel {
+    .mm {
+      padding: 20px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      background: rgba(17, 19, 24, 0.9);
+      overflow: auto;
       position: relative;
-      overflow: hidden;
-      min-height: 280px;
-      padding: 30px;
-      border-radius: 30px;
-      background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.9), rgba(var(--surface-strong-rgb), 0.78));
-      border: 1px solid rgba(var(--line-rgb), 0.82);
-      box-shadow:
-        0 30px 80px rgba(var(--shadow-rgb), 0.18),
-        0 8px 22px rgba(var(--shadow-rgb), 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04);
-      animation: panel-rise 0.7s ease both;
+      transition: border-color 300ms, box-shadow 300ms;
     }
 
-    .showcase-panel::before {
+    .mm::before {
       content: '';
       position: absolute;
       inset: 0;
-      background:
-        linear-gradient(155deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0) 42%),
-        radial-gradient(circle at 100% 0%, rgba(var(--accent-rgb), 0.06), rgba(var(--accent-rgb), 0) 34%);
+      border-radius: 14px;
+      padding: 1px;
+      background: linear-gradient(135deg, rgba(0, 212, 255, 0.1), transparent 50%);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
       pointer-events: none;
+      opacity: 0;
+      transition: opacity 300ms;
     }
 
-    .showcase-panel:nth-child(2) { animation-delay: 0.06s; }
-    .showcase-panel:nth-child(3) { animation-delay: 0.12s; }
-    .showcase-panel:nth-child(4) { animation-delay: 0.18s; }
-    .showcase-panel:nth-child(5) { animation-delay: 0.24s; }
-    .showcase-panel:nth-child(6) { animation-delay: 0.3s; }
-    .showcase-panel:nth-child(7) { animation-delay: 0.36s; }
+    .mm:hover { border-color: rgba(0, 212, 255, 0.12); box-shadow: 0 0 40px rgba(0, 212, 255, 0.03); }
+    .mm:hover::before { opacity: 1; }
 
-    @keyframes panel-rise {
-      from {
-        opacity: 0;
-        transform: translateY(18px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
+    /* ═══ Code ═══ */
 
-    .showcase-label {
-      position: relative;
-      z-index: 1;
-      margin-bottom: 24px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      font-weight: 500;
-      letter-spacing: 0.16em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.9);
-    }
-
-    .panel-surface { grid-column: span 7; }
-    .panel-interval { grid-column: span 5; overflow: visible; }
-    .panel-workspace { grid-column: span 12; }
-    .panel-controls,
-    .panel-atlas { grid-column: span 6; }
-    .panel-layout,
-    .panel-type { grid-column: span 6; }
-
-    /* ─── Surface specimen ─── */
-
-    .surface-layout {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: minmax(0, 1.1fr) minmax(220px, 0.7fr);
-      gap: 28px;
-      align-items: end;
-      min-height: 100%;
-    }
-
-    .quiet-quote {
-      max-width: 460px;
-      margin-bottom: 16px;
-      font-family: 'Cormorant Garamond', serif;
-      font-size: clamp(2rem, 4vw, 3.4rem);
-      font-weight: 500;
-      line-height: 1.04;
-      letter-spacing: -0.02em;
-      color: rgba(var(--text-rgb), 0.94);
-    }
-
-    .surface-copy {
-      max-width: 540px;
-      font-size: 14px;
-      line-height: 1.9;
-      color: rgba(var(--text-soft-rgb), 0.94);
-    }
-
-    .material-stack {
-      display: grid;
-      gap: 12px;
-    }
-
-    .material-card {
-      padding: 16px;
-      border-radius: 22px;
-      background: rgba(var(--mark-rgb), 0.65);
-      border: 1px solid rgba(var(--line-rgb), 0.72);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-    }
-
-    .material-card strong {
+    .code {
       display: block;
-      margin-bottom: 6px;
-      font-size: 14px;
-      font-weight: 700;
-      color: rgba(var(--text-rgb), 0.9);
-    }
-
-    .material-card p {
-      font-size: 12px;
-      line-height: 1.75;
-      color: rgba(var(--text-soft-rgb), 0.84);
-    }
-
-    /* ─── Swatches ─── */
-
-    .swatch-row {
-      display: flex;
-      gap: 10px;
-      margin-top: 16px;
-      flex-wrap: wrap;
-    }
-
-    .swatch {
-      display: grid;
-      gap: 6px;
-      justify-items: center;
-    }
-
-    .swatch-dot {
-      width: 34px;
-      height: 34px;
-      border-radius: 999px;
-      border: 1px solid rgba(var(--line-rgb), 0.7);
-      box-shadow:
-        0 6px 14px rgba(var(--shadow-rgb), 0.14),
-        inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    }
-
-    .swatch span {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 9px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.9);
-    }
-
-    /* ─── Interval / spacing ─── */
-
-    .interval-grid {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-      align-items: end;
-      min-height: calc(100% - 36px);
-      overflow: visible;
-    }
-
-    .interval-state {
-      display: grid;
-      gap: 16px;
-      justify-items: center;
-      text-align: center;
-    }
-
-    .interval-pair {
-      display: flex;
-      align-items: center;
-      height: 88px;
-    }
-
-    .interval-dot {
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      background: rgba(var(--text-rgb), 0.2);
-      box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.08);
-    }
-
-    .interval-tight .interval-pair { gap: 6px; }
-    .interval-held .interval-pair { gap: 22px; }
-    .interval-breathing .interval-pair { gap: 54px; }
-    .interval-distant .interval-pair { gap: 72px; }
-
-    .interval-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: rgba(var(--text-rgb), 0.86);
-    }
-
-    .interval-note {
-      max-width: 120px;
+      overflow-x: auto;
+      padding: 18px 20px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      font-family: 'JetBrains Mono', monospace;
       font-size: 12px;
       line-height: 1.7;
-      color: rgba(var(--text-soft-rgb), 0.86);
-    }
-
-    /* ─── Controls ─── */
-
-    .controls-shell {
+      color: var(--text-2);
+      white-space: pre;
       position: relative;
-      z-index: 1;
-      display: grid;
-      gap: 22px;
     }
 
-    .button-row,
-    .chip-row,
-    .segmented {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: center;
-    }
-
-    .quiet-btn,
-    .quiet-chip,
-    .segment {
-      border: 1px solid rgba(var(--line-rgb), 0.82);
-      background: rgba(var(--surface-rgb), 0.7);
-      color: rgba(var(--text-rgb), 0.72);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-    }
-
-    .quiet-btn {
-      padding: 12px 18px;
-      border-radius: 999px;
-      font: inherit;
-      font-size: 13px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: transform 0.2s ease, background 0.2s ease, color 0.2s ease;
-    }
-
-    .quiet-btn:hover {
-      transform: translateY(-1px);
-      background: rgba(var(--surface-strong-rgb), 0.92);
-      color: rgba(var(--text-rgb), 0.92);
-    }
-
-    .quiet-btn.primary {
-      background: rgba(var(--accent-rgb), 0.14);
-      color: rgba(var(--accent-rgb), 0.96);
-      border-color: rgba(var(--accent-rgb), 0.22);
-    }
-
-    .quiet-btn.secondary {
-      background: rgba(var(--accent-2-rgb), 0.12);
-      color: rgba(var(--accent-2-rgb), 0.96);
-      border-color: rgba(var(--accent-2-rgb), 0.2);
-    }
-
-    .quiet-chip {
-      padding: 8px 12px;
-      border-radius: 999px;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .segmented {
-      padding: 6px;
-      width: fit-content;
-      border-radius: 999px;
-      background: rgba(var(--surface-rgb), 0.72);
-      border: 1px solid rgba(var(--line-rgb), 0.75);
-    }
-
-    .segment {
-      padding: 10px 14px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
-      border-color: transparent;
-    }
-
-    .segment.active {
-      background: rgba(var(--text-rgb), 0.08);
-      color: rgba(var(--text-rgb), 0.96);
-    }
-
-    /* ─── Fields ─── */
-
-    .field-row {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 16px;
-    }
-
-    .field {
-      display: grid;
-      gap: 8px;
-    }
-
-    .field-label {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.92);
-    }
-
-    .quiet-input,
-    .quiet-textarea {
-      width: 100%;
-      border: 1px solid rgba(var(--line-rgb), 0.82);
-      border-radius: 18px;
-      background: rgba(var(--mark-rgb), 0.7);
-      color: rgba(var(--text-rgb), 0.9);
-      padding: 14px 16px;
-      font: inherit;
-      outline: none;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    .quiet-textarea {
-      min-height: 112px;
-      resize: vertical;
-    }
-
-    .quiet-input:focus,
-    .quiet-textarea:focus {
-      border-color: rgba(var(--accent-rgb), 0.5);
-      box-shadow: 0 0 0 4px rgba(var(--accent-rgb), 0.08);
-    }
-
-    /* ─── Typography ─── */
-
-    .type-panel-copy {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      gap: 22px;
-    }
-
-    .type-sample {
-      padding-bottom: 18px;
-      border-bottom: 1px solid rgba(var(--line-rgb), 0.5);
-    }
-
-    .type-sample:last-child {
-      padding-bottom: 0;
-      border-bottom: 0;
-    }
-
-    .type-sample strong {
-      display: block;
-      margin-bottom: 8px;
-      font-family: 'Cormorant Garamond', serif;
-      color: rgba(var(--text-rgb), 0.92);
-    }
-
-    .type-sample.lead strong {
-      font-size: clamp(2rem, 3vw, 2.8rem);
-      line-height: 0.95;
-      letter-spacing: -0.03em;
-    }
-
-    .type-sample.measure strong {
-      font-size: 1.45rem;
-      font-weight: 600;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-    }
-
-    .type-sample.whisper strong {
-      font-size: 1.16rem;
-      font-weight: 500;
-      letter-spacing: 0.32em;
-      text-transform: uppercase;
-      color: rgba(var(--text-rgb), 0.48);
-    }
-
-    .type-sample p {
-      font-size: 12px;
-      line-height: 1.8;
-      color: rgba(var(--text-soft-rgb), 0.86);
-    }
-
-    .type-note {
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.11em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.92);
-      margin-top: 8px;
-    }
-
-    /* ─── Layout specimens ─── */
-
-    .layout-grid {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
-    }
-
-    .layout-card {
-      padding: 18px;
-      border-radius: 22px;
-      border: 1px solid rgba(var(--line-rgb), 0.82);
-      background: rgba(var(--mark-rgb), 0.52);
-    }
-
-    .layout-card h3 {
-      margin-bottom: 12px;
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 1.7rem;
-      font-weight: 600;
-      color: rgba(var(--text-rgb), 0.9);
-    }
-
-    .layout-frame {
-      display: grid;
-      gap: 8px;
-      margin-bottom: 14px;
-      min-height: 150px;
-    }
-
-    .layout-block {
-      border-radius: 14px;
-      background: rgba(var(--text-rgb), 0.06);
-    }
-
-    .layout-card[data-layout='stack'] .layout-frame {
-      grid-template-rows: 28px 1fr 38px;
-    }
-
-    .layout-card[data-layout='gallery'] .layout-frame {
-      grid-template-columns: 1fr 0.8fr;
-      grid-template-rows: 44px 1fr;
-    }
-
-    .layout-card[data-layout='gallery'] .layout-block:first-child {
-      grid-column: 1 / -1;
-    }
-
-    .layout-card[data-layout='editorial'] .layout-frame {
-      grid-template-columns: 28px 1fr;
-      grid-template-rows: 44px 52px 1fr;
-    }
-
-    .layout-card[data-layout='editorial'] .layout-block:nth-child(1) {
-      grid-row: 1 / -1;
-    }
-
-    .layout-card p {
-      font-size: 12px;
-      line-height: 1.75;
-      color: rgba(var(--text-soft-rgb), 0.86);
-    }
-
-    /* ─── Atlas / canvas specimen ─── */
-
-    .atlas-grid {
-      position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 180px;
-      gap: 18px;
-      align-items: start;
-    }
-
-    .atlas-stage {
-      position: relative;
-      min-height: 300px;
-      border-radius: 24px;
-      background:
-        radial-gradient(circle at 18% 24%, rgba(var(--accent-rgb), 0.12) 0%, rgba(var(--accent-rgb), 0) 26%),
-        linear-gradient(180deg, rgba(var(--mark-rgb), 0.82), rgba(var(--surface-strong-rgb), 0.72));
-      border: 1px solid rgba(var(--line-rgb), 0.74);
-      overflow: hidden;
-    }
-
-    .atlas-stage::before {
+    .code::before {
       content: '';
       position: absolute;
-      inset: 18px;
-      border: 1px solid rgba(var(--line-rgb), 0.3);
-      border-radius: 20px;
-      pointer-events: none;
+      top: 0; left: 0; width: 3px; height: 100%;
+      background: linear-gradient(180deg, var(--cyan), transparent 80%);
+      border-radius: 3px 0 0 3px;
+      opacity: 0.5;
     }
 
-    .atlas-shape {
-      position: absolute;
-      background: rgba(var(--text-rgb), 0.08);
-      box-shadow: 0 18px 24px rgba(var(--shadow-rgb), 0.14);
-    }
+    /* ═══ Texture demos ═══ */
 
-    .atlas-shape.circle {
-      top: 62px;
-      left: 64px;
-      width: 80px;
-      height: 80px;
-      border-radius: 999px;
-      background: rgba(var(--accent-rgb), 0.14);
-    }
-
-    .atlas-shape.arch {
-      top: 116px;
-      left: 190px;
-      width: 92px;
-      height: 128px;
-      border-radius: 92px 92px 16px 16px;
-      background: rgba(var(--accent-2-rgb), 0.14);
-    }
-
-    .atlas-shape.line {
-      left: 148px;
-      top: 100px;
-      width: 84px;
-      height: 2px;
-      border-radius: 999px;
-      background: rgba(var(--text-rgb), 0.12);
-      box-shadow: none;
-      transform: rotate(12deg);
-    }
-
-    .atlas-shape.tile {
-      right: 58px;
-      top: 82px;
-      width: 112px;
-      height: 70px;
-      border-radius: 24px;
-      background: rgba(var(--text-rgb), 0.06);
-    }
-
-    .atlas-shape.dot {
-      right: 86px;
-      bottom: 78px;
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      background: rgba(var(--text-rgb), 0.18);
-    }
-
-    .atlas-caption {
-      position: absolute;
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: rgba(var(--muted-rgb), 0.9);
-    }
-
-    .atlas-caption.caption-a { top: 154px; left: 58px; }
-    .atlas-caption.caption-b { top: 254px; left: 182px; }
-    .atlas-caption.caption-c { top: 164px; right: 62px; }
-
-    .atlas-notes {
-      display: grid;
-      gap: 12px;
-    }
-
-    .atlas-note {
-      padding: 14px;
-      border-radius: 18px;
-      border: 1px solid rgba(var(--line-rgb), 0.78);
-      background: rgba(var(--mark-rgb), 0.58);
-    }
-
-    .atlas-note strong {
-      display: block;
-      margin-bottom: 6px;
-      font-size: 13px;
-      font-weight: 700;
-      color: rgba(var(--text-rgb), 0.88);
-    }
-
-    .atlas-note p {
-      font-size: 12px;
-      line-height: 1.72;
-      color: rgba(var(--text-soft-rgb), 0.86);
-    }
-
-    /* ─── Workspace specimen ─── */
-
-    .workspace-stage {
+    .tex {
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      height: 160px;
       position: relative;
-      z-index: 1;
-      display: grid;
-      grid-template-columns: 220px minmax(0, 1fr);
-      gap: 18px;
-      align-items: stretch;
+      transition: all 300ms ease;
     }
 
-    .workspace-rail,
-    .workspace-main {
-      border-radius: 24px;
-      border: 1px solid rgba(var(--line-rgb), 0.8);
-      background: rgba(var(--mark-rgb), 0.5);
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    .tex:hover {
+      border-color: var(--border-2);
+      transform: scale(1.01);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
     }
 
-    .workspace-rail {
-      padding: 22px 18px;
-      display: grid;
-      gap: 16px;
-      align-content: start;
-    }
-
-    .workspace-main {
-      padding: 22px;
-    }
-
-    .rail-line {
-      height: 10px;
-      border-radius: 999px;
-      background: rgba(var(--text-rgb), 0.06);
-    }
-
-    .rail-line.short { width: 54%; }
-    .rail-line.mid { width: 72%; }
-
-    .workspace-topbar {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      margin-bottom: 18px;
-      align-items: center;
-    }
-
-    .workspace-title {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 2rem;
-      font-weight: 600;
-      color: rgba(var(--text-rgb), 0.92);
-    }
-
-    .workspace-pills {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .workspace-pill {
-      padding: 6px 12px;
-      border-radius: 999px;
-      background: rgba(var(--text-rgb), 0.06);
-      font-family: 'IBM Plex Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 0.1em;
+    .tex-label {
+      position: absolute;
+      bottom: 10px;
+      left: 12px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: rgba(var(--text-rgb), 0.56);
+      color: var(--text-3);
+      background: rgba(10, 11, 14, 0.8);
+      backdrop-filter: blur(8px);
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
     }
 
-    .workspace-pill.active {
-      background: rgba(var(--accent-rgb), 0.14);
-      color: rgba(var(--accent-rgb), 0.94);
+    /* ═══ Scan line ═══ */
+
+    .scan {
+      position: fixed;
+      top: 48px;
+      left: 0;
+      right: 0;
+      height: 2px;
+      z-index: 200;
+      pointer-events: none;
+      background: linear-gradient(90deg, transparent 0%, var(--cyan) 50%, transparent 100%);
+      animation: scan-go 0.6s ease-out forwards;
     }
 
-    .workspace-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
+    @keyframes scan-go {
+      from { transform: scaleX(0); opacity: 1; }
+      50% { transform: scaleX(1); opacity: 0.8; }
+      100% { transform: scaleX(1); opacity: 0; }
     }
 
-    .workspace-card {
-      padding: 18px;
-      border-radius: 22px;
-      border: 1px solid rgba(var(--line-rgb), 0.72);
-      background: rgba(var(--surface-rgb), 0.52);
-      display: grid;
-      gap: 12px;
-    }
+    /* ═══ Scrollbar ═══ */
 
-    .workspace-card-preview {
-      height: 92px;
-      border-radius: 16px;
-      background:
-        radial-gradient(circle at 30% 40%, rgba(var(--accent-rgb), 0.08), transparent 50%),
-        linear-gradient(180deg, rgba(8, 12, 18, 0.82), rgba(6, 9, 14, 0.92));
-      border: 1px solid rgba(var(--line-rgb), 0.6);
-    }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.06); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--cyan-border); }
 
-    .workspace-card h4 {
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 1.4rem;
-      font-weight: 600;
-      color: rgba(var(--text-rgb), 0.88);
-    }
-
-    .workspace-card p {
-      font-size: 12px;
-      line-height: 1.7;
-      color: rgba(var(--text-soft-rgb), 0.8);
-    }
-
-    /* ─── Rationale / principles ─── */
-
-    .direction-rationale {
-      padding: 44px 0 96px;
-    }
-
-    .rationale-grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 18px;
-    }
-
-    .rationale-card {
-      padding: 24px;
-      border-radius: 24px;
-      border: 1px solid rgba(var(--line-rgb), 0.8);
-      background: linear-gradient(180deg, rgba(var(--surface-rgb), 0.86), rgba(var(--surface-strong-rgb), 0.72));
-      box-shadow: 0 20px 48px rgba(var(--shadow-rgb), 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.03);
-    }
-
-    .rationale-card h3 {
-      margin-bottom: 14px;
-      font-family: 'Cormorant Garamond', serif;
-      font-size: 1.8rem;
-      font-weight: 600;
-      line-height: 0.96;
-      color: rgba(var(--text-rgb), 0.92);
-    }
-
-    .rationale-card p {
-      font-size: 14px;
-      line-height: 1.85;
-      color: rgba(var(--text-soft-rgb), 0.92);
-    }
-
-    /* ─── Responsive ─── */
-
-    @media (max-width: 1024px) {
-      .header-grid {
-        grid-template-columns: 1fr;
-      }
-      .showcase-grid {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-      }
-      .panel-surface,
-      .panel-interval,
-      .panel-controls,
-      .panel-atlas,
-      .panel-layout,
-      .panel-type { grid-column: span 6; }
-      .panel-workspace { grid-column: span 6; }
-      .workspace-stage {
-        grid-template-columns: 1fr;
-      }
-      .workspace-rail {
-        display: none;
-      }
-      .rationale-grid {
-        grid-template-columns: 1fr;
-      }
-    }
+    /* ═══ Responsive ═══ */
 
     @media (max-width: 640px) {
-      .direction-header { padding: 56px 0 28px; }
-      .showcase-grid { grid-template-columns: 1fr; }
-      .panel-surface,
-      .panel-interval,
-      .panel-controls,
-      .panel-atlas,
-      .panel-layout,
-      .panel-type,
-      .panel-workspace { grid-column: span 1; }
-      .surface-layout { grid-template-columns: 1fr; }
-      .atlas-grid { grid-template-columns: 1fr; }
-      .layout-grid { grid-template-columns: 1fr; }
-      .workspace-grid { grid-template-columns: 1fr; }
-      .interval-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .direction-nav { gap: 8px; padding: 10px 16px; }
-      .direction-nav a { font-size: 10px; padding: 5px 8px; }
+      .tab-nav { padding: 0 12px; gap: 2px; overflow-x: auto; }
+      .shell { padding: 32px 16px 60px; }
+      .hero-title { font-size: 36px; }
+      .g2, .g3 { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <canvas id="grain-canvas"></canvas>
-  <nav class="direction-nav">
-    <span class="nav-home">Design Storm</span>
-    <span class="nav-title">Indigo Design System</span>
-    <a href="#surface">Surface</a>
-    <a href="#spacing">Spacing</a>
-    <a href="#controls">Controls</a>
-    <a href="#type">Type</a>
-    <a href="#layout">Layout</a>
-    <a href="#canvas">Canvas</a>
-    <a href="#workspace">Workspace</a>
-  </nav>
 
-  <article class="direction">
-    <header class="direction-header">
-      <div class="direction-number">Design System 001</div>
-      <div class="direction-tag">Indigo Variation &middot; Dark Mode</div>
-      <h1 class="direction-name">Indigo</h1>
-      <p class="direction-subtitle">Quiet confidence in deep space</p>
+<nav class="tab-nav" id="tab-nav">
+  <span class="tab-brand">Design Storm <span class="tab-brand-sub">Light Table</span></span>
+  <button class="tab-btn is-active" data-tab="identity">Identity</button>
+  <button class="tab-btn" data-tab="color">Color</button>
+  <button class="tab-btn" data-tab="typography">Type</button>
+  <button class="tab-btn" data-tab="elements">Elements</button>
+  <button class="tab-btn" data-tab="texture">Texture</button>
+  <button class="tab-btn" data-tab="icons">Icons</button>
+  <button class="tab-btn" data-tab="principles">Principles</button>
+</nav>
 
-      <div class="header-grid">
-        <p class="direction-desc">
-          A design system for creative instruments that work at the speed of thought. Deep indigo
-          surfaces provide a stage where content can breathe. Layered shadows give elements material
-          presence. Generous negative space creates rhythm. Every interaction carries weight without
-          heaviness &mdash; tactile, precise, emotionally resonant.
-        </p>
+<!-- ═══ IDENTITY ═══ -->
+<div class="tab-panel is-visible" data-panel="identity">
+<div class="shell">
+  <div class="hero">
+    <div class="hero-eyebrow">Identity</div>
+    <h1 class="hero-title"><span>Light Table</span></h1>
+    <p class="hero-desc">A designer's frosted backlit surface surrounded by dark workspace. Elements are semi-transparent overlapping film. Registration marks, crop marks, precision.</p>
+  </div>
 
-        <div class="direction-aside">
-          <div class="aside-card">
-            <span class="meta-label">Philosophy</span>
-            <p>Design as atmosphere. Interface as instrument. The tool should feel like an extension
-              of creative intent, not a barrier to it. Deep indigo creates a nocturnal studio
-              &mdash; calm, focused, infinite.</p>
-          </div>
-          <div class="aside-card">
-            <span class="meta-label">Typography Stack</span>
-            <p>Cormorant Garamond for display and headings. Manrope for body. IBM Plex Mono for
-              labels, metadata, and structural notation.</p>
-          </div>
+  <div class="sect">
+    <div class="sect-label">Name Treatment</div>
+    <div class="g2">
+      <div class="dk">
+        <div style="margin-bottom: 14px;">
+          <span style="font-family:'Archivo',sans-serif;font-size:32px;font-weight:800;color:var(--text);letter-spacing:-0.04em;">Design Storm</span>
         </div>
+        <p>Primary wordmark. Archivo 800, tight tracking. The heavy weight anchors the brand in the topbar.</p>
       </div>
-    </header>
-
-    <div class="quiet-divider"><span></span></div>
-
-    <section class="direction-showcase">
-      <div class="showcase-grid">
-
-        <!-- Surface -->
-        <div id="surface" class="showcase-panel panel-surface">
-          <div class="showcase-label">01 / Surface &amp; Material</div>
-          <div class="surface-layout">
-            <div>
-              <h2 class="quiet-quote">The surface breathes. Light arrives from above.</h2>
-              <p class="surface-copy">
-                Cards use linear gradient backgrounds moving from surface to surface-strong,
-                creating subtle depth. Multi-layer shadows include an inset highlight at the
-                top edge &mdash; simulating light falling on a physical material. A grain texture
-                overlay at low opacity prevents digital flatness.
-              </p>
-
-              <div class="swatch-row">
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--bg);"></div>
-                  <span>BG</span>
-                </div>
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--surface);"></div>
-                  <span>Surface</span>
-                </div>
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--surface-strong);"></div>
-                  <span>Strong</span>
-                </div>
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--mark);"></div>
-                  <span>Mark</span>
-                </div>
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--accent);"></div>
-                  <span>Accent</span>
-                </div>
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--accent-2);"></div>
-                  <span>Warm</span>
-                </div>
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--text);"></div>
-                  <span>Text</span>
-                </div>
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--text-soft);"></div>
-                  <span>Soft</span>
-                </div>
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--muted);"></div>
-                  <span>Muted</span>
-                </div>
-                <div class="swatch">
-                  <div class="swatch-dot" style="background: var(--line);"></div>
-                  <span>Line</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="material-stack">
-              <div class="material-card">
-                <strong>Grain Texture</strong>
-                <p>SVG noise at 7% opacity across the viewport. Creates analog film quality
-                  that prevents the interface from feeling sterile.</p>
-              </div>
-              <div class="material-card">
-                <strong>Ambient Lighting</strong>
-                <p>Radial gradients positioned at top-left (cool blue), top-right (warm
-                  highlight), and bottom (dark vignette). Simulates environmental light.</p>
-              </div>
-              <div class="material-card">
-                <strong>Inset Highlights</strong>
-                <p>Every elevated surface carries a 1px top inset with 3&ndash;5% white opacity.
-                  This catches the ambient light and gives cards their material edge.</p>
-              </div>
-            </div>
-          </div>
+      <div class="dk">
+        <div style="margin-bottom: 14px; display: flex; align-items: center; gap: 12px;">
+          <span style="font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--cyan);padding:3px 8px;border:1px solid var(--cyan-border);border-radius:4px;background:var(--cyan-bg);">LT</span>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-3);">Direction identifier</span>
         </div>
-
-        <!-- Spacing -->
-        <div id="spacing" class="showcase-panel panel-interval">
-          <div class="showcase-label">02 / Emotional Spacing</div>
-          <div class="interval-grid">
-            <div class="interval-state interval-tight">
-              <div class="interval-pair">
-                <div class="interval-dot"></div>
-                <div class="interval-dot"></div>
-              </div>
-              <div class="interval-title">Tight</div>
-              <div class="interval-note">Related elements. Labels to values. 4&ndash;8px.</div>
-            </div>
-            <div class="interval-state interval-held">
-              <div class="interval-pair">
-                <div class="interval-dot"></div>
-                <div class="interval-dot"></div>
-              </div>
-              <div class="interval-title">Held</div>
-              <div class="interval-note">Grouped siblings. Cards in a row. 12&ndash;16px.</div>
-            </div>
-            <div class="interval-state interval-breathing">
-              <div class="interval-pair">
-                <div class="interval-dot"></div>
-                <div class="interval-dot"></div>
-              </div>
-              <div class="interval-title">Breathing</div>
-              <div class="interval-note">Between sections. Panel to panel. 22&ndash;30px.</div>
-            </div>
-            <div class="interval-state interval-distant">
-              <div class="interval-pair">
-                <div class="interval-dot"></div>
-                <div class="interval-dot"></div>
-              </div>
-              <div class="interval-title">Distant</div>
-              <div class="interval-note">Major landmarks. Header to body. 44&ndash;96px.</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Controls -->
-        <div id="controls" class="showcase-panel panel-controls">
-          <div class="showcase-label">03 / Controls &amp; Inputs</div>
-          <div class="controls-shell">
-            <div class="button-row">
-              <button class="quiet-btn primary">Generate Storm</button>
-              <button class="quiet-btn secondary">Fork Branch</button>
-              <button class="quiet-btn">Cancel</button>
-            </div>
-
-            <div class="chip-row">
-              <span class="quiet-chip">Draft</span>
-              <span class="quiet-chip">Submitted</span>
-              <span class="quiet-chip">Canvas</span>
-            </div>
-
-            <div class="segmented">
-              <span class="segment active">Board</span>
-              <span class="segment">List</span>
-              <span class="segment">Timeline</span>
-            </div>
-
-            <div class="field-row">
-              <div class="field">
-                <label class="field-label">Seed Prompt</label>
-                <input class="quiet-input" type="text" placeholder="Describe a design system..." />
-              </div>
-              <div class="field">
-                <label class="field-label">Branch Name</label>
-                <input class="quiet-input" type="text" value="indigo-editorial" />
-              </div>
-            </div>
-            <div class="field">
-              <label class="field-label">Notes</label>
-              <textarea class="quiet-textarea" placeholder="Dense, diagrammatic, slightly uncanny..."></textarea>
-            </div>
-          </div>
-        </div>
-
-        <!-- Atlas / Canvas -->
-        <div id="canvas" class="showcase-panel panel-atlas">
-          <div class="showcase-label">04 / Canvas &amp; Composition</div>
-          <div class="atlas-grid">
-            <div class="atlas-stage">
-              <div class="atlas-shape circle"></div>
-              <div class="atlas-shape line"></div>
-              <div class="atlas-shape arch"></div>
-              <div class="atlas-shape tile"></div>
-              <div class="atlas-shape dot"></div>
-              <span class="atlas-caption caption-a">Origin</span>
-              <span class="atlas-caption caption-b">Branch</span>
-              <span class="atlas-caption caption-c">Node</span>
-            </div>
-            <div class="atlas-notes">
-              <div class="atlas-note">
-                <strong>Infinite Canvas</strong>
-                <p>Pan, zoom, and drag artifacts freely. Connections flow as dashed curves between related nodes.</p>
-              </div>
-              <div class="atlas-note">
-                <strong>Fork &amp; Combine</strong>
-                <p>Any artifact can branch into a new direction or hybridize with another. The graph grows organically.</p>
-              </div>
-              <div class="atlas-note">
-                <strong>Spatial Memory</strong>
-                <p>Position encodes meaning. Cluster similar branches, isolate experiments, trace lineage visually.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Layout -->
-        <div id="layout" class="showcase-panel panel-layout">
-          <div class="showcase-label">05 / Layout Archetypes</div>
-          <div class="layout-grid">
-            <div class="layout-card" data-layout="stack">
-              <h3>Stack</h3>
-              <div class="layout-frame">
-                <div class="layout-block"></div>
-                <div class="layout-block"></div>
-                <div class="layout-block"></div>
-              </div>
-              <p>Vertical rhythm. Inspector panels, form fields, card content. The default composition.</p>
-            </div>
-            <div class="layout-card" data-layout="gallery">
-              <h3>Gallery</h3>
-              <div class="layout-frame">
-                <div class="layout-block"></div>
-                <div class="layout-block"></div>
-                <div class="layout-block"></div>
-              </div>
-              <p>Grid of artifacts on the stormboard. Masonry-like placement with spatial freedom.</p>
-            </div>
-            <div class="layout-card" data-layout="editorial">
-              <h3>Editorial</h3>
-              <div class="layout-frame">
-                <div class="layout-block"></div>
-                <div class="layout-block"></div>
-                <div class="layout-block"></div>
-              </div>
-              <p>Sidebar + main content. The inspector alongside the canvas. Anchored navigation.</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Typography -->
-        <div id="type" class="showcase-panel panel-type">
-          <div class="showcase-label">06 / Typography</div>
-          <div class="type-panel-copy">
-            <div class="type-sample lead">
-              <strong>The surface breathes</strong>
-              <p>Cormorant Garamond at display scale. Tight line-height (0.88&ndash;0.96), negative letter-spacing (-0.03em to -0.05em). Used for page titles, card headings, and the landing mark.</p>
-              <div class="type-note">Cormorant Garamond / 600 / Display</div>
-            </div>
-            <div class="type-sample measure">
-              <strong>Stormboard</strong>
-              <p>Cormorant Garamond at measure scale. Uppercase with wide letter-spacing. Section headers, panel titles. Formal but warm.</p>
-              <div class="type-note">Cormorant Garamond / 600 / Measure</div>
-            </div>
-            <div class="type-sample whisper">
-              <strong>Indigo Runtime</strong>
-              <p>Cormorant Garamond at whisper scale. Maximum letter-spacing, reduced opacity. Eyebrow labels, metadata. Structural typography that recedes.</p>
-              <div class="type-note">Cormorant Garamond / 500 / Whisper</div>
-            </div>
-            <div class="type-sample">
-              <strong style="font-family: 'Manrope', sans-serif; font-size: 1rem; font-weight: 500; letter-spacing: 0;">Body text in Manrope carries the readable weight</strong>
-              <p>Manrope for all body text. 16px base, line-height 1.65. Clean geometric sans with humanist warmth. Weights 400&ndash;700.</p>
-              <div class="type-note">Manrope / 400&ndash;700 / Body</div>
-            </div>
-            <div class="type-sample">
-              <strong style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase;">Seed Composer &middot; Canvas &middot; Draft</strong>
-              <p>IBM Plex Mono for labels, chips, pills, and metadata. 9&ndash;11px, letter-spacing 0.08&ndash;0.16em, always uppercase. Structural and precise.</p>
-              <div class="type-note">IBM Plex Mono / 400&ndash;600 / Label</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Workspace -->
-        <div id="workspace" class="showcase-panel panel-workspace">
-          <div class="showcase-label">07 / Workspace Specimen</div>
-          <div class="workspace-stage">
-            <div class="workspace-rail">
-              <div class="rail-line"></div>
-              <div class="rail-line short"></div>
-              <div class="rail-line mid"></div>
-              <div class="rail-line"></div>
-              <div class="rail-line short"></div>
-              <div class="rail-line mid"></div>
-              <div class="rail-line"></div>
-              <div class="rail-line short"></div>
-            </div>
-            <div class="workspace-main">
-              <div class="workspace-topbar">
-                <h3 class="workspace-title">Stormboard</h3>
-                <div class="workspace-pills">
-                  <span class="workspace-pill active">Board</span>
-                  <span class="workspace-pill">Inspector</span>
-                  <span class="workspace-pill">History</span>
-                </div>
-              </div>
-              <div class="workspace-grid">
-                <div class="workspace-card">
-                  <div class="workspace-card-preview"></div>
-                  <h4>Nocturne Atlas</h4>
-                  <p>Deep-space editorial with diagrammatic density and environmental grain.</p>
-                </div>
-                <div class="workspace-card">
-                  <div class="workspace-card-preview"></div>
-                  <h4>Chromatic Drift</h4>
-                  <p>Spectral color bleeding through layered transparency and ambient glow.</p>
-                </div>
-                <div class="workspace-card">
-                  <div class="workspace-card-preview"></div>
-                  <h4>Mineral Quiet</h4>
-                  <p>Stone-like surfaces, volcanic shadow, and whispered typographic hierarchy.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
+        <p>System mark in JetBrains Mono 700. Evokes registration codes stamped on film strips.</p>
       </div>
-    </section>
+    </div>
+  </div>
 
-    <div class="quiet-divider"><span></span></div>
-
-    <section class="direction-rationale">
-      <div class="rationale-grid">
-        <div class="rationale-card">
-          <h3>Material Presence</h3>
-          <p>Every surface has weight. Gradients simulate depth, inset highlights catch
-            ambient light, and multi-layer shadows anchor elements to the canvas. Nothing
-            floats without reason. The interface has the tactile quality of a well-made
-            instrument.</p>
-        </div>
-        <div class="rationale-card">
-          <h3>Emotional Spacing</h3>
-          <p>Spacing is not just functional &mdash; it carries tone. Tight gaps create
-            intimacy between related elements. Breathing room between sections creates
-            calm. Distant landmarks give the eye places to rest. The rhythm is musical,
-            not mechanical.</p>
-        </div>
-        <div class="rationale-card">
-          <h3>Quiet Confidence</h3>
-          <p>The interface never shouts. Accent colors appear at reduced opacity. Animations
-            are swift and purposeful. Labels are small, uppercase, spaced &mdash; they
-            orient without demanding attention. Confidence is in the restraint, not the
-            volume.</p>
-        </div>
+  <div class="sect">
+    <div class="sect-label">Brand Personality</div>
+    <div class="g3">
+      <div class="lt">
+        <h4>Precise</h4>
+        <p>Every element placed with intention. Crop marks and grid lines communicate absolute care and control.</p>
       </div>
-    </section>
-
-    <div class="quiet-divider"><span></span></div>
-
-    <section class="direction-showcase">
-      <div class="showcase-grid">
-        <div class="showcase-panel" style="grid-column: span 12; padding: 0; overflow: hidden; min-height: 480px; cursor: pointer;" id="surface-specimen">
-          <div class="showcase-label" style="position: absolute; top: 30px; left: 30px; z-index: 2;">08 / Surface Specimen <span style="opacity: 0.5; margin-left: 8px;">Click to fullscreen</span></div>
-          <canvas id="specimen-canvas" style="position: absolute; inset: 0; width: 100%; height: 100%; display: block;"></canvas>
-          <div id="perf-overlay" style="position: absolute; bottom: 16px; right: 16px; z-index: 3; font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.06em; line-height: 1.7; color: rgba(255,255,255,0.5); background: rgba(0,0,0,0.4); backdrop-filter: blur(8px); padding: 8px 12px; border-radius: 6px; pointer-events: none;"></div>
-        </div>
+      <div class="lt">
+        <h4>Luminous</h4>
+        <p>Designs glow against the dark workspace like transparencies on a backlit surface. Content is always the brightest thing.</p>
       </div>
-    </section>
-  </article>
-  <script>
-    (function () {
-      const canvas = document.getElementById('grain-canvas');
-      const gl = canvas.getContext('webgl2', {
-        alpha: false,
-        antialias: false,
-        depth: false,
-        stencil: false,
-        preserveDrawingBuffer: false,
-        desynchronized: true,
-        powerPreference: 'high-performance'
-      });
-      if (!gl) return;
+      <div class="lt">
+        <h4>Professional</h4>
+        <p>A real designer's tool. Dark chrome, light content, zero decoration that doesn't earn its place.</p>
+      </div>
+    </div>
+  </div>
 
-      const vs = `#version 300 es
-        in vec2 a_pos;
-        void main() { gl_Position = vec4(a_pos, 0, 1); }
-      `;
+  <div class="sect">
+    <div class="sect-label">Metaphor</div>
+    <div class="sect-note">The Light Table is a real prepress tool — frosted glass with backlighting for examining transparencies and composing layouts. Our interface: dark workspace surrounding a luminous viewing area. Content cards are translucent film.</div>
+    <div class="mm">
+      <div class="mermaid">
+flowchart LR
+  WS["Dark Workspace<br/>#0a0b0e"] --> BL["Backlight Glow<br/>radial gradient"]
+  BL --> LIT["Lit Surface<br/>#f4f5f8"]
+  LIT --> CARD["Transparency Cards<br/>rgba 0.75 film"]
+  CARD --> CROP["Crop Marks<br/>#ff4f5e corners"]
+  CARD --> REG["Registration<br/>#00d4ff labels"]
+      </div>
+    </div>
+  </div>
+</div>
+</div>
 
-      const fs = `#version 300 es
-        precision highp float;
-        uniform vec2 u_res;
-        uniform float u_time;
-        uniform vec3 u_bg;
-        uniform float u_strength;
-        out vec4 fragColor;
+<!-- ═══ COLOR ═══ -->
+<div class="tab-panel" data-panel="color">
+<div class="shell">
+  <div class="hero">
+    <div class="hero-eyebrow">Color</div>
+    <h1 class="hero-title"><span>Dual Surface</span></h1>
+    <p class="hero-desc">Two environments: the dark workspace and the lit surface. Functional accents borrowed from print production — registration cyan and crop mark red.</p>
+  </div>
 
-        // --- simplex 3d noise (ashima/webgl-noise) ---
-        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 permute(vec4 x) { return mod289(((x * 34.0) + 10.0) * x); }
-        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+  <div class="sect">
+    <div class="sect-label">Workspace</div>
+    <div class="g3">
+      <div class="dk"><div class="sw-lg" style="background:#0a0b0e;"></div><div class="sw-name">Background</div><div class="sw-val">--bg: #0a0b0e</div></div>
+      <div class="dk"><div class="sw-lg" style="background:#111318;"></div><div class="sw-name">Surface</div><div class="sw-val">--surface: #111318</div></div>
+      <div class="dk"><div class="sw-lg" style="background:#181b22;"></div><div class="sw-name">Surface 2</div><div class="sw-val">--surface-2: #181b22</div></div>
+      <div class="dk"><div class="sw-lg" style="background:#e8eaee;border-color:rgba(0,0,0,0.1);"></div><div class="sw-name">Text</div><div class="sw-val">--text: #e8eaee</div></div>
+      <div class="dk"><div class="sw-lg" style="background:#9da3ae;"></div><div class="sw-name">Text 2</div><div class="sw-val">--text-2: #9da3ae</div></div>
+      <div class="dk"><div class="sw-lg" style="background:#5c6370;"></div><div class="sw-name">Text 3</div><div class="sw-val">--text-3: #5c6370</div></div>
+    </div>
+  </div>
 
-        float snoise(vec3 v) {
-          const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
-          const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-          vec3 i = floor(v + dot(v, C.yyy));
-          vec3 x0 = v - i + dot(i, C.xxx);
-          vec3 g = step(x0.yzx, x0.xyz);
-          vec3 l = 1.0 - g;
-          vec3 i1 = min(g.xyz, l.zxy);
-          vec3 i2 = max(g.xyz, l.zxy);
-          vec3 x1 = x0 - i1 + C.xxx;
-          vec3 x2 = x0 - i2 + C.yyy;
-          vec3 x3 = x0 - D.yyy;
-          i = mod289(i);
-          vec4 p = permute(permute(permute(
-            i.z + vec4(0.0, i1.z, i2.z, 1.0))
-            + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-            + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-          float n_ = 0.142857142857;
-          vec3 ns = n_ * D.wyz - D.xzx;
-          vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-          vec4 x_ = floor(j * ns.z);
-          vec4 y_ = floor(j - 7.0 * x_);
-          vec4 x = x_ * ns.x + ns.yyyy;
-          vec4 y = y_ * ns.x + ns.yyyy;
-          vec4 h = 1.0 - abs(x) - abs(y);
-          vec4 b0 = vec4(x.xy, y.xy);
-          vec4 b1 = vec4(x.zw, y.zw);
-          vec4 s0 = floor(b0) * 2.0 + 1.0;
-          vec4 s1 = floor(b1) * 2.0 + 1.0;
-          vec4 sh = -step(h, vec4(0.0));
-          vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
-          vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
-          vec3 p0 = vec3(a0.xy, h.x);
-          vec3 p1 = vec3(a0.zw, h.y);
-          vec3 p2 = vec3(a1.xy, h.z);
-          vec3 p3 = vec3(a1.zw, h.w);
-          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
-          p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
-          vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-          m = m * m;
-          return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
-        }
+  <div class="sect">
+    <div class="sect-label">Lit Surface</div>
+    <div class="g3">
+      <div class="dk"><div class="sw-lg" style="background:#f4f5f8;border-color:rgba(0,0,0,0.08);"></div><div class="sw-name">Lit</div><div class="sw-val">--lit: #f4f5f8</div></div>
+      <div class="dk"><div class="sw-lg" style="background:#faf8f5;border-color:rgba(0,0,0,0.06);"></div><div class="sw-name">Lit Warm</div><div class="sw-val">--lit-warm: #faf8f5</div></div>
+      <div class="dk"><div class="sw-lg" style="background:#111318;border-color:rgba(0,0,0,0.08);"></div><div class="sw-name">Lit Text</div><div class="sw-val">--lit-text: #111318</div></div>
+    </div>
+  </div>
 
-        float fbm(vec3 p) {
-          float v = 0.0;
-          float a = 0.5;
-          vec3 shift = vec3(100.0);
-          for (int i = 0; i < 5; i++) {
-            v += a * snoise(p);
-            p = p * 2.0 + shift;
-            a *= 0.5;
-          }
-          return v;
-        }
+  <div class="sect">
+    <div class="sect-label">Accents</div>
+    <div class="g2">
+      <div class="dk" style="border-color: var(--cyan-border);">
+        <div class="sw-lg" style="background: linear-gradient(135deg, #00d4ff, #00a8cc); box-shadow: 0 4px 20px var(--cyan-glow);"></div>
+        <div class="sw-name" style="color: var(--cyan);">Registration Cyan</div>
+        <div class="sw-val">--cyan: #00d4ff</div>
+        <p style="margin-top: 8px;">Primary interactive accent. Active states, selections, primary buttons. Borrowed from CMYK registration marks.</p>
+      </div>
+      <div class="dk" style="border-color: rgba(255,79,94,0.15);">
+        <div class="sw-lg" style="background: linear-gradient(135deg, #ff4f5e, #cc3040); box-shadow: 0 4px 20px rgba(255,79,94,0.1);"></div>
+        <div class="sw-name" style="color: var(--red);">Crop Mark Red</div>
+        <div class="sw-val">--red: #ff4f5e</div>
+        <p style="margin-top: 8px;">Structural decoration at card corners. Also the danger/error color. Used at 40% opacity for crop marks.</p>
+      </div>
+    </div>
+  </div>
 
-        void main() {
-          vec2 uv = gl_FragCoord.xy / u_res;
+  <div class="sect">
+    <div class="sect-label">Token Cascade</div>
+    <div class="mm">
+      <div class="mermaid">
+flowchart TD
+  BG["--bg #0a0b0e<br/>page"] --> S["--surface #111318<br/>panels"]
+  S --> S2["--surface-2 #181b22<br/>raised"]
+  S --> BD["--border rgba(…,0.06)<br/>separators"]
+  LT["--lit #f4f5f8<br/>content cards"] --> LW["--lit-warm #faf8f5<br/>warm variant"]
+  LT --> LB["--lit-border rgba(0,0,0,0.06)"]
+  CY["--cyan #00d4ff"] --> CB["--cyan-bg rgba(…,0.08)"]
+  CY --> CBD["--cyan-border rgba(…,0.2)"]
+      </div>
+    </div>
+  </div>
+</div>
+</div>
 
-          // fine grain — the texture of the cloth
-          vec3 p = vec3(uv * u_res / 2.8, u_time * 0.8);
-          float grain = fbm(p) * 0.5 + 0.5;
+<!-- ═══ TYPOGRAPHY ═══ -->
+<div class="tab-panel" data-panel="typography">
+<div class="shell">
+  <div class="hero">
+    <div class="hero-eyebrow">Typography</div>
+    <h1 class="hero-title"><span>Three Voices</span></h1>
+    <p class="hero-desc">Archivo for headlines. Inter for body. JetBrains Mono for system labels and registration codes.</p>
+  </div>
 
-          // large slow swell — natural variation across the surface
-          // like how felt or handmade paper is slightly uneven
-          float swell = snoise(vec3(uv * 1.8, u_time * 0.3)) * 0.5 + 0.5;
-          float swell2 = snoise(vec3(uv * 0.6 + 40.0, u_time * 0.15)) * 0.5 + 0.5;
-          float variation = mix(0.85, 1.15, swell * 0.6 + swell2 * 0.4);
+  <div class="sect">
+    <div class="sect-label">Display — Archivo</div>
+    <div class="spec">
+      <div class="spec-head" style="font-size: 52px; font-weight: 800; letter-spacing: -0.05em; margin-bottom: 12px;">Light Table</div>
+      <div class="spec-head" style="font-size: 28px; font-weight: 300;">Session-based design studio</div>
+      <div class="spec-head" style="font-size: 16px; font-weight: 700; margin-top: 8px;">Card Title — Archivo 700</div>
+      <div class="spec-tag">Archivo 300–800 / -0.03em to -0.05em / 1.1 lh</div>
+    </div>
+  </div>
 
-          float n = grain * variation;
-          // mix grain into bg color — n centered around 0.5, shift to ±strength
-          vec3 color = u_bg + (n - 0.5) * u_strength;
-          fragColor = vec4(color, 1.0);
-        }
-      `;
+  <div class="sect">
+    <div class="sect-label">Body — Inter</div>
+    <div class="spec">
+      <div class="spec-body" style="font-size: 15px;">The session agent either replies conversationally or calls <code style="font-family:'JetBrains Mono',monospace;color:var(--cyan);font-size:13px;background:var(--cyan-bg);padding:1px 6px;border-radius:4px;">make_design</code> exactly once per turn. Design generation is always asynchronous.</div>
+      <div class="spec-body" style="font-size: 12px; margin-top: 10px; color: var(--text-3);">Caption text for secondary information and descriptions.</div>
+      <div class="spec-tag">Inter 400–500 / 1.6 lh / system-ui fallback</div>
+    </div>
+  </div>
 
-      function compile(type, src) {
-        const s = gl.createShader(type);
-        gl.shaderSource(s, src);
-        gl.compileShader(s);
-        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
-          console.error(gl.getShaderInfoLog(s));
-        return s;
+  <div class="sect">
+    <div class="sect-label">System — JetBrains Mono</div>
+    <div class="spec">
+      <div class="spec-mono" style="font-size: 10px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); margin-bottom: 10px;">REG:003 FILM-C 240x160mm</div>
+      <div class="spec-mono" style="font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 10px;">READY &middot; MAR 11 &middot; DESIGN</div>
+      <div class="spec-mono" style="font-size: 13px;">make_design({ prompt, reference_ids })</div>
+      <div class="spec-tag">JetBrains Mono 400–700 / 0.06–0.14em / uppercase labels</div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Scale</div>
+    <div class="mm">
+      <div class="mermaid">
+flowchart LR
+  A["52px / 800<br/>Archivo<br/>Hero"] --> B["28px / 300<br/>Archivo<br/>Subhead"]
+  B --> C["16px / 700<br/>Archivo<br/>Card title"]
+  C --> D["15px / 400<br/>Inter<br/>Body"]
+  D --> E["12px / 400<br/>Inter<br/>Caption"]
+  E --> F["10px / 500<br/>JBMono<br/>Label"]
+  F --> G["9px / 700<br/>JBMono<br/>Registration"]
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ ELEMENTS ═══ -->
+<div class="tab-panel" data-panel="elements">
+<div class="shell">
+  <div class="hero">
+    <div class="hero-eyebrow">Elements</div>
+    <h1 class="hero-title"><span>Components</span></h1>
+    <p class="hero-desc">Buttons, badges, cards, and input patterns used across the studio.</p>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Buttons</div>
+    <div class="btn-row">
+      <div class="db db-cy">Send</div>
+      <div class="db db-cy db-sm">New</div>
+      <div class="db db-gh">Close</div>
+      <div class="db db-gh db-sm">Add note</div>
+      <div class="db db-dk">Sign out</div>
+    </div>
+    <div class="sect-note"><strong style="color:var(--text);">Accent</strong> (solid cyan, primary), <strong style="color:var(--text);">Ghost</strong> (translucent, secondary), <strong style="color:var(--text);">Dark</strong> (surface, destructive). Archivo 600, 8px radius.</div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Badges</div>
+    <div class="badge-row">
+      <span class="bdg bdg-d">Film A</span>
+      <span class="bdg bdg-c">Registered</span>
+      <span class="bdg bdg-w">Pending</span>
+      <span class="bdg bdg-d">Layer 3</span>
+      <span class="bdg bdg-c">Exposed</span>
+    </div>
+    <div class="sect-note">Dot indicator + label pattern. Default (dark), Cyan (active/selected), Warm (pending/queued).</div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Dark Cards</div>
+    <div class="g2">
+      <div class="dk"><div class="dk-label">Chat Message</div><p>Messages, references, and drawer content. Subtle translucent background with a top-edge highlight that shifts cyan on hover.</p></div>
+      <div class="dk"><div class="dk-label">Note Card</div><p>Settings panels and info blocks. Same treatment with slightly more padding.</p></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Lit Cards (Design Transparencies)</div>
+    <div class="g2">
+      <div class="lt"><h4>Generated Design</h4><p>Bright semi-transparent film with crop mark corners. The brightest element on screen. Lifts and glows on hover.</p></div>
+      <div class="lt"><h4>Preview Card</h4><p>4:5 iframe preview, metadata bar, title, summary, action row. The user's actual work, luminous and prominent.</p></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Inputs</div>
+    <div style="max-width: 440px;">
+      <div style="margin-bottom: 12px;">
+        <input type="text" placeholder="Session title" style="width:100%;padding:9px 12px;font-family:'Inter',sans-serif;font-size:13px;border:1px solid var(--border-2);border-radius:8px;background:var(--surface);color:var(--text);outline:none;" readonly>
+      </div>
+      <textarea rows="2" placeholder="Describe a direction, refine a design..." style="width:100%;padding:10px 14px;font-family:'Inter',sans-serif;font-size:13px;border:1px solid var(--border-2);border-radius:10px;background:var(--surface);color:var(--text);resize:none;outline:none;" readonly></textarea>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Radii</div>
+    <div class="code">--r:      8px    /* buttons, inputs, badges */
+--r-lg:   14px   /* sheets, panels, cards */
+--r-card: 12px   /* standard cards */</div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Design Card Anatomy</div>
+    <div class="mm">
+      <div class="mermaid">
+flowchart TD
+  DC["Design Card"] --> META["Meta Bar · JetBrains 9px · status + date"]
+  DC --> PREV["Preview Shell · 4:5 aspect · iframe"]
+  DC --> BODY["Card Body · Archivo title · Inter summary"]
+  DC --> ACT["Actions · ghost buttons · preview · iterate · ref"]
+  DC --> CROP["Crop Marks · #ff4f5e · show on hover"]
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ TEXTURE ═══ -->
+<div class="tab-panel" data-panel="texture">
+<div class="shell">
+  <div class="hero">
+    <div class="hero-eyebrow">Texture</div>
+    <h1 class="hero-title"><span>Atmosphere</span></h1>
+    <p class="hero-desc">Film grain, backlight glow, grid overlays, and the interplay of surfaces create the light table feel.</p>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Film Grain</div>
+    <div class="tex" style="background:var(--surface);background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E&quot;);">
+      <span class="tex-label">feTurbulence / 0.75 freq / 0.03 opacity</span>
+    </div>
+    <div class="sect-note">Fixed SVG noise overlay on <code style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan);">body::after</code>. Analog texture at zero perf cost.</div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Backlight Glow</div>
+    <div class="tex" style="background:var(--surface);overflow:hidden;">
+      <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:70%;height:80%;background:radial-gradient(ellipse at center,rgba(244,245,248,0.08) 0%,rgba(0,212,255,0.03) 40%,transparent 70%);border-radius:30px;animation:glow-pulse 6s ease-in-out infinite;"></div>
+      <span class="tex-label">radial-gradient / f4f5f8 + cyan tint / 6s pulse</span>
+    </div>
+    <style>@keyframes glow-pulse{0%,100%{opacity:.7;transform:translate(-50%,-50%) scale(1)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.04)}}</style>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Grid Overlay</div>
+    <div class="tex" style="background:var(--surface);background-image:repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(255,255,255,0.025) 39px,rgba(255,255,255,0.025) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(255,255,255,0.025) 39px,rgba(255,255,255,0.025) 40px);">
+      <span class="tex-label">40px grid / rgba(255,255,255,0.025)</span>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Ambient Gradients</div>
+    <div class="tex" style="background:var(--bg);">
+      <div style="position:absolute;inset:0;background:radial-gradient(ellipse 80% 50% at 30% 0%,rgba(0,212,255,0.08) 0%,transparent 60%),radial-gradient(ellipse 60% 40% at 80% 10%,rgba(255,79,94,0.04) 0%,transparent 50%);"></div>
+      <span class="tex-label">cyan + red ambient / body::before</span>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Surface Stack</div>
+    <div class="mm">
+      <div class="mermaid">
+flowchart TD
+  A["body::before — Ambient gradients<br/>fixed, z:0"] --> B["body::after — Film grain<br/>fixed, z:0"]
+  B --> C["Backlight glow<br/>absolute, z:0"]
+  C --> D["Grid overlay<br/>absolute, z:0"]
+  D --> E["Content<br/>relative, z:1"]
+  E --> F["Topbar / Composer<br/>backdrop-filter blur(20px)<br/>z:2+"]
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ ICONS ═══ -->
+<div class="tab-panel" data-panel="icons">
+<div class="shell">
+  <div class="hero">
+    <div class="hero-eyebrow">Iconography</div>
+    <h1 class="hero-title"><span>Marks &amp; Motifs</span></h1>
+    <p class="hero-desc">Visual elements from print production and film processing.</p>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Crop Marks</div>
+    <div class="g2">
+      <div class="crop-box">
+        <span class="crop-box-text">Transparency Content</span>
+      </div>
+      <div class="dk">
+        <div class="dk-label">Usage</div>
+        <p>Corner crop marks on lit-surface cards. 12–16px L-shaped borders in <span style="color:var(--red);">#ff4f5e</span> at 40% opacity. Animate to full color on hover.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Registration Labels</div>
+    <div class="dk">
+      <div style="margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 14px; align-items: center;">
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--cyan);">REG:003 FILM-C 240x160mm</span>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-3);">READY MAR 11</span>
+        <span class="tab-brand-sub" style="font-size:8px;">LT</span>
+      </div>
+      <p>JetBrains Mono 700, 9–10px, wide tracking. Cyan for active labels, dim for passive. The "found on film" aesthetic.</p>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Status Dots</div>
+    <div style="display:flex;gap:20px;align-items:center;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;gap:7px;"><div style="width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan-glow);"></div><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-2);">Connected</span></div>
+      <div style="display:flex;align-items:center;gap:7px;"><div style="width:6px;height:6px;border-radius:50%;background:#44d88a;box-shadow:0 0 8px rgba(68,216,138,0.15);"></div><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-2);">Success</span></div>
+      <div style="display:flex;align-items:center;gap:7px;"><div style="width:6px;height:6px;border-radius:50%;background:var(--warm);box-shadow:0 0 8px rgba(240,192,96,0.15);"></div><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-2);">Pending</span></div>
+      <div style="display:flex;align-items:center;gap:7px;"><div style="width:6px;height:6px;border-radius:50%;background:var(--red);box-shadow:0 0 8px rgba(255,79,94,0.15);"></div><span style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-2);">Error</span></div>
+    </div>
+    <div class="sect-note">6px dots with subtle glow halos matching their color. Used in provider panels and badge prefixes.</div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Favicon</div>
+    <div class="dk" style="display:flex;gap:20px;align-items:center;">
+      <svg width="56" height="56" viewBox="0 0 64 64" style="flex-shrink:0;">
+        <rect width="64" height="64" rx="14" fill="#0a0b0e"/>
+        <rect x="14" y="14" width="36" height="36" rx="6" fill="#f4f5f8" opacity="0.92"/>
+        <line x1="14" y1="9" x2="14" y2="14" stroke="#ff4f5e" stroke-width="2"/>
+        <line x1="9" y1="14" x2="14" y2="14" stroke="#ff4f5e" stroke-width="2"/>
+        <line x1="50" y1="50" x2="55" y2="50" stroke="#ff4f5e" stroke-width="2"/>
+        <line x1="50" y1="50" x2="50" y2="55" stroke="#ff4f5e" stroke-width="2"/>
+        <text x="32" y="38" text-anchor="middle" font-family="monospace" font-size="14" font-weight="bold" fill="#00d4ff">DS</text>
+      </svg>
+      <div>
+        <div class="sw-name" style="margin-bottom:4px;">App Icon</div>
+        <p>Dark square, lit center, opposing crop marks, "DS" in registration cyan. The full metaphor at 32px.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ PRINCIPLES ═══ -->
+<div class="tab-panel" data-panel="principles">
+<div class="shell">
+  <div class="hero">
+    <div class="hero-eyebrow">Principles</div>
+    <h1 class="hero-title"><span>Philosophy</span></h1>
+    <p class="hero-desc">Rules governing every decision in the Light Table system.</p>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Core Rules</div>
+    <div class="g2">
+      <div class="lt"><h4>Content is the brightest thing</h4><p>Generated designs sit on the lit surface. Everything else is dark chrome. Hierarchy is absolute: work &gt; UI.</p></div>
+      <div class="lt"><h4>Conversation is the interface</h4><p>No separate gallery. Designs appear inline in the chat. The user talks, the agent makes.</p></div>
+      <div class="lt"><h4>Print production as texture</h4><p>Crop marks and registration labels are atmosphere, not function. They set tone without demanding attention.</p></div>
+      <div class="lt"><h4>Two surfaces, not gradients</h4><p>Dark workspace and lit surface. Binary contrast. Cards are on the table or on the light box. No middle ground.</p></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Layout</div>
+    <div class="g2">
+      <div class="dk"><div class="dk-label">Single Column</div><p>Centered conversation (max 720px). References in a right drawer. Topbar handles navigation. Nothing competes with the chat.</p></div>
+      <div class="dk"><div class="dk-label">Fixed Anchors</div><p>Topbar and composer are fixed. The scroll region between them is the workspace — the light table surface.</p></div>
+      <div class="dk"><div class="dk-label">Progressive Disclosure</div><p>Sessions in a dropdown. References in a drawer. Settings in a sheet. Default view = conversation + designs only.</p></div>
+      <div class="dk"><div class="dk-label">Compact Spacing</div><p>8–14px radii. Tight padding. Professional density. This is a power tool, not a marketing page.</p></div>
+    </div>
+  </div>
+
+  <div class="sect">
+    <div class="sect-label">Anti-Patterns</div>
+    <div class="code">Never:
+  ✕ Rounded pills (999px radius) for structural elements
+  ✕ Box-shadow glow on accent colors (except solid cyan buttons)
+  ✕ Serif fonts (Cormorant Garamond is dead)
+  ✕ Multi-column dashboard layouts
+  ✕ Decorative gradients (only the backlight glow)
+  ✕ Animations over 350ms for UI interactions
+  ✕ Purple. Ever.</div>
+  </div>
+</div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const nav = document.getElementById('tab-nav');
+  const panels = document.querySelectorAll('.tab-panel');
+  const buttons = nav.querySelectorAll('.tab-btn');
+
+  nav.addEventListener('click', (e) => {
+    const btn = e.target.closest('.tab-btn');
+    if (!btn) return;
+    const target = btn.dataset.tab;
+
+    const scan = document.createElement('div');
+    scan.className = 'scan';
+    document.body.appendChild(scan);
+    scan.addEventListener('animationend', () => scan.remove());
+
+    buttons.forEach(b => b.classList.remove('is-active'));
+    btn.classList.add('is-active');
+
+    panels.forEach(p => {
+      if (p.dataset.panel === target) {
+        p.classList.remove('is-visible');
+        void p.offsetWidth;
+        p.classList.add('is-visible');
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      } else {
+        p.classList.remove('is-visible');
       }
+    });
 
-      const prog = gl.createProgram();
-      gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
-      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
-      gl.linkProgram(prog);
-      gl.useProgram(prog);
-
-      const buf = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
-      const loc = gl.getAttribLocation(prog, 'a_pos');
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-
-      const uRes = gl.getUniformLocation(prog, 'u_res');
-      const uTime = gl.getUniformLocation(prog, 'u_time');
-      const uBg = gl.getUniformLocation(prog, 'u_bg');
-      const uStrength = gl.getUniformLocation(prog, 'u_strength');
-      gl.uniform3f(uBg, 11 / 255, 17 / 255, 32 / 255);
-      gl.uniform1f(uStrength, 0.12);
-
-      let dpr, w, h, animating = false;
-
-      function resize() {
-        dpr = Math.min(window.devicePixelRatio || 1, 2);
-        w = window.innerWidth;
-        h = window.innerHeight;
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
-        canvas.style.width = w + 'px';
-        canvas.style.height = h + 'px';
-        gl.viewport(0, 0, canvas.width, canvas.height);
-        if (!animating) draw();
+    const visible = document.querySelector(`.tab-panel[data-panel="${target}"]`);
+    if (visible) {
+      const mm = visible.querySelectorAll('.mermaid');
+      if (mm.length) {
+        import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs').then(m => {
+          m.default.run({ nodes: Array.from(mm) });
+        });
       }
-
-      function draw() {
-        gl.uniform2f(uRes, canvas.width, canvas.height);
-        gl.uniform1f(uTime, performance.now() * 0.0001);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      }
-
-      // static grain — redraw only on resize
-      window.addEventListener('resize', resize);
-      resize();
-
-      // uncomment for animated grain:
-      // animating = true;
-      // (function loop() { draw(); requestAnimationFrame(loop); })();
-    })();
-
-    // ─── Specimen canvas (fullscreen-able) ───
-    (function () {
-      const panel = document.getElementById('surface-specimen');
-      const canvas = document.getElementById('specimen-canvas');
-      const gl = canvas.getContext('webgl2', {
-        alpha: false,
-        antialias: false,
-        depth: false,
-        stencil: false,
-        preserveDrawingBuffer: false,
-        desynchronized: true,
-        powerPreference: 'high-performance'
-      });
-      if (!gl) return;
-
-      const vs = `#version 300 es
-        in vec2 a_pos;
-        void main() { gl_Position = vec4(a_pos, 0, 1); }
-      `;
-
-      const fs = `#version 300 es
-        precision highp float;
-        uniform vec2 u_res;
-        uniform float u_time;
-        out vec4 fragColor;
-
-        // ─── noise ───
-        vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-        vec4 permute(vec4 x) { return mod289(((x * 34.0) + 10.0) * x); }
-        vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
-
-        float snoise(vec3 v) {
-          const vec2 C = vec2(1.0 / 6.0, 1.0 / 3.0);
-          const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
-          vec3 i = floor(v + dot(v, C.yyy));
-          vec3 x0 = v - i + dot(i, C.xxx);
-          vec3 g = step(x0.yzx, x0.xyz);
-          vec3 l = 1.0 - g;
-          vec3 i1 = min(g.xyz, l.zxy);
-          vec3 i2 = max(g.xyz, l.zxy);
-          vec3 x1 = x0 - i1 + C.xxx;
-          vec3 x2 = x0 - i2 + C.yyy;
-          vec3 x3 = x0 - D.yyy;
-          i = mod289(i);
-          vec4 p = permute(permute(permute(
-            i.z + vec4(0.0, i1.z, i2.z, 1.0))
-            + i.y + vec4(0.0, i1.y, i2.y, 1.0))
-            + i.x + vec4(0.0, i1.x, i2.x, 1.0));
-          float n_ = 0.142857142857;
-          vec3 ns = n_ * D.wyz - D.xzx;
-          vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
-          vec4 x_ = floor(j * ns.z);
-          vec4 y_ = floor(j - 7.0 * x_);
-          vec4 x = x_ * ns.x + ns.yyyy;
-          vec4 y = y_ * ns.x + ns.yyyy;
-          vec4 h = 1.0 - abs(x) - abs(y);
-          vec4 b0 = vec4(x.xy, y.xy);
-          vec4 b1 = vec4(x.zw, y.zw);
-          vec4 s0 = floor(b0) * 2.0 + 1.0;
-          vec4 s1 = floor(b1) * 2.0 + 1.0;
-          vec4 sh = -step(h, vec4(0.0));
-          vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy;
-          vec4 a1 = b1.xzyw + s1.xzyw * sh.zzww;
-          vec3 p0 = vec3(a0.xy, h.x);
-          vec3 p1 = vec3(a0.zw, h.y);
-          vec3 p2 = vec3(a1.xy, h.z);
-          vec3 p3 = vec3(a1.zw, h.w);
-          vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
-          p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
-          vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
-          m = m * m;
-          return 42.0 * dot(m * m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
-        }
-
-        void main() {
-          vec2 uv = gl_FragCoord.xy / u_res;
-          vec3 p = vec3(uv * u_res / 3.0, 42.0);
-
-          // fine grain — woven cloth / felt texture
-          float n1 = snoise(p);
-          float n2 = snoise(p * 2.0 + 100.0);
-          float n3 = snoise(p * 4.0 + 200.0);
-          float n4 = snoise(p * 8.0 + 300.0);
-          float grain = n1 * 0.4 + n2 * 0.3 + n3 * 0.2 + n4 * 0.1;
-          grain = grain * 0.5 + 0.5;
-
-          // slow tonal drift across the surface
-          float drift = snoise(vec3(uv * 1.6, 42.0)) * 0.5 + 0.5;
-          float drift2 = snoise(vec3(uv * 0.8 + 50.0, 42.0)) * 0.5 + 0.5;
-          float variation = drift * 0.6 + drift2 * 0.4;
-
-          // base color — tight indigo range
-          vec3 bg = vec3(11.0/255.0, 17.0/255.0, 32.0/255.0);
-          // grain adds texture
-          vec3 color = bg + (grain - 0.5) * 0.10;
-          // drift shifts toward slightly lighter/darker
-          color += (variation - 0.5) * 0.025;
-
-          fragColor = vec4(color, 1.0);
-        }
-      `;
-
-      function compile(type, src) {
-        const s = gl.createShader(type);
-        gl.shaderSource(s, src);
-        gl.compileShader(s);
-        if (!gl.getShaderParameter(s, gl.COMPILE_STATUS))
-          console.error(gl.getShaderInfoLog(s));
-        return s;
-      }
-
-      const prog = gl.createProgram();
-      gl.attachShader(prog, compile(gl.VERTEX_SHADER, vs));
-      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, fs));
-      gl.linkProgram(prog);
-      gl.useProgram(prog);
-
-      const buf = gl.createBuffer();
-      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
-      const loc = gl.getAttribLocation(prog, 'a_pos');
-      gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-
-      const uRes = gl.getUniformLocation(prog, 'u_res');
-      const uTime = gl.getUniformLocation(prog, 'u_time');
-
-      const overlay = document.getElementById('perf-overlay');
-      const ext = gl.getExtension('EXT_disjoint_timer_query_webgl2');
-      let width = 0, height = 0;
-
-      function fit() {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const rect = panel.getBoundingClientRect();
-        const nextWidth = Math.max(1, Math.round(rect.width * dpr));
-        const nextHeight = Math.max(1, Math.round(rect.height * dpr));
-        if (nextWidth === width && nextHeight === height) return;
-        width = nextWidth;
-        height = nextHeight;
-        canvas.width = width;
-        canvas.height = height;
-        gl.viewport(0, 0, width, height);
-        render();
-      }
-
-      function render() {
-        const t0 = performance.now();
-        let query = null;
-        if (ext) {
-          query = gl.createQuery();
-          gl.beginQuery(ext.TIME_ELAPSED_EXT, query);
-        }
-
-        gl.uniform2f(uRes, canvas.width, canvas.height);
-        gl.uniform1f(uTime, 42.0);
-        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-        if (query) {
-          gl.endQuery(ext.TIME_ELAPSED_EXT);
-        }
-
-        gl.finish();
-        const cpuMs = performance.now() - t0;
-
-        // read GPU time async
-        if (query) {
-          requestAnimationFrame(function poll() {
-            const available = gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE);
-            if (!available) { requestAnimationFrame(poll); return; }
-            const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
-            let gpuMs = null;
-            if (!disjoint) gpuMs = gl.getQueryParameter(query, gl.QUERY_RESULT) / 1e6;
-            gl.deleteQuery(query);
-            let text = `${cpuMs.toFixed(1)}ms cpu`;
-            if (gpuMs !== null) text += ` · ${gpuMs.toFixed(1)}ms gpu`;
-            text += ` · ${canvas.width}×${canvas.height}px · static`;
-            overlay.textContent = text;
-          });
-        } else {
-          overlay.textContent = `${cpuMs.toFixed(1)}ms cpu · ${canvas.width}×${canvas.height}px · static`;
-        }
-      }
-
-      // click to fullscreen
-      panel.addEventListener('click', () => {
-        if (!document.fullscreenElement) {
-          panel.requestFullscreen();
-        } else {
-          document.exitFullscreen();
-        }
-      });
-
-      window.addEventListener('resize', () => fit(), { passive: true });
-      document.addEventListener('fullscreenchange', () => setTimeout(fit, 50));
-      if ('ResizeObserver' in window) {
-        new ResizeObserver(() => fit()).observe(panel);
-      }
-
-      fit();
-    })();
-  </script>
+    }
+  });
+});
+</script>
 </body>
 </html>

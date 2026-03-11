@@ -347,10 +347,13 @@ function getAllMentionItems(): MentionItem[] {
 function renderSelectedReferences(): void {
   const container = $("selected-references");
   if (!container) return;
+  const clearBtn = $("clear-selected-references") as HTMLElement | null;
   if (selectedReferences.size === 0) {
-    container.innerHTML = "<div class=\"selected-reference-empty\">No references selected for this draft.</div>";
+    container.innerHTML = "";
+    if (clearBtn) clearBtn.style.display = "none";
     return;
   }
+  if (clearBtn) clearBtn.style.display = "";
   container.innerHTML = Array.from(selectedReferences.values()).map((item) => (
     `<button class="selected-reference-chip" type="button" data-remove-reference="${escapeHtml(item.handle)}">
       <span>${escapeHtml(item.label)}</span>
