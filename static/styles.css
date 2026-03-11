@@ -2813,6 +2813,7 @@ body.is-shift-held .board-node { cursor: grab; }
 }
 
 /* Type-specific port dot colors */
+.storm-node .node-port-dot { background: rgba(91, 156, 184, 0.5); border-color: rgba(91, 156, 184, 0.72); }
 .board-node-entropy .node-port-dot { background: rgba(184, 154, 120, 0.5); border-color: rgba(184, 154, 120, 0.7); }
 .board-node-user_input .node-port-dot { background: rgba(160, 140, 200, 0.5); border-color: rgba(160, 140, 200, 0.7); }
 .board-node-generate .node-port-dot { background: rgba(91, 156, 184, 0.5); border-color: rgba(91, 156, 184, 0.7); }

@@ -712,9 +712,24 @@ function getSlotAnchor(nodeId: string, slotName: string): AnchorPoint | null {
   return { side: "right", t, worldX: pos.x + w + PORT_ANCHOR_OFFSET, worldY: pos.y + h * t };
 }
 
-function getRenderableSlotAnchor(nodeId: string, slotName: string): AnchorPoint | null {
-  if (!state.boardNodes.find((node) => node.id === nodeId)) return null;
-  return getSlotAnchor(nodeId, slotName);
+function getRunPortAnchor(nodeId: string, portName: string): AnchorPoint | null {
+  if (!state.runs.find((run) => run.id === nodeId)) return null;
+  const pos = state.positions.get(nodeId);
+  if (!pos) return null;
+  const { w, h } = getNodeDimensions(nodeId);
+  const t = getSlotLaneT(0, 1);
+
+  if (portName === "generated_by") {
+    return { side: "left", t, worldX: pos.x - PORT_ANCHOR_OFFSET, worldY: pos.y + h * t };
+  }
+  if (portName === "out") {
+    return { side: "right", t, worldX: pos.x + w + PORT_ANCHOR_OFFSET, worldY: pos.y + h * t };
+  }
+  return null;
+}
+
+function getRenderablePortAnchor(nodeId: string, portName: string): AnchorPoint | null {
+  return getRunPortAnchor(nodeId, portName) ?? getSlotAnchor(nodeId, portName);
 }
 
 function getEdgeAnchorPoint(
@@ -724,7 +739,7 @@ function getEdgeAnchorPoint(
   storedT: number | null,
   fallbackSide: AnchorSide,
 ): AnchorPoint {
-  const slotAnchor = slotName ? getRenderableSlotAnchor(nodeId, slotName) : null;
+  const slotAnchor = slotName ? getRenderablePortAnchor(nodeId, slotName) : null;
   if (slotAnchor) return slotAnchor;
 
   const side = (storedSide ?? fallbackSide) as AnchorSide;
@@ -1896,13 +1911,21 @@ function renderConnections(): void {
     parents.forEach((pid) => {
       const parent = state.positions.get(pid);
       if (!parent) return;
-      const sx = parent.x + CARD_WIDTH * 0.5 - bounds.minX;
-      const sy = parent.y + CARD_HEIGHT - bounds.minY;
-      const ex = child.x + CARD_WIDTH * 0.5 - bounds.minX;
-      const ey = child.y - bounds.minY;
-      const tension = Math.min(Math.abs(ey - sy) * 0.4, 80);
+      const sourceAnchor = getRunPortAnchor(pid, "out");
+      const targetAnchor = getRunPortAnchor(runId, "generated_by");
+      if (!sourceAnchor || !targetAnchor) return;
+      const sx = sourceAnchor.worldX - bounds.minX;
+      const sy = sourceAnchor.worldY - bounds.minY;
+      const ex = targetAnchor.worldX - bounds.minX;
+      const ey = targetAnchor.worldY - bounds.minY;
+      const dx = ex - sx;
+      const dy = ey - sy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const tension = Math.min(dist * 0.4, 80);
+      const srcCtrl = getControlOffset(sourceAnchor.side, tension);
+      const tgtCtrl = getControlOffset(targetAnchor.side, -tension);
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-      path.setAttribute("d", `M ${sx} ${sy} C ${sx} ${sy + tension}, ${ex} ${ey - tension}, ${ex} ${ey}`);
+      path.setAttribute("d", `M ${sx} ${sy} C ${sx + srcCtrl.x} ${sy + srcCtrl.y}, ${ex + tgtCtrl.x} ${ey + tgtCtrl.y}, ${ex} ${ey}`);
       path.setAttribute("class", "storm-line");
       svg.appendChild(path);
     });
@@ -2630,11 +2653,11 @@ function bindNodeInteractions(): void {
     if (target.closest("[data-node-menu]")) return;
 
     const outputPort = target.closest<HTMLElement>(".node-port[data-direction='out']");
-    const outputBoardNode = outputPort?.closest<HTMLElement>(".board-node");
-    const outputNodeId = outputBoardNode?.dataset.nodeId;
-    if (outputPort && outputBoardNode && outputNodeId) {
-      const slotName = outputPort.dataset.slot;
-      const anchor = slotName ? getSlotAnchor(outputNodeId, slotName) : null;
+    const outputNodeEl = outputPort?.closest<HTMLElement>(".storm-node, .board-node");
+    const outputNodeId = outputNodeEl?.dataset.runId ?? outputNodeEl?.dataset.nodeId;
+    if (outputPort && outputNodeEl && outputNodeId) {
+      const slotName = outputPort.dataset.slot ?? outputPort.dataset.port;
+      const anchor = slotName ? getRenderablePortAnchor(outputNodeId, slotName) : null;
       if (!slotName || !anchor) return;
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -2642,12 +2665,12 @@ function bindNodeInteractions(): void {
         mode: "wire-pending",
         pointerId: e.pointerId,
         nodeId: outputNodeId,
-        nodeEl: outputBoardNode,
+        nodeEl: outputNodeEl,
         startClient: { x: e.clientX, y: e.clientY },
         sourceAnchor: anchor,
-        sourceSlot: slotName,
+        sourceSlot: outputPort.dataset.slot ?? undefined,
       };
-      outputBoardNode.setPointerCapture(e.pointerId);
+      outputNodeEl.setPointerCapture(e.pointerId);
       return;
     }
 
@@ -3093,8 +3116,8 @@ async function createBoardEdge(
   sourceSlot?: string, targetSlot?: string,
 ): Promise<void> {
   const slots = (sourceSlot && targetSlot) ? { sourceSlot, targetSlot } : defaultSlotsForConnection(sourceType, targetType);
-  const resolvedSourceAnchor = sourceAnchor ?? getRenderableSlotAnchor(sourceId, slots.sourceSlot) ?? undefined;
-  const resolvedTargetAnchor = targetAnchor ?? getRenderableSlotAnchor(targetId, slots.targetSlot) ?? undefined;
+  const resolvedSourceAnchor = sourceAnchor ?? getRenderablePortAnchor(sourceId, slots.sourceSlot) ?? undefined;
+  const resolvedTargetAnchor = targetAnchor ?? getRenderablePortAnchor(targetId, slots.targetSlot) ?? undefined;
   try {
     const resp = await fetch("/edges", {
       method: "POST",
@@ -3421,13 +3444,13 @@ function removeEdgeHandles(): void {
 }
 
 function positionRenderedNodePorts(): void {
-  document.querySelectorAll<HTMLElement>(".board-node[data-node-id]").forEach((nodeEl) => {
-    const nodeId = nodeEl.dataset.nodeId;
+  document.querySelectorAll<HTMLElement>(".storm-node[data-run-id], .board-node[data-node-id]").forEach((nodeEl) => {
+    const nodeId = nodeEl.dataset.runId ?? nodeEl.dataset.nodeId;
     if (!nodeId) return;
-    nodeEl.querySelectorAll<HTMLElement>(".node-port[data-slot]").forEach((portEl) => {
-      const slotName = portEl.dataset.slot;
-      if (!slotName) return;
-      const anchor = getSlotAnchor(nodeId, slotName);
+    nodeEl.querySelectorAll<HTMLElement>(".node-port").forEach((portEl) => {
+      const portName = portEl.dataset.slot ?? portEl.dataset.port;
+      if (!portName) return;
+      const anchor = getRenderablePortAnchor(nodeId, portName);
       if (!anchor) return;
       portEl.style.setProperty("--port-t", String(anchor.t));
     });
