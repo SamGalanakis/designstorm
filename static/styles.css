@@ -642,60 +642,51 @@ h1, h2, h3 {
   color: var(--text);
 }
 
-/* Session switcher — keep the DOM elements but hide on desktop (sidebar replaces it) */
-.session-switcher {
-  display: none;
-}
-
-.session-dropdown {
-  display: none;
-}
-
 /* ─── Main area ─── */
 
 .studio-main {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
 }
 
-/* ─── Top bar ─── */
-
-.studio-topbar {
+/* Inline chat header (replaces top bar) */
+.chat-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 20px;
-  height: 48px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(17, 19, 24, 0.96);
+  gap: 10px;
+  padding: 12px 32px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(10, 11, 14, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  z-index: 10;
-  position: relative;
 }
 
 .session-title-input {
-  width: 280px;
-  max-width: 40%;
-  padding: 4px 10px;
+  padding: 2px 6px;
   border: 1px solid transparent;
-  border-radius: var(--r);
+  border-radius: calc(var(--r) - 2px);
   background: transparent;
-  color: var(--text);
+  color: var(--text-2);
   font-family: "Archivo", sans-serif;
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
   outline: none;
   transition: all 150ms;
+  min-width: 0;
+  max-width: 240px;
 }
 
 .session-title-input:hover {
+  color: var(--text);
   background: rgba(255, 255, 255, 0.04);
 }
 
 .session-title-input:focus {
-  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
   border-color: var(--border-2);
 }
 
@@ -708,14 +699,6 @@ h1, h2, h3 {
   flex-shrink: 0;
 }
 
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  margin-left: auto;
-}
-
 #studio-status {
   font-family: "JetBrains Mono", monospace;
   font-size: 9px;
@@ -726,6 +709,7 @@ h1, h2, h3 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-left: auto;
 }
 
 #studio-status code {
@@ -790,20 +774,14 @@ h1, h2, h3 {
 .chat-thread {
   display: grid;
   gap: 2px;
-  max-width: 780px;
-  margin: 0 auto;
   padding: 0 32px;
 }
 
 .chat-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
+  padding: 24px 0;
+  text-align: center;
   color: var(--text-3);
-  font-size: 14px;
-  font-family: "Archivo", sans-serif;
-  font-weight: 300;
+  font-size: 13px;
 }
 
 .chat-message {
@@ -863,10 +841,8 @@ h1, h2, h3 {
 
 .design-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 16px;
-  max-width: 780px;
-  margin: 0 auto;
   padding: 12px 32px 24px;
   position: relative;
   z-index: 1;
@@ -1055,8 +1031,6 @@ h1, h2, h3 {
 }
 
 .composer-inner {
-  max-width: 780px;
-  margin: 0 auto;
   display: grid;
   gap: 8px;
 }
@@ -1418,14 +1392,13 @@ h1, h2, h3 {
 }
 
 @media (max-width: 640px) {
-  .studio-topbar {
-    padding: 8px 12px;
-    gap: 8px;
+  .chat-header {
+    padding: 10px 14px;
   }
 
   .session-title-input {
-    font-size: 13px;
-    max-width: 50%;
+    font-size: 12px;
+    max-width: 140px;
   }
 
   .chat-thread {

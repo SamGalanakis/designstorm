@@ -96,49 +96,47 @@
 
   <!-- ═══ Main area ═══ -->
   <div class="studio-main">
-    <!-- Topbar — minimal -->
-    <header class="studio-topbar">
-      <button
-        class="sidebar-toggle"
-        type="button"
-        data-on:click="$_sessionsOpen = !$_sessionsOpen"
-        data-attr:aria-expanded="$_sessionsOpen"
-        aria-label="Toggle sidebar"
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
-      </button>
-
-      <input
-        id="active-session-title"
-        class="session-title-input"
-        type="text"
-        value="{{ active_session_title }}"
-        autocomplete="off"
-        aria-label="Session title"
-      />
-
-      <span id="active-session-updated" class="session-title-meta" style="position: absolute; left: -9999px;">{{ active_session_updated_label }}</span>
-
-      <span id="studio-status"></span>
-
-      <div class="topbar-actions">
-        <button
-          class="ref-toggle"
-          type="button"
-          data-on:click="$_refsOpen = !$_refsOpen"
-          data-class:is-active="$_refsOpen"
-        >
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
-          Refs
-        </button>
-      </div>
-    </header>
-
     <!-- ═══ Body: conversation + refs ═══ -->
     <div class="studio-body">
       <div class="studio-conversation">
         <!-- Scrollable thread -->
         <div class="chat-thread-wrap">
+          <!-- Inline header: title + status -->
+          <div class="chat-header">
+            <button
+              class="sidebar-toggle"
+              type="button"
+              data-on:click="$_sessionsOpen = !$_sessionsOpen"
+              data-attr:aria-expanded="$_sessionsOpen"
+              aria-label="Toggle sidebar"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+            </button>
+
+            <input
+              id="active-session-title"
+              class="session-title-input"
+              type="text"
+              value="{{ active_session_title }}"
+              autocomplete="off"
+              aria-label="Session title"
+            />
+
+            <span id="active-session-updated" class="session-title-meta" style="position: absolute; left: -9999px;">{{ active_session_updated_label }}</span>
+
+            <span id="studio-status"></span>
+
+            <button
+              class="ref-toggle"
+              type="button"
+              data-on:click="$_refsOpen = !$_refsOpen"
+              data-class:is-active="$_refsOpen"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+              Refs
+            </button>
+          </div>
+
           <div id="session-messages" class="chat-thread">
             {{ messages_html|safe }}
           </div>
