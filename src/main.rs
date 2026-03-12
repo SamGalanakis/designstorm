@@ -20,10 +20,11 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use chromiumoxide::page::ScreenshotParams;
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
+use chromiumoxide::page::ScreenshotParams;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use cookie::{Cookie, SameSite};
+use futures_util::StreamExt as FuturesStreamExt;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use lash_core::{
     AgentCapabilities, AgentStateEnvelope, HostProfile, InputItem, LashRuntime, PromptOverrideMode,
@@ -32,7 +33,6 @@ use lash_core::{
     provider::OPENAI_GENERIC_DEFAULT_BASE_URL,
     tools::{FetchUrl, ToolSet, WebSearch},
 };
-use futures_util::StreamExt as FuturesStreamExt;
 use mime_guess::from_path;
 use regex::{Captures, Regex};
 use reqwest::Client;
@@ -96,20 +96,21 @@ struct ScreenshotService {
 
 impl ScreenshotService {
     async fn new() -> Result<Self, String> {
-        let (browser, mut handler) =
-            chromiumoxide::Browser::launch(
-                chromiumoxide::BrowserConfig::builder()
-                    .chrome_executable(std::env::var("CHROMIUM_PATH").unwrap_or_else(|_| "/usr/bin/chromium".into()))
-                    .no_sandbox()
-                    .new_headless_mode()
-                    .arg("disable-gpu")
-                    .arg("disable-dev-shm-usage")
-                    .window_size(1280, 900)
-                    .build()
-                    .map_err(|e| format!("browser config error: {e}"))?,
-            )
-            .await
-            .map_err(|e| format!("browser launch error: {e}"))?;
+        let (browser, mut handler) = chromiumoxide::Browser::launch(
+            chromiumoxide::BrowserConfig::builder()
+                .chrome_executable(
+                    std::env::var("CHROMIUM_PATH").unwrap_or_else(|_| "/usr/bin/chromium".into()),
+                )
+                .no_sandbox()
+                .new_headless_mode()
+                .arg("disable-gpu")
+                .arg("disable-dev-shm-usage")
+                .window_size(1280, 900)
+                .build()
+                .map_err(|e| format!("browser config error: {e}"))?,
+        )
+        .await
+        .map_err(|e| format!("browser launch error: {e}"))?;
 
         let handle = tokio::spawn(async move {
             while let Some(_event) = handler.next().await {
@@ -735,12 +736,23 @@ struct StormToolProvider {
 }
 
 impl StormToolProvider {
-    fn new(_role: StormAgentRole, workspace: Arc<Mutex<WorkspaceRuntimeState>>, screenshotter: Arc<OnceCell<ScreenshotService>>, port: u16) -> Self {
-        Self { workspace, screenshotter, port }
+    fn new(
+        _role: StormAgentRole,
+        workspace: Arc<Mutex<WorkspaceRuntimeState>>,
+        screenshotter: Arc<OnceCell<ScreenshotService>>,
+        port: u16,
+    ) -> Self {
+        Self {
+            workspace,
+            screenshotter,
+            port,
+        }
     }
 
     fn screenshotter(&self) -> &ScreenshotService {
-        self.screenshotter.get().expect("screenshot service not yet initialized")
+        self.screenshotter
+            .get()
+            .expect("screenshot service not yet initialized")
     }
 
     fn logical_path(&self, args: &serde_json::Value, key: &str) -> Result<String, ToolResult> {
@@ -887,8 +899,12 @@ impl StormToolProvider {
         });
 
         let url = format!("http://127.0.0.1:{}{}", self.port, workspace.preview_url);
-        let png = self.screenshotter().screenshot(&url).await
-            .map_err(|e| format!("screenshot failed: {e}")).unwrap();
+        let png = self
+            .screenshotter()
+            .screenshot(&url)
+            .await
+            .map_err(|e| format!("screenshot failed: {e}"))
+            .unwrap();
         let image = lash_core::ToolImage {
             mime: "image/png".to_string(),
             data: png,
@@ -909,8 +925,12 @@ impl StormToolProvider {
             .unwrap_or_default();
 
         let url = format!("http://127.0.0.1:{}{}", self.port, workspace.preview_url);
-        let png = self.screenshotter().screenshot(&url).await
-            .map_err(|e| format!("screenshot failed: {e}")).unwrap();
+        let png = self
+            .screenshotter()
+            .screenshot(&url)
+            .await
+            .map_err(|e| format!("screenshot failed: {e}"))
+            .unwrap();
         let image = lash_core::ToolImage {
             mime: "image/png".to_string(),
             data: png,
@@ -1478,6 +1498,9 @@ async fn main() -> Result<(), AppError> {
         .route("/preview/{run_id}", get(preview_index_redirect))
         .route("/preview/{run_id}/", get(preview_index))
         .route("/preview/{run_id}/{*path}", get(preview_asset))
+        .route("/{username}/{design_slug}", get(public_run_redirect))
+        .route("/{username}/{design_slug}/", get(public_run_index))
+        .route("/{username}/{design_slug}/{*path}", get(public_run_asset))
         .route("/assets", post(upload_asset))
         .route("/assets/{id}/{file_name}", get(serve_asset))
         .nest_service("/static", ServeDir::new("static"))
@@ -1547,7 +1570,7 @@ async fn app_page(
     let provider_panel = render_provider_panel_html(&state, &viewer).await?;
     let active_session =
         resolve_active_session(&state, viewer.id, query.session.as_deref()).await?;
-    let snapshot = build_session_snapshot(&state, viewer.id, active_session.id).await?;
+    let snapshot = build_session_snapshot(&state, &viewer, active_session.id).await?;
     let config_json = json!({
         "clerkPublishableKey": state.config.clerk_publishable_key,
         "appUrl": state.config.app_url,
@@ -1679,7 +1702,7 @@ async fn rename_design_session(
     let viewer = require_viewer(&state, &headers).await?;
     update_design_session_title(&state.db, viewer.id, id, &payload.title).await?;
     Ok(Json(
-        build_session_response(&state, viewer.id, id, "Session renamed.").await?,
+        build_session_response(&state, &viewer, id, "Session renamed.").await?,
     ))
 }
 
@@ -1689,9 +1712,7 @@ async fn session_snapshot(
     Path(id): Path<Uuid>,
 ) -> Result<Json<SessionMessageResponse>, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
-    Ok(Json(
-        build_session_response(&state, viewer.id, id, "").await?,
-    ))
+    Ok(Json(build_session_response(&state, &viewer, id, "").await?))
 }
 
 async fn create_reference_item(
@@ -1703,7 +1724,7 @@ async fn create_reference_item(
     let viewer = require_viewer(&state, &headers).await?;
     create_reference_record(&state.db, viewer.id, id, &payload).await?;
     Ok(Json(
-        build_session_response(&state, viewer.id, id, "Reference added.").await?,
+        build_session_response(&state, &viewer, id, "Reference added.").await?,
     ))
 }
 
@@ -1717,7 +1738,7 @@ async fn upload_reference_image(
     let asset = upload_asset_to_storage(&state, viewer.id, &mut multipart).await?;
     create_image_reference_record(&state.db, viewer.id, id, &asset).await?;
     Ok(Json(
-        build_session_response(&state, viewer.id, id, "Image reference added.").await?,
+        build_session_response(&state, &viewer, id, "Image reference added.").await?,
     ))
 }
 
@@ -1750,16 +1771,25 @@ async fn update_reference_item(
     let new_content = match row.kind.as_str() {
         "text" => {
             let body = payload.body.as_deref().unwrap_or(
-                row.content_json.get("body").and_then(|v| v.as_str()).unwrap_or(""),
+                row.content_json
+                    .get("body")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
             );
             json!({ "body": body.trim() })
         }
         "link" => {
             let url = payload.url.as_deref().unwrap_or(
-                row.content_json.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+                row.content_json
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
             );
             let body = payload.body.as_deref().unwrap_or(
-                row.content_json.get("body").and_then(|v| v.as_str()).unwrap_or(""),
+                row.content_json
+                    .get("body")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
             );
             json!({ "url": url.trim(), "body": body.trim() })
         }
@@ -1776,7 +1806,7 @@ async fn update_reference_item(
     touch_design_session(&state.db, viewer.id, session_id).await?;
 
     Ok(Json(
-        build_session_response(&state, viewer.id, session_id, "Reference updated.").await?,
+        build_session_response(&state, &viewer, session_id, "Reference updated.").await?,
     ))
 }
 
@@ -1788,12 +1818,14 @@ async fn delete_reference_item(
     let viewer = require_viewer(&state, &headers).await?;
     get_owned_design_session(&state.db, viewer.id, session_id).await?;
 
-    let result = sqlx::query("DELETE FROM reference_items WHERE id = $1 AND owner_user_id = $2 AND session_id = $3")
-        .bind(ref_id)
-        .bind(viewer.id)
-        .bind(session_id)
-        .execute(&state.db)
-        .await?;
+    let result = sqlx::query(
+        "DELETE FROM reference_items WHERE id = $1 AND owner_user_id = $2 AND session_id = $3",
+    )
+    .bind(ref_id)
+    .bind(viewer.id)
+    .bind(session_id)
+    .execute(&state.db)
+    .await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound("Reference not found.".to_string()));
@@ -1801,7 +1833,7 @@ async fn delete_reference_item(
     touch_design_session(&state.db, viewer.id, session_id).await?;
 
     Ok(Json(
-        build_session_response(&state, viewer.id, session_id, "Reference deleted.").await?,
+        build_session_response(&state, &viewer, session_id, "Reference deleted.").await?,
     ))
 }
 
@@ -1848,7 +1880,7 @@ async fn post_session_message(
     .map_err(|e| AppError::BadRequest(format!("Invalid payload JSON: {e}")))?;
     let status = handle_session_message(&state, &viewer, id, payload, images).await?;
     Ok(Json(
-        build_session_response(&state, viewer.id, id, &status).await?,
+        build_session_response(&state, &viewer, id, &status).await?,
     ))
 }
 
@@ -3201,6 +3233,7 @@ fn render_gallery_html(
     runs: &[StormRunSummary],
     jobs: &[DesignJobRow],
     title_lookup: &HashMap<Uuid, String>,
+    owner_name: &str,
 ) -> String {
     let pending_cards = jobs.iter().filter(|job| job.result_run_id.is_none()).map(|job| {
         let lineage = job
@@ -3254,6 +3287,7 @@ fn render_gallery_html(
             .and_then(|id| title_lookup.get(&id))
             .map(|title| format!(r#"<span class="gallery-lineage">Iterates on {}</span>"#, html_escape(title)))
             .unwrap_or_default();
+        let share_path = public_design_path(owner_name, &run.title, run.id);
         format!(
             r#"<article class="gallery-card design-card" data-design-id="{id}" data-design-handle="design:{id}" data-design-label="{title}" tabindex="0">
   <div class="gallery-card-meta">
@@ -3270,6 +3304,7 @@ fn render_gallery_html(
   </div>
   <div class="gallery-card-actions">
     <button class="gallery-action" type="button" data-action="expand-design" data-design-id="{id}" data-design-label="{title}" data-preview-url="{preview}">Expand</button>
+    <button class="gallery-action" type="button" data-action="share-design" data-design-id="{id}" data-design-label="{title}" data-share-path="{share_path}">Share link</button>
     <button class="gallery-action" type="button" data-action="iterate-design" data-design-id="{id}" data-design-label="{title}">Iterate</button>
     <button class="gallery-action" type="button" data-action="use-design-reference" data-reference-handle="design:{id}" data-reference-label="{title}">Use as reference</button>
     <a class="gallery-action" href="/storms/{id}/download">Download ZIP</a>
@@ -3282,6 +3317,7 @@ fn render_gallery_html(
             preview = html_escape(&run.preview_url),
             summary = html_escape(&run.summary),
             lineage = lineage,
+            share_path = html_escape(&share_path),
         )
     });
 
@@ -3290,8 +3326,7 @@ fn render_gallery_html(
         .collect::<Vec<_>>()
         .join("");
     if html.is_empty() {
-        "<div class=\"gallery-empty\"></div>"
-            .to_string()
+        "<div class=\"gallery-empty\"></div>".to_string()
     } else {
         html
     }
@@ -3299,15 +3334,15 @@ fn render_gallery_html(
 
 async fn build_session_snapshot(
     state: &AppState,
-    user_id: Uuid,
+    viewer: &Viewer,
     session_id: Uuid,
 ) -> Result<SessionPageSnapshot, AppError> {
-    let sessions = list_design_sessions(&state.db, user_id).await?;
-    let active_session = get_owned_design_session(&state.db, user_id, session_id).await?;
-    let messages = load_session_messages(&state.db, user_id, session_id).await?;
-    let references = load_session_references(&state.db, user_id, session_id).await?;
-    let jobs = load_session_jobs(&state.db, user_id, session_id).await?;
-    let all_runs = viewer_run_summaries(state, user_id).await;
+    let sessions = list_design_sessions(&state.db, viewer.id).await?;
+    let active_session = get_owned_design_session(&state.db, viewer.id, session_id).await?;
+    let messages = load_session_messages(&state.db, viewer.id, session_id).await?;
+    let references = load_session_references(&state.db, viewer.id, session_id).await?;
+    let jobs = load_session_jobs(&state.db, viewer.id, session_id).await?;
+    let all_runs = viewer_run_summaries(state, viewer.id).await;
     let mut runs = all_runs
         .iter()
         .filter(|run| run.session_id == Some(session_id))
@@ -3329,7 +3364,7 @@ async fn build_session_snapshot(
     Ok(SessionPageSnapshot {
         session_list_html: render_session_list_html(&sessions, session_id),
         messages_html: render_messages_html(&messages, &jobs_by_id),
-        gallery_html: render_gallery_html(&runs, &jobs, &title_lookup),
+        gallery_html: render_gallery_html(&runs, &jobs, &title_lookup, &viewer.name),
         reference_list_html: render_reference_list_html(&references),
         active_session_title: active_session.title,
         active_session_updated_label,
@@ -3338,11 +3373,11 @@ async fn build_session_snapshot(
 
 async fn build_session_response(
     state: &AppState,
-    user_id: Uuid,
+    viewer: &Viewer,
     session_id: Uuid,
     status: &str,
 ) -> Result<SessionMessageResponse, AppError> {
-    let snapshot = build_session_snapshot(state, user_id, session_id).await?;
+    let snapshot = build_session_snapshot(state, viewer, session_id).await?;
     Ok(SessionMessageResponse {
         session_list_html: snapshot.session_list_html,
         messages_html: snapshot.messages_html,
@@ -4475,9 +4510,7 @@ impl SessionToolProvider {
     async fn list_references(&self) -> ToolResult {
         let rows = match load_session_references(self.db(), self.user_id, self.session_id).await {
             Ok(rows) => rows,
-            Err(e) => {
-                return ToolResult::err_fmt(format_args!("Failed to load references: {e}"))
-            }
+            Err(e) => return ToolResult::err_fmt(format_args!("Failed to load references: {e}")),
         };
 
         let refs: Vec<serde_json::Value> = rows
@@ -4544,8 +4577,13 @@ impl SessionToolProvider {
             "http://127.0.0.1:{}{}",
             self.state.config.port, run.preview_url
         );
-        let png = self.state.screenshotter().screenshot(&url).await
-            .map_err(|e| format!("screenshot failed: {e}")).unwrap();
+        let png = self
+            .state
+            .screenshotter()
+            .screenshot(&url)
+            .await
+            .map_err(|e| format!("screenshot failed: {e}"))
+            .unwrap();
         let image = lash_core::ToolImage {
             mime: "image/png".to_string(),
             data: png,
@@ -4582,7 +4620,11 @@ impl SessionToolProvider {
 
         // For image references, try to load the image data from S3 and return it
         if reference.kind == "image" {
-            if let Some(asset_id_str) = reference.content_json.get("assetId").and_then(|v| v.as_str()) {
+            if let Some(asset_id_str) = reference
+                .content_json
+                .get("assetId")
+                .and_then(|v| v.as_str())
+            {
                 let mime = reference
                     .content_json
                     .get("contentType")
@@ -4620,7 +4662,8 @@ impl SessionToolProvider {
                         }
                     }
                 }
-                result["note"] = json!("Image data could not be loaded, but the asset metadata is available.");
+                result["note"] =
+                    json!("Image data could not be loaded, but the asset metadata is available.");
             }
         }
 
@@ -5155,7 +5198,11 @@ async fn handle_session_message(
         ));
     }
     let body = if body.is_empty() {
-        format!("[{} image{} attached]", images.len(), if images.len() == 1 { "" } else { "s" })
+        format!(
+            "[{} image{} attached]",
+            images.len(),
+            if images.len() == 1 { "" } else { "s" }
+        )
     } else {
         body
     };

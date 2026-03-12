@@ -661,6 +661,16 @@ function openDesignFullscreen(title: string, previewUrl: string): void {
   document.body.appendChild(overlay);
 }
 
+async function copyShareLink(sharePath: string, label: string): Promise<void> {
+  const url = new URL(sharePath, getConfig().appUrl).toString();
+  try {
+    await navigator.clipboard.writeText(url);
+    setStatus(`Copied share link for ${label}.`);
+  } catch {
+    window.prompt("Copy this share link:", url);
+  }
+}
+
 function formatElapsed(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -1157,6 +1167,24 @@ function bindStudioEvents(): void {
       const previewUrl = expandButton.dataset.previewUrl ?? "";
       if (previewUrl) {
         openDesignFullscreen(label, previewUrl);
+      }
+      return;
+    }
+
+    const shareButton = target.closest<HTMLElement>("[data-action='share-design']");
+    if (shareButton) {
+      const sharePath = shareButton.dataset.sharePath ?? "";
+      const label = shareButton.dataset.designLabel ?? "Design";
+      if (sharePath) {
+        const button = shareButton instanceof HTMLButtonElement ? shareButton : null;
+        const previousLabel = button?.textContent ?? "";
+        void copyShareLink(sharePath, label);
+        if (button) {
+          button.textContent = "Copied";
+          window.setTimeout(() => {
+            button.textContent = previousLabel;
+          }, 1600);
+        }
       }
       return;
     }
