@@ -34,6 +34,7 @@ use lash_core::{
 };
 use futures_util::StreamExt as FuturesStreamExt;
 use mime_guess::from_path;
+use regex::{Captures, Regex};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -49,12 +50,12 @@ use std::{
     net::SocketAddr,
     path::{Component, Path as StdPath, PathBuf},
     str::FromStr,
-    sync::Arc,
+    sync::{Arc, LazyLock},
     time::{Duration, Instant},
 };
 use thiserror::Error;
 use time::OffsetDateTime;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 use tokio_util::sync::CancellationToken;
 use tower_http::{
     services::ServeDir,
@@ -68,6 +69,23 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter, write::FileOptions};
 const SESSION_COOKIE_NAME: &str = "designstorm_session";
 const DATASTAR_CDN: &str =
     "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js";
+static INLINE_CODE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"`([^`\n]+)`").expect("inline code regex"));
+static INLINE_LINK_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"\[([^\]\n]+)\]\((https?://[^\s)]+)\)"#).expect("inline link regex")
+});
+static INLINE_STRONG_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\*\*([^\n*][^\n]*?[^\n*]?)\*\*").expect("inline strong regex"));
+static INLINE_STRIKE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"~~([^\n~][^\n]*?[^\n~]?)~~").expect("inline strike regex"));
+static INLINE_EM_STAR_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(^|[\s([{"'])\*([^*\s][^*\n]*?[^*\s]?)\*($|[\s),.!?;:\]"}'])"#)
+        .expect("inline emphasis regex")
+});
+static INLINE_EM_UNDERSCORE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(^|[\s([{"'])_([^_\s][^_\n]*?[^_\s]?)_($|[\s),.!?;:\]"}'])"#)
+        .expect("inline emphasis underscore regex")
+});
 
 #[derive(Clone)]
 struct ScreenshotService {
@@ -136,10 +154,18 @@ struct AppState {
     db: PgPool,
     http: Client,
     artifact_storage: Option<ArtifactStorage>,
-    screenshotter: ScreenshotService,
+    screenshotter: Arc<OnceCell<ScreenshotService>>,
     session_encoding_key: EncodingKey,
     session_decoding_key: DecodingKey,
     clerk_decoding_key: DecodingKey,
+}
+
+impl AppState {
+    fn screenshotter(&self) -> &ScreenshotService {
+        self.screenshotter
+            .get()
+            .expect("screenshot service not yet initialized")
+    }
 }
 
 #[derive(Clone)]
@@ -249,6 +275,8 @@ enum AppError {
     #[error("{0}")]
     BadRequest(String),
     #[error("{0}")]
+    NotFound(String),
+    #[error("{0}")]
     Internal(String),
 }
 
@@ -263,6 +291,7 @@ impl IntoResponse for AppError {
             | AppError::Serde(_) => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::Http(_) | AppError::Jwt(_) => StatusCode::UNAUTHORIZED,
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
@@ -511,6 +540,34 @@ struct StormRunRow {
     height: Option<f64>,
 }
 
+#[derive(Debug, Clone, FromRow)]
+struct PublicStormRunRow {
+    id: Uuid,
+    owner_user_id: Uuid,
+    prompt: String,
+    title: String,
+    summary: String,
+    assistant_summary: String,
+    preview_url: String,
+    submitted: bool,
+    created_at: DateTime<Utc>,
+    workspace_dir: String,
+    parent_ids: Vec<Uuid>,
+    session_id: Option<Uuid>,
+    iterates_on_id: Option<Uuid>,
+    position_x: Option<f64>,
+    position_y: Option<f64>,
+    width: Option<f64>,
+    height: Option<f64>,
+    owner_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct PublicStormRunRecord {
+    run: StormRunRecord,
+    owner_name: String,
+}
+
 impl From<StormRunRow> for StormRunRecord {
     fn from(row: StormRunRow) -> Self {
         Self {
@@ -531,6 +588,36 @@ impl From<StormRunRow> for StormRunRecord {
             position_y: row.position_y,
             width: row.width,
             height: row.height,
+        }
+    }
+}
+
+impl From<PublicStormRunRow> for PublicStormRunRecord {
+    fn from(row: PublicStormRunRow) -> Self {
+        Self {
+            owner_name: row
+                .owner_name
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "Design Storm User".to_string()),
+            run: StormRunRecord {
+                id: row.id,
+                owner_user_id: row.owner_user_id,
+                prompt: row.prompt,
+                title: row.title,
+                summary: row.summary,
+                assistant_summary: row.assistant_summary,
+                preview_url: row.preview_url,
+                submitted: row.submitted,
+                created_at: row.created_at,
+                workspace_dir: PathBuf::from(row.workspace_dir),
+                parent_ids: row.parent_ids,
+                session_id: row.session_id,
+                iterates_on_id: row.iterates_on_id,
+                position_x: row.position_x,
+                position_y: row.position_y,
+                width: row.width,
+                height: row.height,
+            },
         }
     }
 }
@@ -643,13 +730,17 @@ impl StormAgentRole {
 
 struct StormToolProvider {
     workspace: Arc<Mutex<WorkspaceRuntimeState>>,
-    screenshotter: ScreenshotService,
+    screenshotter: Arc<OnceCell<ScreenshotService>>,
     port: u16,
 }
 
 impl StormToolProvider {
-    fn new(_role: StormAgentRole, workspace: Arc<Mutex<WorkspaceRuntimeState>>, screenshotter: ScreenshotService, port: u16) -> Self {
+    fn new(_role: StormAgentRole, workspace: Arc<Mutex<WorkspaceRuntimeState>>, screenshotter: Arc<OnceCell<ScreenshotService>>, port: u16) -> Self {
         Self { workspace, screenshotter, port }
+    }
+
+    fn screenshotter(&self) -> &ScreenshotService {
+        self.screenshotter.get().expect("screenshot service not yet initialized")
     }
 
     fn logical_path(&self, args: &serde_json::Value, key: &str) -> Result<String, ToolResult> {
@@ -796,7 +887,7 @@ impl StormToolProvider {
         });
 
         let url = format!("http://127.0.0.1:{}{}", self.port, workspace.preview_url);
-        let png = self.screenshotter.screenshot(&url).await
+        let png = self.screenshotter().screenshot(&url).await
             .map_err(|e| format!("screenshot failed: {e}")).unwrap();
         let image = lash_core::ToolImage {
             mime: "image/png".to_string(),
@@ -818,7 +909,7 @@ impl StormToolProvider {
             .unwrap_or_default();
 
         let url = format!("http://127.0.0.1:{}{}", self.port, workspace.preview_url);
-        let png = self.screenshotter.screenshot(&url).await
+        let png = self.screenshotter().screenshot(&url).await
             .map_err(|e| format!("screenshot failed: {e}")).unwrap();
         let image = lash_core::ToolImage {
             mime: "image/png".to_string(),
@@ -1197,6 +1288,13 @@ struct CreateReferenceForm {
     url: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct UpdateReferenceForm {
+    title: Option<String>,
+    body: Option<String>,
+    url: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SessionMessageResponse {
@@ -1304,10 +1402,22 @@ async fn main() -> Result<(), AppError> {
 
     let artifact_storage = build_artifact_storage(&config).await?;
 
-    let screenshotter = ScreenshotService::new()
-        .await
-        .expect("failed to launch headless browser for screenshots");
-    info!("headless browser ready for screenshots");
+    let screenshotter: Arc<OnceCell<ScreenshotService>> = Arc::new(OnceCell::new());
+    {
+        let cell = screenshotter.clone();
+        tokio::spawn(async move {
+            match ScreenshotService::new().await {
+                Ok(svc) => {
+                    let _ = cell.set(svc);
+                    info!("headless browser ready for screenshots");
+                }
+                Err(e) => {
+                    error!("failed to launch headless browser: {e}");
+                    std::process::exit(1);
+                }
+            }
+        });
+    }
 
     let state = AppState {
         db,
@@ -1356,6 +1466,10 @@ async fn main() -> Result<(), AppError> {
         .route(
             "/sessions/{id}/references/image",
             post(upload_reference_image),
+        )
+        .route(
+            "/sessions/{session_id}/references/{ref_id}",
+            axum::routing::put(update_reference_item).delete(delete_reference_item),
         )
         .route("/storms/{id}", axum::routing::delete(delete_storm_run))
         .route("/storms/{id}/download", get(download_storm_run_archive))
@@ -1604,6 +1718,90 @@ async fn upload_reference_image(
     create_image_reference_record(&state.db, viewer.id, id, &asset).await?;
     Ok(Json(
         build_session_response(&state, viewer.id, id, "Image reference added.").await?,
+    ))
+}
+
+async fn update_reference_item(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((session_id, ref_id)): Path<(Uuid, Uuid)>,
+    Json(payload): Json<UpdateReferenceForm>,
+) -> Result<Json<SessionMessageResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    get_owned_design_session(&state.db, viewer.id, session_id).await?;
+
+    let row = sqlx::query_as::<_, ReferenceItemRow>(
+        "SELECT id, kind, title, content_json, created_at FROM reference_items WHERE id = $1 AND owner_user_id = $2 AND session_id = $3",
+    )
+    .bind(ref_id)
+    .bind(viewer.id)
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Reference not found.".to_string()))?;
+
+    let new_title = payload
+        .title
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| row.title.clone());
+
+    let new_content = match row.kind.as_str() {
+        "text" => {
+            let body = payload.body.as_deref().unwrap_or(
+                row.content_json.get("body").and_then(|v| v.as_str()).unwrap_or(""),
+            );
+            json!({ "body": body.trim() })
+        }
+        "link" => {
+            let url = payload.url.as_deref().unwrap_or(
+                row.content_json.get("url").and_then(|v| v.as_str()).unwrap_or(""),
+            );
+            let body = payload.body.as_deref().unwrap_or(
+                row.content_json.get("body").and_then(|v| v.as_str()).unwrap_or(""),
+            );
+            json!({ "url": url.trim(), "body": body.trim() })
+        }
+        _ => row.content_json.clone(),
+    };
+
+    sqlx::query("UPDATE reference_items SET title = $1, content_json = $2 WHERE id = $3 AND owner_user_id = $4")
+        .bind(&new_title)
+        .bind(&new_content)
+        .bind(ref_id)
+        .bind(viewer.id)
+        .execute(&state.db)
+        .await?;
+    touch_design_session(&state.db, viewer.id, session_id).await?;
+
+    Ok(Json(
+        build_session_response(&state, viewer.id, session_id, "Reference updated.").await?,
+    ))
+}
+
+async fn delete_reference_item(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((session_id, ref_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<SessionMessageResponse>, AppError> {
+    let viewer = require_viewer(&state, &headers).await?;
+    get_owned_design_session(&state.db, viewer.id, session_id).await?;
+
+    let result = sqlx::query("DELETE FROM reference_items WHERE id = $1 AND owner_user_id = $2 AND session_id = $3")
+        .bind(ref_id)
+        .bind(viewer.id)
+        .bind(session_id)
+        .execute(&state.db)
+        .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound("Reference not found.".to_string()));
+    }
+    touch_design_session(&state.db, viewer.id, session_id).await?;
+
+    Ok(Json(
+        build_session_response(&state, viewer.id, session_id, "Reference deleted.").await?,
     ))
 }
 
@@ -2327,38 +2525,114 @@ async fn generate_storm_internal(
     })
 }
 
-async fn preview_index_redirect(Path(run_id): Path<Uuid>) -> Redirect {
-    Redirect::temporary(&format!("/preview/{run_id}/"))
+fn slugify_public_segment(input: &str) -> String {
+    let mut slug = input
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    while slug.contains("--") {
+        slug = slug.replace("--", "-");
+    }
+    slug.trim_matches('-').to_string()
 }
 
-async fn preview_index(
-    State(state): State<AppState>,
-    Path(run_id): Path<Uuid>,
-) -> Result<Response, AppError> {
-    let run = get_run(&state, run_id).await?;
-    let html = match tokio::fs::read_to_string(run.workspace_dir.join("index.html")).await {
-        Ok(html) => html,
+fn public_owner_slug(owner_name: &str) -> String {
+    let slug = slugify_public_segment(owner_name);
+    if slug.is_empty() {
+        "designer".to_string()
+    } else {
+        slug
+    }
+}
+
+fn public_design_slug(title: &str, run_id: Uuid) -> String {
+    let title_slug = slugify_public_segment(title);
+    if title_slug.is_empty() {
+        format!("design-{run_id}")
+    } else {
+        format!("{title_slug}-{run_id}")
+    }
+}
+
+fn public_design_path(owner_name: &str, title: &str, run_id: Uuid) -> String {
+    format!(
+        "/{}/{}/",
+        public_owner_slug(owner_name),
+        public_design_slug(title, run_id)
+    )
+}
+
+fn extract_public_run_id(design_slug: &str) -> Option<Uuid> {
+    if design_slug.len() <= 37 {
+        return None;
+    }
+    let suffix_start = design_slug.len() - 36;
+    if design_slug.as_bytes().get(suffix_start - 1) != Some(&b'-') {
+        return None;
+    }
+    Uuid::parse_str(&design_slug[suffix_start..]).ok()
+}
+
+async fn get_public_run(state: &AppState, run_id: Uuid) -> Result<PublicStormRunRecord, AppError> {
+    let run = sqlx::query_as::<_, PublicStormRunRow>(
+        r#"
+        SELECT storm_runs.id, storm_runs.owner_user_id, storm_runs.prompt, storm_runs.title,
+               storm_runs.summary, storm_runs.assistant_summary, storm_runs.preview_url,
+               storm_runs.submitted, storm_runs.created_at, storm_runs.workspace_dir,
+               storm_runs.parent_ids, storm_runs.session_id, storm_runs.iterates_on_id,
+               storm_runs.position_x, storm_runs.position_y, storm_runs.width, storm_runs.height,
+               users.name AS owner_name
+        FROM storm_runs
+        JOIN users ON users.id = storm_runs.owner_user_id
+        WHERE storm_runs.id = $1
+        "#,
+    )
+    .bind(run_id)
+    .fetch_optional(&state.db)
+    .await?;
+
+    run.map(PublicStormRunRecord::from)
+        .ok_or_else(|| AppError::BadRequest("Storm run not found.".to_string()))
+}
+
+async fn load_preview_html(state: &AppState, run: &StormRunRecord) -> Result<String, AppError> {
+    match tokio::fs::read_to_string(run.workspace_dir.join("index.html")).await {
+        Ok(html) => Ok(html),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match load_persisted_workspace_entry(&state, run.owner_user_id, run_id, "index.html")
+            match load_persisted_workspace_entry(state, run.owner_user_id, run.id, "index.html")
                 .await?
             {
-                Some(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+                Some(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
                 None => {
                     warn!(
-                        run_id = %run_id,
+                        run_id = %run.id,
                         workspace_dir = %run.workspace_dir.display(),
                         "preview workspace file missing"
                     );
-                    render_missing_preview_html(&run)
+                    Ok(render_missing_preview_html(run))
                 }
             }
         }
-        Err(error) => return Err(AppError::Io(error)),
-    };
+        Err(error) => Err(AppError::Io(error)),
+    }
+}
+
+async fn serve_run_index(
+    state: &AppState,
+    run: &StormRunRecord,
+    cache_control: &'static str,
+) -> Result<Response, AppError> {
+    let html = load_preview_html(state, run).await?;
     let (html, removed_refresh_tags) = strip_meta_refresh_tags(&html);
     if removed_refresh_tags > 0 {
         warn!(
-            run_id = %run_id,
+            run_id = %run.id,
             removed_refresh_tags,
             "sanitized preview html"
         );
@@ -2372,7 +2646,7 @@ async fn preview_index(
             HeaderValue::from_static("default-src 'self' data: blob: https:; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' data: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: https:; connect-src 'self' blob: data: https: wss:; worker-src 'self' blob: data: https:; child-src 'self' blob: data: https:; object-src 'none'; base-uri 'none'; form-action 'self' https:; frame-ancestors 'self'"),
         ), (
             CACHE_CONTROL,
-            HeaderValue::from_static("private, max-age=300"),
+            HeaderValue::from_static(cache_control),
         ), (
             X_CONTENT_TYPE_OPTIONS,
             HeaderValue::from_static("nosniff"),
@@ -2382,40 +2656,113 @@ async fn preview_index(
         .into_response())
 }
 
-async fn preview_asset(
-    State(state): State<AppState>,
-    Path((run_id, path)): Path<(Uuid, String)>,
+async fn load_preview_asset_bytes(
+    state: &AppState,
+    run: &StormRunRecord,
+    normalized_path: &str,
+    asset_path: &StdPath,
+) -> Result<Option<Vec<u8>>, AppError> {
+    match tokio::fs::read(asset_path).await {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            load_persisted_workspace_entry(state, run.owner_user_id, run.id, normalized_path).await
+        }
+        Err(error) => Err(AppError::Io(error)),
+    }
+}
+
+async fn serve_run_asset(
+    state: &AppState,
+    run: &StormRunRecord,
+    path: &str,
+    cache_control: &'static str,
 ) -> Result<Response, AppError> {
-    let run = get_run(&state, run_id).await?;
-    let normalized_path = normalize_workspace_asset_path(&path);
+    let normalized_path = normalize_workspace_asset_path(path);
     let asset_path = resolve_workspace_path(&run.workspace_dir, &normalized_path)
         .map_err(AppError::BadRequest)?;
-    let bytes = match tokio::fs::read(&asset_path).await {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match load_persisted_workspace_entry(
-                &state,
-                run.owner_user_id,
-                run_id,
-                &normalized_path,
-            )
-            .await?
-            {
-                Some(bytes) => bytes,
-                None => return Ok(StatusCode::NOT_FOUND.into_response()),
-            }
-        }
-        Err(error) => return Err(AppError::Io(error)),
+    let Some(bytes) = load_preview_asset_bytes(state, run, &normalized_path, &asset_path).await?
+    else {
+        return Ok(StatusCode::NOT_FOUND.into_response());
     };
     let mime = from_path(&asset_path).first_or_octet_stream();
 
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, mime.as_ref())
-        .header(CACHE_CONTROL, "private, max-age=300")
+        .header(CACHE_CONTROL, cache_control)
         .header(X_CONTENT_TYPE_OPTIONS, "nosniff")
         .body(Body::from(bytes))
         .map_err(|error| AppError::Internal(error.to_string()))?)
+}
+
+async fn preview_index_redirect(Path(run_id): Path<Uuid>) -> Redirect {
+    Redirect::temporary(&format!("/preview/{run_id}/"))
+}
+
+async fn preview_index(
+    State(state): State<AppState>,
+    Path(run_id): Path<Uuid>,
+) -> Result<Response, AppError> {
+    let run = get_run(&state, run_id).await?;
+    serve_run_index(&state, &run, "private, max-age=300").await
+}
+
+async fn preview_asset(
+    State(state): State<AppState>,
+    Path((run_id, path)): Path<(Uuid, String)>,
+) -> Result<Response, AppError> {
+    let run = get_run(&state, run_id).await?;
+    serve_run_asset(&state, &run, &path, "private, max-age=300").await
+}
+
+async fn public_run_redirect(
+    State(state): State<AppState>,
+    Path((username, design_slug)): Path<(String, String)>,
+) -> Result<Redirect, AppError> {
+    let run_id = extract_public_run_id(&design_slug)
+        .ok_or_else(|| AppError::NotFound("Shared design not found.".to_string()))?;
+    let public_run = get_public_run(&state, run_id).await?;
+    let canonical_path = public_design_path(&public_run.owner_name, &public_run.run.title, run_id);
+    let requested_path = format!("/{username}/{design_slug}/");
+    if requested_path != canonical_path {
+        return Ok(Redirect::permanent(&canonical_path));
+    }
+    Ok(Redirect::temporary(&canonical_path))
+}
+
+async fn public_run_index(
+    State(state): State<AppState>,
+    Path((username, design_slug)): Path<(String, String)>,
+) -> Result<Response, AppError> {
+    let run_id = extract_public_run_id(&design_slug)
+        .ok_or_else(|| AppError::NotFound("Shared design not found.".to_string()))?;
+    let public_run = get_public_run(&state, run_id).await?;
+    let canonical_owner = public_owner_slug(&public_run.owner_name);
+    let canonical_slug = public_design_slug(&public_run.run.title, run_id);
+    if username != canonical_owner || design_slug != canonical_slug {
+        return Ok(Redirect::permanent(&public_design_path(
+            &public_run.owner_name,
+            &public_run.run.title,
+            run_id,
+        ))
+        .into_response());
+    }
+    serve_run_index(&state, &public_run.run, "public, max-age=300").await
+}
+
+async fn public_run_asset(
+    State(state): State<AppState>,
+    Path((username, design_slug, path)): Path<(String, String, String)>,
+) -> Result<Response, AppError> {
+    let run_id = extract_public_run_id(&design_slug)
+        .ok_or_else(|| AppError::NotFound("Shared design not found.".to_string()))?;
+    let public_run = get_public_run(&state, run_id).await?;
+    let canonical_owner = public_owner_slug(&public_run.owner_name);
+    let canonical_slug = public_design_slug(&public_run.run.title, run_id);
+    if username != canonical_owner || design_slug != canonical_slug {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
+    serve_run_asset(&state, &public_run.run, &path, "public, max-age=300").await
 }
 
 async fn client_telemetry(
@@ -2762,7 +3109,7 @@ fn render_messages_html(
                     "Agent"
                 },
                 footer = footer,
-                body = html_escape(&message.body).replace('\n', "<br>"),
+                body = render_inline_message_html(&message.body),
             )
         })
         .collect::<Vec<_>>()
@@ -2815,22 +3162,35 @@ fn render_reference_list_html(references: &[ReferenceItemRow]) -> String {
             } else {
                 String::new()
             };
+            let body_attr = match reference.kind.as_str() {
+                "text" => reference.content_json.get("body").and_then(|v| v.as_str()).unwrap_or(""),
+                "link" => reference.content_json.get("body").and_then(|v| v.as_str()).unwrap_or(""),
+                _ => "",
+            };
+            let url_attr = reference.content_json.get("url").and_then(|v| v.as_str()).unwrap_or("");
             format!(
-                r#"<button class="reference-item" type="button" data-reference-handle="{handle}" data-reference-label="{label}" data-reference-kind="{kind}">
+                r#"<div class="reference-item" data-reference-id="{id}" data-reference-handle="{handle}" data-reference-label="{label}" data-reference-kind="{kind}" data-reference-body="{body}" data-reference-url="{url}">
   <span class="reference-item-top">
     <span class="reference-item-kind">{kind}</span>
     <span class="reference-item-date">{date}</span>
+    <span class="reference-item-actions">
+      <button class="ref-action ref-edit" type="button" title="Edit">&#9998;</button>
+      <button class="ref-action ref-delete" type="button" title="Delete">&times;</button>
+    </span>
   </span>
   {preview}
   <strong class="reference-item-title">{label}</strong>
   <span class="reference-item-detail">{detail}</span>
-</button>"#,
+</div>"#,
+                id = reference.id,
                 handle = handle,
                 label = html_escape(&reference.title),
                 kind = html_escape(&reference.kind),
                 date = reference.created_at.format("%b %d").to_string(),
                 detail = html_escape(&detail),
                 preview = preview,
+                body = html_escape(body_attr),
+                url = html_escape(url_attr),
             )
         })
         .collect::<Vec<_>>()
@@ -2855,10 +3215,20 @@ fn render_gallery_html(
             .map(|message| format!(r#"<p class="gallery-job-error">{}</p>"#, html_escape(message)))
             .unwrap_or_default();
         format!(
-            r#"<article class="gallery-card gallery-card-job{status_class}" data-job-id="{id}" data-job-status="{status}">
+            r#"<article class="gallery-card gallery-card-job{status_class}" data-job-id="{id}" data-job-status="{status}" data-created-at="{created_epoch}">
   <div class="gallery-card-meta">
     <span class="gallery-card-status" data-status="{status}">{status}</span>
     <span class="gallery-card-date">{date}</span>
+  </div>
+  <div class="gallery-card-preview-shell job-loading-shell">
+    <div class="job-loading-widget">
+      <div class="job-loading-rings">
+        <div class="job-ring job-ring-1"></div>
+        <div class="job-ring job-ring-2"></div>
+        <div class="job-ring job-ring-3"></div>
+      </div>
+      <span class="job-elapsed" data-created-at="{created_epoch}">0:00</span>
+    </div>
   </div>
   <div class="gallery-card-body">
     <strong class="gallery-card-title">{title}</strong>
@@ -2869,6 +3239,7 @@ fn render_gallery_html(
 </article>"#,
             id = job.id,
             status = html_escape(&job.status),
+            created_epoch = job.created_at.timestamp(),
             date = job.created_at.format("%H:%M").to_string(),
             title = html_escape(&job.title),
             prompt = html_escape(&truncate_for_log(&job.prompt, 180)),
@@ -4173,7 +4544,7 @@ impl SessionToolProvider {
             "http://127.0.0.1:{}{}",
             self.state.config.port, run.preview_url
         );
-        let png = self.state.screenshotter.screenshot(&url).await
+        let png = self.state.screenshotter().screenshot(&url).await
             .map_err(|e| format!("screenshot failed: {e}")).unwrap();
         let image = lash_core::ToolImage {
             mime: "image/png".to_string(),
@@ -4942,7 +5313,7 @@ async fn build_tool_provider(
     role: StormAgentRole,
     workspace: Arc<Mutex<WorkspaceRuntimeState>>,
     runtime: StormRuntimeCtx,
-    screenshotter: ScreenshotService,
+    screenshotter: Arc<OnceCell<ScreenshotService>>,
     port: u16,
 ) -> Arc<dyn ToolProvider> {
     let custom = StormToolProvider::new(role, workspace, screenshotter, port);
@@ -4958,7 +5329,7 @@ async fn run_design_agent(
     workspace: Arc<Mutex<WorkspaceRuntimeState>>,
     runtime: StormRuntimeCtx,
     prompt: String,
-    screenshotter: ScreenshotService,
+    screenshotter: Arc<OnceCell<ScreenshotService>>,
     port: u16,
 ) -> Result<lash_core::AssembledTurn, String> {
     let (workspace_dir, run_id) = {
@@ -5289,4 +5660,153 @@ fn html_escape(input: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&#39;")
+}
+
+fn stash_html_segment(segments: &mut Vec<String>, html: String) -> String {
+    let token = format!("\u{E000}{}\u{E001}", segments.len());
+    segments.push(html);
+    token
+}
+
+fn restore_html_segments(mut input: String, segments: &[String]) -> String {
+    for (index, segment) in segments.iter().enumerate() {
+        let token = format!("\u{E000}{index}\u{E001}");
+        input = input.replace(&token, segment);
+    }
+    input
+}
+
+fn is_mention_boundary(ch: Option<char>) -> bool {
+    ch.is_none_or(|c| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | '.' | ',' | '!' | '?' | ';' | ':'
+            )
+    })
+}
+
+fn is_mention_word_start(ch: Option<char>) -> bool {
+    matches!(ch, Some(c) if c.is_ascii_alphanumeric())
+}
+
+fn is_mention_word_char(ch: Option<char>) -> bool {
+    matches!(ch, Some(c) if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '/' | ':' | '\'' | '&' | '-'))
+}
+
+fn parse_reference_mention_end(input: &str, mut index: usize) -> Option<usize> {
+    let mut words = 0usize;
+    let mut end = None;
+
+    while words < 5 && is_mention_word_start(input[index..].chars().next()) {
+        let first = input[index..].chars().next()?;
+        index += first.len_utf8();
+        while let Some(ch) = input[index..].chars().next() {
+            if !is_mention_word_char(Some(ch)) {
+                break;
+            }
+            index += ch.len_utf8();
+        }
+        end = Some(index);
+        words += 1;
+        if words >= 5 {
+            break;
+        }
+
+        let mut saw_space = false;
+        while matches!(input[index..].chars().next(), Some(' ')) {
+            index += 1;
+            saw_space = true;
+        }
+        if !saw_space || !is_mention_word_start(input[index..].chars().next()) {
+            break;
+        }
+    }
+
+    end
+}
+
+fn render_reference_mentions(input: &str) -> String {
+    let mut output = String::with_capacity(input.len() + 32);
+    let mut index = 0usize;
+    let mut previous = None;
+
+    while index < input.len() {
+        let Some(ch) = input[index..].chars().next() else {
+            break;
+        };
+
+        if ch == '<' {
+            if let Some(close) = input[index..].find('>') {
+                let end = index + close + 1;
+                output.push_str(&input[index..end]);
+                previous = Some('>');
+                index = end;
+                continue;
+            }
+        }
+
+        if ch == '@' && is_mention_boundary(previous) {
+            if let Some(end) = parse_reference_mention_end(input, index + ch.len_utf8())
+                && is_mention_boundary(input[end..].chars().next())
+            {
+                output.push_str(r#"<span class="chat-reference">"#);
+                output.push_str(&input[index..end]);
+                output.push_str("</span>");
+                previous = Some('>');
+                index = end;
+                continue;
+            }
+        }
+
+        output.push(ch);
+        previous = Some(ch);
+        index += ch.len_utf8();
+    }
+
+    output
+}
+
+fn render_inline_message_html(input: &str) -> String {
+    let mut segments = Vec::new();
+    let mut html = html_escape(input);
+
+    html = INLINE_CODE_RE
+        .replace_all(&html, |caps: &Captures| {
+            stash_html_segment(
+                &mut segments,
+                format!(r#"<code class="chat-md-code">{}</code>"#, &caps[1]),
+            )
+        })
+        .into_owned();
+
+    html = INLINE_LINK_RE
+        .replace_all(&html, |caps: &Captures| {
+            stash_html_segment(
+                &mut segments,
+                format!(
+                    r#"<a class="chat-md-link" href="{}" target="_blank" rel="noreferrer noopener">{}</a>"#,
+                    &caps[2], &caps[1]
+                ),
+            )
+        })
+        .into_owned();
+
+    html = INLINE_STRONG_RE
+        .replace_all(&html, r#"<strong class="chat-md-strong">$1</strong>"#)
+        .into_owned();
+    html = INLINE_STRIKE_RE
+        .replace_all(&html, r#"<s class="chat-md-strike">$1</s>"#)
+        .into_owned();
+    html = INLINE_EM_STAR_RE
+        .replace_all(&html, r#"$1<em class="chat-md-em">$2</em>$3"#)
+        .into_owned();
+    html = INLINE_EM_UNDERSCORE_RE
+        .replace_all(&html, r#"$1<em class="chat-md-em">$2</em>$3"#)
+        .into_owned();
+
+    html = render_reference_mentions(&html);
+    html = html.replace('\n', "<br>");
+
+    restore_html_segments(html, &segments)
 }

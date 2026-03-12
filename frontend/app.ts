@@ -96,6 +96,7 @@ let authPollTimer: number | null = null;
 let mentionState: MentionState = null;
 let designMentionItems: MentionItem[] = [];
 let pollTimer: number | null = null;
+let elapsedTimer: number | null = null;
 let lastSavedTitle = "";
 
 const selectedReferences = new Map<string, MentionItem>();
@@ -120,6 +121,121 @@ function escapeHtml(input: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function stashHtmlSegment(segments: string[], html: string): string {
+  const token = `\uE000${segments.length}\uE001`;
+  segments.push(html);
+  return token;
+}
+
+function restoreHtmlSegments(input: string, segments: string[]): string {
+  return input.replace(/\uE000(\d+)\uE001/g, (_, index) => segments[Number(index)] ?? "");
+}
+
+function isMentionBoundary(char: string | undefined): boolean {
+  return !char || /\s|[()[\]{}"'.,!?;:]/.test(char);
+}
+
+function isMentionWordStart(char: string | undefined): boolean {
+  return !!char && /[A-Za-z0-9]/.test(char);
+}
+
+function isMentionWordChar(char: string | undefined): boolean {
+  return !!char && /[A-Za-z0-9_./:'&-]/.test(char);
+}
+
+function renderReferenceMentions(input: string): string {
+  let output = "";
+  let index = 0;
+
+  while (index < input.length) {
+    if (input[index] === "<") {
+      const close = input.indexOf(">", index);
+      if (close === -1) {
+        output += input.slice(index);
+        break;
+      }
+      output += input.slice(index, close + 1);
+      index = close + 1;
+      continue;
+    }
+
+    if (input[index] !== "@") {
+      output += input[index];
+      index += 1;
+      continue;
+    }
+
+    const previous = index > 0 ? input[index - 1] : undefined;
+    if (!isMentionBoundary(previous)) {
+      output += "@";
+      index += 1;
+      continue;
+    }
+
+    let cursor = index + 1;
+    let words = 0;
+    let end = -1;
+
+    while (words < 5 && isMentionWordStart(input[cursor])) {
+      cursor += 1;
+      while (isMentionWordChar(input[cursor])) cursor += 1;
+      end = cursor;
+      words += 1;
+
+      let spaces = 0;
+      while (input[cursor] === " ") {
+        cursor += 1;
+        spaces += 1;
+      }
+      if (spaces === 0 || !isMentionWordStart(input[cursor])) break;
+    }
+
+    const next = end >= 0 ? input[end] : undefined;
+    if (end > index + 1 && isMentionBoundary(next)) {
+      output += `<span class="chat-reference">${input.slice(index, end)}</span>`;
+      index = end;
+      continue;
+    }
+
+    output += "@";
+    index += 1;
+  }
+
+  return output;
+}
+
+function renderInlineMessageHtml(input: string): string {
+  const segments: string[] = [];
+  let html = escapeHtml(input);
+
+  html = html.replace(/`([^`\n]+)`/g, (_, code) =>
+    stashHtmlSegment(segments, `<code class="chat-md-code">${code}</code>`),
+  );
+
+  html = html.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) =>
+    stashHtmlSegment(
+      segments,
+      `<a class="chat-md-link" href="${url}" target="_blank" rel="noreferrer noopener">${label}</a>`,
+    ),
+  );
+
+  html = html.replace(/\*\*([^\n*][^\n]*?[^\n*]?)\*\*/g, `<strong class="chat-md-strong">$1</strong>`);
+  html = html.replace(/~~([^\n~][^\n]*?[^\n~]?)~~/g, `<s class="chat-md-strike">$1</s>`);
+  html = html.replace(
+    /(^|[\s([{"'])\*([^*\s][^*\n]*?[^*\s]?)\*(?=$|[\s),.!?;:\]"}'])/g,
+    `$1<em class="chat-md-em">$2</em>`,
+  );
+  html = html.replace(
+    /(^|[\s([{"'])_([^_\s][^_\n]*?[^_\s]?)_(?=$|[\s),.!?;:\]"}'])/g,
+    `$1<em class="chat-md-em">$2</em>`,
+  );
+
+  html = renderReferenceMentions(html);
+  html = html.replace(/\n/g, "<br>");
+
+  return restoreHtmlSegments(html, segments);
 }
 
 function getActiveSessionId(): string {
@@ -477,7 +593,19 @@ async function applySnapshot(
 
   if (sessionList) sessionList.innerHTML = payload.sessionListHtml;
   if (messages) messages.innerHTML = payload.messagesHtml;
-  if (gallery) gallery.innerHTML = payload.galleryHtml;
+  // Only update gallery if the structural content changed (ignore elapsed timers)
+  if (gallery) {
+    const incoming = document.createElement("div");
+    incoming.innerHTML = payload.galleryHtml;
+    // Strip elapsed text for comparison so timer ticks don't cause redraws
+    const strip = (el: Element) => {
+      for (const t of el.querySelectorAll(".job-elapsed")) t.textContent = "";
+      return el.innerHTML;
+    };
+    if (strip(gallery) !== strip(incoming)) {
+      gallery.innerHTML = payload.galleryHtml;
+    }
+  }
   if (references) references.innerHTML = payload.referenceListHtml;
   if (title) {
     title.value = payload.activeSessionTitle;
@@ -499,6 +627,7 @@ async function applySnapshot(
   if (thread) thread.scrollTop = thread.scrollHeight;
   await loadDesignMentionItems();
   startPollingIfNeeded();
+  startElapsedTimer();
 }
 
 async function fetchSnapshot(options: { preserveDraft: boolean }): Promise<void> {
@@ -530,6 +659,33 @@ function openDesignFullscreen(title: string, previewUrl: string): void {
   document.addEventListener("keydown", onKey);
 
   document.body.appendChild(overlay);
+}
+
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function tickElapsedTimers(): void {
+  const now = Math.floor(Date.now() / 1000);
+  for (const el of document.querySelectorAll<HTMLElement>(".job-elapsed[data-created-at]")) {
+    const epoch = parseInt(el.dataset.createdAt ?? "0", 10);
+    if (epoch > 0) {
+      el.textContent = formatElapsed(Math.max(0, now - epoch));
+    }
+  }
+}
+
+function startElapsedTimer(): void {
+  const hasTimers = document.querySelector(".job-elapsed[data-created-at]") !== null;
+  if (hasTimers && elapsedTimer === null) {
+    tickElapsedTimers();
+    elapsedTimer = window.setInterval(tickElapsedTimers, 1000);
+  } else if (!hasTimers && elapsedTimer !== null) {
+    window.clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
 }
 
 function startPollingIfNeeded(): void {
@@ -601,15 +757,16 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
   if (thread) {
     const now = new Date();
     const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }).toLowerCase();
+    const bodyHtml = body ? renderInlineMessageHtml(body) : "";
     const imgNote = pendingImages.length > 0
-      ? `<span class="chat-message-images">${pendingImages.length} image${pendingImages.length > 1 ? "s" : ""} attached</span>`
+      ? `${bodyHtml ? "<br>" : ""}<span class="chat-message-images">${pendingImages.length} image${pendingImages.length > 1 ? "s" : ""} attached</span>`
       : "";
     const msgHtml = `<article class="chat-message is-user">
   <header class="chat-message-head">
     <span class="chat-message-role">You</span>
     <span class="chat-message-meta">${time}</span>
   </header>
-  <div class="chat-message-body">${escapeHtml(body)}${imgNote}</div>
+  <div class="chat-message-body">${bodyHtml}${imgNote}</div>
 </article>
 <article class="chat-message is-assistant is-thinking" id="thinking-indicator">
   <header class="chat-message-head">
@@ -692,6 +849,81 @@ async function submitImageReference(file: File): Promise<void> {
   }
   const snapshot = (await response.json()) as StudioSnapshotResponse;
   await applySnapshot(snapshot, { preserveDraft: true });
+}
+
+async function deleteReference(refId: string): Promise<void> {
+  const response = await fetch(`/sessions/${getActiveSessionId()}/references/${refId}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    setStatus(await response.text());
+    return;
+  }
+  const snapshot = (await response.json()) as StudioSnapshotResponse;
+  await applySnapshot(snapshot, { preserveDraft: true });
+}
+
+async function updateReference(refId: string, payload: Record<string, string>): Promise<void> {
+  const response = await fetch(`/sessions/${getActiveSessionId()}/references/${refId}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    setStatus(await response.text());
+    return;
+  }
+  const snapshot = (await response.json()) as StudioSnapshotResponse;
+  await applySnapshot(snapshot, { preserveDraft: true });
+}
+
+function startInlineEdit(item: HTMLElement): void {
+  if (item.querySelector(".ref-inline-edit")) return;
+  const kind = item.dataset.referenceKind ?? "text";
+  const refId = item.dataset.referenceId ?? "";
+  const title = item.dataset.referenceLabel ?? "";
+  const body = item.dataset.referenceBody ?? "";
+  const url = item.dataset.referenceUrl ?? "";
+
+  const form = document.createElement("form");
+  form.className = "ref-inline-edit";
+  form.innerHTML = `
+    <input class="ref-edit-title" type="text" value="${title.replace(/"/g, "&quot;")}" placeholder="Title" />
+    ${kind === "link" ? `<input class="ref-edit-url" type="text" value="${url.replace(/"/g, "&quot;")}" placeholder="URL" />` : ""}
+    ${kind !== "image" ? `<textarea class="ref-edit-body" rows="2" placeholder="${kind === "link" ? "Notes" : "Content"}">${body.replace(/</g, "&lt;")}</textarea>` : ""}
+    <span class="ref-edit-actions">
+      <button class="btn btn-accent btn-sm" type="submit">Save</button>
+      <button class="btn btn-ghost btn-sm ref-edit-cancel" type="button">Cancel</button>
+    </span>
+  `;
+
+  // Hide display content
+  for (const child of Array.from(item.children)) {
+    if (child !== form) (child as HTMLElement).style.display = "none";
+  }
+  item.appendChild(form);
+
+  (form.querySelector(".ref-edit-title") as HTMLInputElement)?.focus();
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const newTitle = (form.querySelector(".ref-edit-title") as HTMLInputElement)?.value.trim() ?? "";
+    const newBody = (form.querySelector(".ref-edit-body") as HTMLTextAreaElement)?.value ?? "";
+    const newUrl = (form.querySelector(".ref-edit-url") as HTMLInputElement)?.value.trim() ?? "";
+    const payload: Record<string, string> = { title: newTitle };
+    if (kind === "link") { payload.url = newUrl; payload.body = newBody; }
+    else if (kind === "text") { payload.body = newBody; }
+    void updateReference(refId, payload);
+  });
+
+  form.querySelector(".ref-edit-cancel")?.addEventListener("click", () => {
+    form.remove();
+    for (const child of Array.from(item.children)) {
+      (child as HTMLElement).style.display = "";
+    }
+  });
 }
 
 function bindStudioEvents(): void {
@@ -865,6 +1097,25 @@ function bindStudioEvents(): void {
     const target = event.target as HTMLElement | null;
     if (!target) return;
 
+    const deleteBtn = target.closest<HTMLElement>(".ref-delete");
+    if (deleteBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const item = deleteBtn.closest<HTMLElement>(".reference-item");
+      const refId = item?.dataset.referenceId;
+      if (refId) void deleteReference(refId);
+      return;
+    }
+
+    const editBtn = target.closest<HTMLElement>(".ref-edit");
+    if (editBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const item = editBtn.closest<HTMLElement>(".reference-item");
+      if (item) startInlineEdit(item);
+      return;
+    }
+
     const mentionButton = target.closest<HTMLElement>("[data-mention-handle]");
     if (mentionButton) {
       event.preventDefault();
@@ -992,6 +1243,7 @@ async function bindStudioApp(): Promise<void> {
   await loadDesignMentionItems();
   bindStudioEvents();
   startPollingIfNeeded();
+  startElapsedTimer();
   const thread = $("session-messages");
   if (thread) thread.scrollTop = thread.scrollHeight;
 }

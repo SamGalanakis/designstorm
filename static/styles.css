@@ -820,6 +820,74 @@ h1, h2, h3 {
   color: var(--text);
   font-size: 0.82rem;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.chat-md-strong {
+  font-weight: 600;
+  color: var(--lit);
+}
+
+.chat-md-em {
+  font-style: italic;
+  color: rgba(232, 234, 238, 0.92);
+}
+
+.chat-md-strike {
+  color: var(--text-2);
+}
+
+.chat-md-code {
+  display: inline-block;
+  padding: 0.08rem 0.42rem;
+  margin: 0 0.08rem;
+  border-radius: 999px;
+  border: 1px solid rgba(240, 192, 96, 0.22);
+  background: rgba(240, 192, 96, 0.08);
+  color: #ffd48a;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.chat-md-link {
+  color: #7fe8ff;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(127, 232, 255, 0.28);
+  transition: color 160ms ease, border-color 160ms ease, background-color 160ms ease;
+}
+
+.chat-md-link:hover {
+  color: var(--lit);
+  border-color: rgba(255, 255, 255, 0.36);
+  background: rgba(127, 232, 255, 0.08);
+}
+
+.chat-reference {
+  display: inline-block;
+  padding: 0.08rem 0.5rem;
+  margin: 0 0.08rem;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 212, 255, 0.24);
+  background:
+    linear-gradient(180deg, rgba(0, 212, 255, 0.14), rgba(0, 212, 255, 0.07)),
+    rgba(4, 13, 18, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 18px rgba(0, 212, 255, 0.08);
+  color: #7fe8ff;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.74rem;
+  line-height: 1.45;
+  letter-spacing: 0.02em;
+}
+
+.chat-message.is-user .chat-reference {
+  border-color: rgba(0, 212, 255, 0.34);
+  background:
+    linear-gradient(180deg, rgba(0, 212, 255, 0.2), rgba(0, 212, 255, 0.1)),
+    rgba(4, 13, 18, 0.86);
+  color: #b5f4ff;
 }
 
 /* ─── Design gallery ─── */
@@ -1467,6 +1535,72 @@ h1, h2, h3 {
   margin-top: 2px;
 }
 
+.reference-item-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.reference-item:hover .reference-item-actions {
+  opacity: 1;
+}
+
+.ref-action {
+  all: unset;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  color: var(--text-3);
+  transition: background 120ms, color 120ms;
+}
+
+.ref-action:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.ref-delete:hover {
+  color: var(--red);
+  background: rgba(255, 79, 94, 0.1);
+}
+
+.ref-inline-edit {
+  display: grid;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.ref-inline-edit input,
+.ref-inline-edit textarea {
+  font-family: "Archivo", sans-serif;
+  font-size: 12px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-2);
+  background: var(--surface);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+}
+
+.ref-inline-edit input:focus,
+.ref-inline-edit textarea:focus {
+  border-color: var(--cyan-border);
+}
+
+.ref-edit-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
 .reference-empty {
   padding: 16px 12px;
   color: var(--text-3);
@@ -1798,6 +1932,73 @@ h1, h2, h3 {
   background: var(--cyan-bg);
   border-radius: var(--r);
   transition: all 150ms;
+}
+
+/* ─── Job loading widget ─── */
+
+.job-loading-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 50%, rgba(0, 212, 255, 0.04) 0%, transparent 70%),
+    var(--bg);
+}
+
+.job-loading-widget {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.job-loading-rings {
+  position: relative;
+  width: 64px;
+  height: 64px;
+}
+
+.job-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+}
+
+.job-ring-1 {
+  border-top-color: var(--cyan);
+  animation: job-spin 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.job-ring-2 {
+  inset: 8px;
+  border-right-color: rgba(0, 212, 255, 0.4);
+  animation: job-spin 3.2s cubic-bezier(0.4, 0, 0.2, 1) infinite reverse;
+}
+
+.job-ring-3 {
+  inset: 16px;
+  border-bottom-color: rgba(0, 212, 255, 0.2);
+  animation: job-spin 4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes job-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.job-elapsed {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Failed job cards hide the loading widget */
+.gallery-card-job.is-failed .job-loading-shell {
+  display: none;
 }
 
 /* ─── Send button disabled state ─── */

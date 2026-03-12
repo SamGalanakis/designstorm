@@ -1309,6 +1309,7 @@ dependencies = [
  "lash-core",
  "mime_guess",
  "rand 0.8.5",
+ "regex",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
