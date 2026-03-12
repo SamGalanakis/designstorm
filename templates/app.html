@@ -101,41 +101,13 @@
     <!-- ═══ Body: conversation + refs ═══ -->
     <div class="studio-body">
       <div class="studio-conversation">
-        <!-- Top bar -->
-        <div class="chat-header">
-          <button
-            class="sidebar-toggle"
-            type="button"
-            data-on:click="$_sidebarHidden = !$_sidebarHidden"
-            data-attr:aria-expanded="!$_sidebarHidden"
-            aria-label="Toggle sidebar"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
-          </button>
-
-          <input
-            id="active-session-title"
-            class="session-title-input"
-            type="text"
-            value="{{ active_session_title }}"
-            autocomplete="off"
-            aria-label="Session title"
-          />
-
-          <span id="active-session-updated" class="session-title-meta" style="position: absolute; left: -9999px;">{{ active_session_updated_label }}</span>
-
-          <span id="studio-status"></span>
-
-          <button
-            class="ref-toggle"
-            type="button"
-            data-on:click="$_refsOpen = !$_refsOpen"
-            data-class:is-active="$_refsOpen"
-          >
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
-            Refs
-          </button>
-        </div>
+        <!-- Hidden elements for JS compatibility -->
+        <input id="active-session-title" type="hidden" value="{{ active_session_title }}" />
+        <span id="active-session-updated" hidden>{{ active_session_updated_label }}</span>
+        <span id="studio-status" hidden></span>
+        <div id="selected-references" hidden></div>
+        <div id="draft-iteration" hidden></div>
+        <button id="clear-selected-references" type="button" hidden></button>
 
         <!-- Two-column: chat left, gallery right -->
         <div class="chat-and-gallery">
@@ -145,16 +117,31 @@
               {{ messages_html|safe }}
             </div>
 
-            <!-- Fixed composer -->
+            <!-- Composer -->
             <div class="composer-bar">
+              <div class="composer-toolbar">
+                <button
+                  class="sidebar-toggle"
+                  type="button"
+                  data-on:click="$_sidebarHidden = !$_sidebarHidden"
+                  data-attr:aria-expanded="!$_sidebarHidden"
+                  aria-label="Toggle sidebar"
+                >
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+                </button>
+                <button
+                  class="ref-toggle"
+                  type="button"
+                  data-on:click="$_refsOpen = !$_refsOpen"
+                  data-class:is-active="$_refsOpen"
+                >
+                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+                  Refs
+                </button>
+              </div>
               <form id="session-message-form" class="session-message-form">
-                <div class="composer-input-wrap">
-                  <div id="selected-references" class="composer-tags"></div>
-                  <div id="draft-iteration" class="composer-tags" hidden></div>
-                  <textarea id="session-composer" rows="1" placeholder="Message..."></textarea>
-                  <div id="mention-menu" class="mention-menu" hidden></div>
-                </div>
-                <button id="clear-selected-references" class="composer-clear" type="button" style="display: none;">&times;</button>
+                <textarea id="session-composer" rows="2" placeholder="Message..."></textarea>
+                <div id="mention-menu" class="mention-menu" hidden></div>
                 <button id="session-send" class="btn btn-accent" type="submit">Send</button>
               </form>
             </div>

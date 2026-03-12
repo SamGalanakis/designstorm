@@ -668,32 +668,9 @@ h1, h2, h3 {
   overflow: hidden;
 }
 
-/* Chat header bar */
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 6px 16px;
-  border-bottom: 1px solid var(--border);
-  background: rgba(17, 19, 24, 0.96);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-
-.session-title-input {
-  display: none;
-}
-
-.session-title-meta {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-3);
-  flex-shrink: 0;
-}
-
+/* Hidden compat elements */
+.session-title-input,
+.session-title-meta,
 #studio-status {
   display: none;
 }
@@ -712,7 +689,7 @@ h1, h2, h3 {
 
 .studio-conversation {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
   position: relative;
@@ -721,7 +698,7 @@ h1, h2, h3 {
 /* Two-column: chat | gallery */
 .chat-and-gallery {
   display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
 }
@@ -1095,15 +1072,24 @@ h1, h2, h3 {
   background: rgba(17, 19, 24, 0.94);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  padding: 10px 12px 12px;
+  padding: 8px 12px 10px;
+  display: grid;
+  gap: 6px;
 }
 
-/* Message form — single row with inline tags */
+/* Toolbar row: sidebar toggle + refs */
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Message form */
 .session-message-form {
   position: relative;
   display: flex;
   align-items: flex-end;
-  gap: 6px;
+  gap: 8px;
 }
 
 .session-message-form .btn {
@@ -1113,113 +1099,38 @@ h1, h2, h3 {
   flex-shrink: 0;
 }
 
-/* Input wrap: tags + textarea in one bordered container */
-.composer-input-wrap {
+.session-message-form textarea {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 4px;
-  padding: 6px 8px;
+  min-height: 60px;
+  max-height: 180px;
+  padding: 10px 12px;
+  resize: none;
+  color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border-2);
   border-radius: var(--r);
+  font-size: 13px;
+  line-height: 1.55;
+  outline: none;
+  overflow-y: auto;
   transition: border-color 150ms, box-shadow 150ms;
 }
 
-.composer-input-wrap:focus-within {
+.session-message-form textarea:focus {
   border-color: rgba(0, 212, 255, 0.35);
   box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.08);
 }
 
-/* Inline tags */
-.composer-tags {
-  display: contents;
-}
-
-.composer-tags:empty,
-.composer-tags[hidden] {
-  display: none;
-}
-
-.selected-reference-chip,
-.draft-iteration-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 7px;
-  border-radius: 4px;
-  background: var(--cyan-bg);
-  border: 1px solid var(--cyan-border);
-  color: var(--cyan);
-  font-family: "JetBrains Mono", monospace;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  white-space: nowrap;
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-  transition: background 100ms;
-  flex-shrink: 0;
-}
-
-.selected-reference-chip:hover,
-.draft-iteration-chip:hover {
-  background: rgba(0, 212, 255, 0.16);
-}
-
-.selected-reference-chip span:first-child,
-.draft-iteration-chip span:first-child {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* Clear button — small × next to send */
-.composer-clear {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 38px;
-  color: var(--text-3);
-  font-size: 14px;
-  flex-shrink: 0;
-  transition: color 120ms;
-}
-
-.composer-clear:hover {
-  color: var(--red);
-}
-
-/* Textarea inside the wrap — no border, transparent */
-.composer-input-wrap textarea {
-  flex: 1 1 100%;
-  min-width: 0;
-  min-height: 26px;
-  max-height: 100px;
-  padding: 0;
-  resize: none;
-  color: var(--text);
-  background: transparent;
-  border: none;
-  font-size: 13px;
-  line-height: 1.5;
-  outline: none;
-}
-
-.composer-input-wrap textarea::placeholder {
+.session-message-form textarea::placeholder {
   color: var(--text-3);
 }
 
 .mention-menu {
   position: absolute;
-  left: -8px;
-  right: -8px;
-  bottom: calc(100% + 12px);
+  left: 0;
+  right: 60px;
+  bottom: calc(100% + 6px);
   display: grid;
   gap: 2px;
   padding: 6px;
@@ -1459,7 +1370,7 @@ h1, h2, h3 {
 
 @media (max-width: 1100px) {
   .chat-and-gallery {
-    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   }
 
   .design-gallery {

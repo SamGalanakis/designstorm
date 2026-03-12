@@ -344,42 +344,15 @@ function getAllMentionItems(): MentionItem[] {
   return merged;
 }
 
-function updateClearButton(): void {
-  const clearBtn = $("clear-selected-references") as HTMLElement | null;
-  if (!clearBtn) return;
-  const hasContext = selectedReferences.size > 0 || draftIteratesOnId != null;
-  clearBtn.style.display = hasContext ? "" : "none";
-}
-
 function renderSelectedReferences(): void {
-  const container = $("selected-references");
-  if (!container) return;
-  if (selectedReferences.size === 0) {
-    container.innerHTML = "";
-    updateClearButton();
-    return;
-  }
-  container.innerHTML = Array.from(selectedReferences.values()).map((item) => (
-    `<button class="selected-reference-chip" type="button" data-remove-reference="${escapeHtml(item.handle)}">
-      <span>${escapeHtml(item.label)}</span>
-      <span aria-hidden="true">&times;</span>
-    </button>`
-  )).join("");
-  updateClearButton();
+  // References are tracked in the selectedReferences map
+  // and sent as referenceIds on submit. No visual chips needed —
+  // the @mention text in the textarea is the visual indicator.
 }
 
 function renderDraftIteration(): void {
-  const element = $("draft-iteration");
-  if (!element) return;
-  if (!draftIteratesOnId || !draftIteratesOnLabel) {
-    element.innerHTML = "";
-    element.hidden = true;
-    updateClearButton();
-    return;
-  }
-  element.hidden = false;
-  element.innerHTML = `<button class="draft-iteration-chip" type="button" data-clear-iteration="true">Iterating on ${escapeHtml(draftIteratesOnLabel)} <span aria-hidden="true">&times;</span></button>`;
-  updateClearButton();
+  // Draft iteration state is tracked in draftIteratesOnId/Label
+  // and sent as iteratesOnId on submit. No visual element needed.
 }
 
 function clearDraftContext(): void {
@@ -673,6 +646,12 @@ function bindStudioEvents(): void {
 
   $("session-composer")?.addEventListener("input", () => {
     updateMentionState();
+    // Auto-grow textarea
+    const ta = $("session-composer") as HTMLTextAreaElement | null;
+    if (ta) {
+      ta.style.height = "auto";
+      ta.style.height = Math.min(ta.scrollHeight, 180) + "px";
+    }
   });
   $("session-composer")?.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideMentionMenu();
