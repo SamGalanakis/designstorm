@@ -2727,7 +2727,7 @@ fn render_gallery_html(
         format!(
             r#"<article class="gallery-card gallery-card-job{status_class}" data-job-id="{id}" data-job-status="{status}">
   <div class="gallery-card-meta">
-    <span class="gallery-card-status">{status}</span>
+    <span class="gallery-card-status" data-status="{status}">{status}</span>
     <span class="gallery-card-date">{date}</span>
   </div>
   <div class="gallery-card-body">
@@ -2756,7 +2756,7 @@ fn render_gallery_html(
         format!(
             r#"<article class="gallery-card design-card" data-design-id="{id}" data-design-handle="design:{id}" data-design-label="{title}" tabindex="0">
   <div class="gallery-card-meta">
-    <span class="gallery-card-status">{status}</span>
+    <span class="gallery-card-status" data-status="{status}">{status}</span>
     <span class="gallery-card-date">{date}</span>
   </div>
   <div class="gallery-card-preview-shell">

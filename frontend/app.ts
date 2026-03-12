@@ -562,7 +562,7 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
     return;
   }
 
-  // Optimistically render the user message and clear input immediately
+  // Optimistically render the user message + thinking indicator
   const thread = $("session-messages");
   if (thread) {
     const now = new Date();
@@ -573,6 +573,14 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
     <span class="chat-message-meta">${time}</span>
   </header>
   <div class="chat-message-body">${escapeHtml(body)}</div>
+</article>
+<article class="chat-message is-assistant is-thinking" id="thinking-indicator">
+  <header class="chat-message-head">
+    <span class="chat-message-role">Agent</span>
+  </header>
+  <div class="chat-message-body">
+    <span class="thinking-dots"><span></span><span></span><span></span></span>
+  </div>
 </article>`;
     thread.insertAdjacentHTML("beforeend", msgHtml);
     thread.scrollTop = thread.scrollHeight;
@@ -596,6 +604,8 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
       body: JSON.stringify({ body, referenceIds, iteratesOnId }),
     });
     if (!response.ok) {
+      // Remove thinking indicator on error
+      $("thinking-indicator")?.remove();
       setStatus(await response.text());
       return;
     }
@@ -604,6 +614,7 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
     composer.focus();
   } finally {
     submit.disabled = false;
+    $("thinking-indicator")?.remove();
   }
 }
 
