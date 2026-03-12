@@ -12,11 +12,13 @@ aws-config = "1.5.17"
 aws-sdk-s3 = "1.77.0"
 axum = { version = "0.8.1", features = ["macros", "json", "multipart"] }
 base64 = "0.22.1"
+chromiumoxide = "0.9"
 chrono = { version = "0.4.40", features = ["serde"] }
 cookie = "0.18.1"
 datastar = { version = "0.3.1", features = ["axum", "tracing"] }
 dotenvy = "0.15.7"
 futures-core = "0.3.31"
+futures-util = "0.3"
 jsonwebtoken = "9.3.1"
 lash-core = { git = "https://github.com/SamGalanakis/lash", rev = "e28673707acc5995370837c7e370a22dd24cc78e", package = "lash-core", default-features = false }
 mime_guess = "2.0.5"

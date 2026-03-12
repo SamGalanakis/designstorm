@@ -20,6 +20,8 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use chromiumoxide::page::ScreenshotParams;
+use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use cookie::{Cookie, SameSite};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
@@ -30,6 +32,7 @@ use lash_core::{
     provider::OPENAI_GENERIC_DEFAULT_BASE_URL,
     tools::{FetchUrl, ToolSet, WebSearch},
 };
+use futures_util::StreamExt as FuturesStreamExt;
 use mime_guess::from_path;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -67,11 +70,73 @@ const DATASTAR_CDN: &str =
     "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js";
 
 #[derive(Clone)]
+struct ScreenshotService {
+    browser: Arc<chromiumoxide::Browser>,
+    /// Keep the handler task alive so the browser doesn't shut down.
+    _handle: Arc<tokio::task::JoinHandle<()>>,
+}
+
+impl ScreenshotService {
+    async fn new() -> Result<Self, String> {
+        let (browser, mut handler) =
+            chromiumoxide::Browser::launch(
+                chromiumoxide::BrowserConfig::builder()
+                    .chrome_executable("/usr/bin/chromium")
+                    .arg("--headless=new")
+                    .arg("--disable-gpu")
+                    .arg("--no-sandbox")
+                    .arg("--disable-dev-shm-usage")
+                    .window_size(1280, 900)
+                    .build()
+                    .map_err(|e| format!("browser config error: {e}"))?,
+            )
+            .await
+            .map_err(|e| format!("browser launch error: {e}"))?;
+
+        let handle = tokio::spawn(async move {
+            while let Some(_event) = handler.next().await {
+                // keep the browser event loop running
+            }
+        });
+
+        Ok(Self {
+            browser: Arc::new(browser),
+            _handle: Arc::new(handle),
+        })
+    }
+
+    async fn screenshot(&self, url: &str) -> Result<Vec<u8>, String> {
+        let page = self
+            .browser
+            .new_page(url)
+            .await
+            .map_err(|e| format!("new_page error: {e}"))?;
+
+        // Wait for the page to settle (fonts, layout, animations)
+        tokio::time::sleep(Duration::from_millis(800)).await;
+
+        let bytes = page
+            .screenshot(
+                ScreenshotParams::builder()
+                    .full_page(true)
+                    .format(CaptureScreenshotFormat::Png)
+                    .build(),
+            )
+            .await
+            .map_err(|e| format!("screenshot error: {e}"))?;
+
+        page.close().await.ok();
+        Ok(bytes)
+    }
+}
+
+#[derive(Clone)]
 struct AppState {
     config: Arc<Config>,
     db: PgPool,
     http: Client,
     artifact_storage: Option<ArtifactStorage>,
+    screenshotter: Option<ScreenshotService>,
     session_encoding_key: EncodingKey,
     session_decoding_key: DecodingKey,
     clerk_decoding_key: DecodingKey,
@@ -578,11 +643,13 @@ impl StormAgentRole {
 
 struct StormToolProvider {
     workspace: Arc<Mutex<WorkspaceRuntimeState>>,
+    screenshotter: Option<ScreenshotService>,
+    port: u16,
 }
 
 impl StormToolProvider {
-    fn new(_role: StormAgentRole, workspace: Arc<Mutex<WorkspaceRuntimeState>>) -> Self {
-        Self { workspace }
+    fn new(_role: StormAgentRole, workspace: Arc<Mutex<WorkspaceRuntimeState>>, screenshotter: Option<ScreenshotService>, port: u16) -> Self {
+        Self { workspace, screenshotter, port }
     }
 
     fn logical_path(&self, args: &serde_json::Value, key: &str) -> Result<String, ToolResult> {
@@ -722,11 +789,26 @@ impl StormToolProvider {
             return ToolResult::err(json!("index.html does not exist yet"));
         }
 
-        ToolResult::ok(json!({
+        let result = json!({
             "previewUrl": workspace.preview_url,
             "hasIndex": has_index,
             "hasStyles": has_styles
-        }))
+        });
+
+        // Take a screenshot of the rendered page
+        if let Some(screenshotter) = &self.screenshotter {
+            let url = format!("http://127.0.0.1:{}{}", self.port, workspace.preview_url);
+            if let Ok(png) = screenshotter.screenshot(&url).await {
+                let image = lash_core::ToolImage {
+                    mime: "image/png".to_string(),
+                    data: png,
+                    label: format!("{} — render preview", workspace.title),
+                };
+                return ToolResult::with_images(true, result, vec![image]);
+            }
+        }
+
+        ToolResult::ok(result)
     }
 
     async fn view_result(&self) -> ToolResult {
@@ -740,13 +822,28 @@ impl StormToolProvider {
             .await
             .unwrap_or_default();
 
-        ToolResult::ok(json!({
+        let result = json!({
             "previewUrl": workspace.preview_url,
             "htmlExcerpt": truncate_for_tool(&html, 2400),
             "cssExcerpt": truncate_for_tool(&css, 1800),
             "title": workspace.title,
             "summary": workspace.summary
-        }))
+        });
+
+        // Also include a screenshot if available
+        if let Some(screenshotter) = &self.screenshotter {
+            let url = format!("http://127.0.0.1:{}{}", self.port, workspace.preview_url);
+            if let Ok(png) = screenshotter.screenshot(&url).await {
+                let image = lash_core::ToolImage {
+                    mime: "image/png".to_string(),
+                    data: png,
+                    label: format!("{} — view preview", workspace.title),
+                };
+                return ToolResult::with_images(true, result, vec![image]);
+            }
+        }
+
+        ToolResult::ok(result)
     }
 
     async fn copy_input(&self, args: &serde_json::Value) -> ToolResult {
@@ -1216,10 +1313,22 @@ async fn main() -> Result<(), AppError> {
 
     let artifact_storage = build_artifact_storage(&config).await?;
 
+    let screenshotter = match ScreenshotService::new().await {
+        Ok(s) => {
+            info!("headless browser ready for screenshots");
+            Some(s)
+        }
+        Err(e) => {
+            warn!("screenshots disabled: {e}");
+            None
+        }
+    };
+
     let state = AppState {
         db,
         http: Client::new(),
         artifact_storage,
+        screenshotter,
         session_encoding_key: EncodingKey::from_secret(config.session_secret.as_bytes()),
         session_decoding_key: DecodingKey::from_secret(config.session_secret.as_bytes()),
         clerk_decoding_key: DecodingKey::from_rsa_pem(config.clerk_jwt_public_key.as_bytes())?,
@@ -2167,6 +2276,8 @@ async fn generate_storm_internal(
         workspace.clone(),
         runtime_ctx,
         prompt,
+        state.screenshotter.clone(),
+        state.config.port,
     )
     .await
     {
@@ -4061,17 +4172,7 @@ impl SessionToolProvider {
             Err(e) => return ToolResult::err_fmt(format_args!("DB error: {e}")),
         };
 
-        // Read the workspace HTML/CSS for context
-        let index_path = run.workspace_dir.join("index.html");
-        let styles_path = run.workspace_dir.join("styles.css");
-        let html = tokio::fs::read_to_string(&index_path)
-            .await
-            .unwrap_or_default();
-        let css = tokio::fs::read_to_string(&styles_path)
-            .await
-            .unwrap_or_default();
-
-        ToolResult::ok(json!({
+        let result = json!({
             "id": run.id,
             "handle": format!("design:{}", run.id),
             "title": run.title,
@@ -4081,9 +4182,44 @@ impl SessionToolProvider {
             "previewUrl": run.preview_url,
             "iteratesOnId": run.iterates_on_id,
             "createdAt": run.created_at.to_rfc3339(),
-            "htmlExcerpt": truncate_for_tool(&html, 3000),
-            "cssExcerpt": truncate_for_tool(&css, 2000),
-        }))
+        });
+
+        // Take a screenshot of the rendered design
+        if let Some(screenshotter) = &self.state.screenshotter {
+            let url = format!(
+                "http://127.0.0.1:{}{}",
+                self.state.config.port, run.preview_url
+            );
+            match screenshotter.screenshot(&url).await {
+                Ok(png) => {
+                    let image = lash_core::ToolImage {
+                        mime: "image/png".to_string(),
+                        data: png,
+                        label: format!("{} — screenshot", run.title),
+                    };
+                    return ToolResult::with_images(true, result, vec![image]);
+                }
+                Err(e) => {
+                    warn!(design_id = %design_id, error = %e, "screenshot failed, falling back to source excerpts");
+                }
+            }
+        }
+
+        // Fallback: return HTML/CSS source excerpts if screenshot unavailable
+        let index_path = run.workspace_dir.join("index.html");
+        let styles_path = run.workspace_dir.join("styles.css");
+        let html = tokio::fs::read_to_string(&index_path)
+            .await
+            .unwrap_or_default();
+        let css = tokio::fs::read_to_string(&styles_path)
+            .await
+            .unwrap_or_default();
+
+        let mut fallback = result;
+        fallback["htmlExcerpt"] = json!(truncate_for_tool(&html, 3000));
+        fallback["cssExcerpt"] = json!(truncate_for_tool(&css, 2000));
+        fallback["note"] = json!("Screenshot unavailable; source code provided instead.");
+        ToolResult::ok(fallback)
     }
 
     async fn view_reference(&self, args: &serde_json::Value) -> ToolResult {
@@ -4261,7 +4397,7 @@ impl ToolProvider for SessionToolProvider {
             ToolDefinition {
                 name: "view_design".into(),
                 description: vec![lash_core::ToolText::new(
-                    "View detailed information about a specific design including its prompt, summary, and HTML/CSS source excerpts. Use the design id from list_designs.",
+                    "View a design by taking a live screenshot of the rendered page. Also returns metadata (title, summary, prompt). Falls back to HTML/CSS source excerpts if screenshots are unavailable. Use the design id from list_designs.",
                     native,
                 )],
                 params: vec![ToolParam::typed("design_id", "str")],
@@ -4350,7 +4486,7 @@ fn session_prompt_overrides() -> Vec<PromptSectionOverride> {
         PromptSectionOverride {
             section: PromptSectionName::ToolAccess,
             mode: PromptOverrideMode::Replace,
-            content: "Your tools: list_designs (list session designs), list_references (list session references), view_design (inspect a design's details and source), view_reference (view a reference's content — returns image data for image refs), make_design (queue a design job — max one per turn). There is no shell, filesystem, or hidden workspace. Never invent reference handles.".to_string(),
+            content: "Your tools: list_designs (list session designs), list_references (list session references), view_design (screenshot a rendered design + metadata), view_reference (view a reference's content — returns image data for image refs), make_design (queue a design job — max one per turn). There is no shell, filesystem, or hidden workspace. Never invent reference handles.".to_string(),
         },
         PromptSectionOverride {
             section: PromptSectionName::Guidelines,
@@ -4845,8 +4981,10 @@ async fn build_tool_provider(
     role: StormAgentRole,
     workspace: Arc<Mutex<WorkspaceRuntimeState>>,
     runtime: StormRuntimeCtx,
+    screenshotter: Option<ScreenshotService>,
+    port: u16,
 ) -> Arc<dyn ToolProvider> {
-    let custom = StormToolProvider::new(role, workspace);
+    let custom = StormToolProvider::new(role, workspace, screenshotter, port);
     let mut tools = ToolSet::new() + custom;
     if let Some(key) = runtime.tavily_api_key.as_ref() {
         tools = tools + WebSearch::new(key.clone()) + FetchUrl::new(key.clone());
@@ -4859,6 +4997,8 @@ async fn run_design_agent(
     workspace: Arc<Mutex<WorkspaceRuntimeState>>,
     runtime: StormRuntimeCtx,
     prompt: String,
+    screenshotter: Option<ScreenshotService>,
+    port: u16,
 ) -> Result<lash_core::AssembledTurn, String> {
     let (workspace_dir, run_id) = {
         let workspace = workspace.lock().await;
@@ -4873,7 +5013,7 @@ async fn run_design_agent(
         prompt_len = prompt.len(),
         "initializing lash runtime"
     );
-    let tools = build_tool_provider(role, workspace, runtime.clone()).await;
+    let tools = build_tool_provider(role, workspace, runtime.clone(), screenshotter, port).await;
     let has_web = runtime.tavily_api_key.is_some();
     let config = RuntimeConfig {
         capabilities: build_runtime_capabilities(has_web),
