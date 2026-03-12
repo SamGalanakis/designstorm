@@ -2768,6 +2768,7 @@ fn render_gallery_html(
     <p class="gallery-card-summary">{summary}</p>
   </div>
   <div class="gallery-card-actions">
+    <button class="gallery-action" type="button" data-action="expand-design" data-design-id="{id}" data-design-label="{title}" data-preview-url="{preview}">Expand</button>
     <button class="gallery-action" type="button" data-action="iterate-design" data-design-id="{id}" data-design-label="{title}">Iterate</button>
     <button class="gallery-action" type="button" data-action="use-design-reference" data-reference-handle="design:{id}" data-reference-label="{title}">Use as reference</button>
     <a class="gallery-action" href="/storms/{id}/download">Download ZIP</a>

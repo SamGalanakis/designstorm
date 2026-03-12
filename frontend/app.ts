@@ -493,6 +493,30 @@ async function fetchSnapshot(options: { preserveDraft: boolean }): Promise<void>
   await applySnapshot(payload, options);
 }
 
+function openDesignFullscreen(title: string, previewUrl: string): void {
+  const existing = document.querySelector(".design-fullscreen");
+  if (existing) existing.remove();
+
+  const overlay = document.createElement("div");
+  overlay.className = "design-fullscreen";
+  overlay.innerHTML = `
+    <div class="design-fullscreen-bar">
+      <span class="design-fullscreen-title">${escapeHtml(title)}</span>
+      <button class="design-fullscreen-close" type="button" aria-label="Close fullscreen">&times;</button>
+    </div>
+    <iframe src="${escapeHtml(previewUrl)}" title="${escapeHtml(title)}" sandbox="allow-scripts allow-forms allow-modals" referrerpolicy="no-referrer"></iframe>
+  `;
+
+  const close = () => overlay.remove();
+  overlay.querySelector(".design-fullscreen-close")!.addEventListener("click", close);
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); }
+  };
+  document.addEventListener("keydown", onKey);
+
+  document.body.appendChild(overlay);
+}
+
 function startPollingIfNeeded(): void {
   const hasPending = document.querySelector("[data-job-status='pending'], [data-job-status='running']") !== null;
   if (!hasPending) {
@@ -718,6 +742,16 @@ function bindStudioEvents(): void {
       draftIteratesOnId = null;
       draftIteratesOnLabel = null;
       renderDraftIteration();
+      return;
+    }
+
+    const expandButton = target.closest<HTMLElement>("[data-action='expand-design']");
+    if (expandButton) {
+      const label = expandButton.dataset.designLabel ?? "Design";
+      const previewUrl = expandButton.dataset.previewUrl ?? "";
+      if (previewUrl) {
+        openDesignFullscreen(label, previewUrl);
+      }
       return;
     }
 

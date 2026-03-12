@@ -9,6 +9,8 @@
   data-signals:_settings-open="false"
   data-signals:_sessions-open="false"
   data-signals:_refs-open="false"
+  data-signals:_sidebar-hidden="false"
+  data-class:sidebar-collapsed="$_sidebarHidden"
   data-on:keydown__window="evt.key === 'Escape' && ($_settingsOpen ? ($_settingsOpen = false, $_accountOpen = true) : ($_accountOpen = false, $_settingsOpen = false, $_sessionsOpen = false, $_refsOpen = false))"
 >
   <!-- ═══ Left sidebar ═══ -->
@@ -104,8 +106,8 @@
           <button
             class="sidebar-toggle"
             type="button"
-            data-on:click="$_sessionsOpen = !$_sessionsOpen"
-            data-attr:aria-expanded="$_sessionsOpen"
+            data-on:click="$_sidebarHidden = !$_sidebarHidden"
+            data-attr:aria-expanded="!$_sidebarHidden"
             aria-label="Toggle sidebar"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
