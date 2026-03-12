@@ -1126,6 +1126,10 @@ h1, h2, h3 {
   color: var(--text-3);
 }
 
+.mention-menu[hidden] {
+  display: none;
+}
+
 .mention-menu {
   position: absolute;
   left: 0;
