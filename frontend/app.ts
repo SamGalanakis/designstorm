@@ -593,16 +593,19 @@ async function applySnapshot(
 
   if (sessionList) sessionList.innerHTML = payload.sessionListHtml;
   if (messages) messages.innerHTML = payload.messagesHtml;
-  // Only update gallery if the structural content changed (ignore elapsed timers)
+  // Only replace gallery when cards actually change (avoids iframe reload flicker)
   if (gallery) {
+    const cardKey = (el: Element) => {
+      const cards = el.querySelectorAll<HTMLElement>(".gallery-card");
+      return Array.from(cards).map((c) => {
+        const id = c.dataset.designId ?? c.dataset.jobId ?? "";
+        const status = c.querySelector<HTMLElement>(".gallery-card-status")?.dataset.status ?? "";
+        return `${id}:${status}`;
+      }).join("|");
+    };
     const incoming = document.createElement("div");
     incoming.innerHTML = payload.galleryHtml;
-    // Strip elapsed text for comparison so timer ticks don't cause redraws
-    const strip = (el: Element) => {
-      for (const t of el.querySelectorAll(".job-elapsed")) t.textContent = "";
-      return el.innerHTML;
-    };
-    if (strip(gallery) !== strip(incoming)) {
+    if (cardKey(gallery) !== cardKey(incoming)) {
       gallery.innerHTML = payload.galleryHtml;
     }
   }
