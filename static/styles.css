@@ -1740,6 +1740,16 @@ h1, h2, h3 {
   50% { opacity: 1; }
 }
 
+/* ─── Drop target for image drag-and-drop ─── */
+
+.chat-thread-wrap.drop-active {
+  outline: 2px dashed var(--cyan-border);
+  outline-offset: -2px;
+  background: var(--cyan-bg);
+  border-radius: var(--r);
+  transition: all 150ms;
+}
+
 /* ─── Send button disabled state ─── */
 
 .session-message-form .btn:disabled {

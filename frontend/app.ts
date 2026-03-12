@@ -703,9 +703,62 @@ function bindStudioEvents(): void {
     }
   });
 
+  // Paste images into chat composer
+  $("session-composer")?.addEventListener("paste", (event) => {
+    const ce = event as ClipboardEvent;
+    const items = ce.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (!item.type.startsWith("image/")) continue;
+      const file = item.getAsFile();
+      if (!file) continue;
+      ce.preventDefault();
+      const ta = $("session-composer") as HTMLTextAreaElement;
+      const cursor = ta.selectionStart ?? ta.value.length;
+      const marker = `[uploading image...]`;
+      const before = ta.value.slice(0, cursor);
+      const after = ta.value.slice(ta.selectionEnd ?? cursor);
+      const pad = before.length > 0 && !before.endsWith(" ") ? " " : "";
+      ta.value = `${before}${pad}${marker}${after}`;
+      ta.setSelectionRange(cursor + pad.length + marker.length, cursor + pad.length + marker.length);
+
+      void submitImageReference(file).then(() => {
+        // Replace marker with nothing — the image is now a reference
+        ta.value = ta.value.replace(marker, "").replace(/  +/g, " ").trim();
+        ta.style.height = "auto";
+        ta.style.height = Math.min(ta.scrollHeight, 180) + "px";
+      });
+      break; // handle one image per paste
+    }
+  });
+
   $("clear-selected-references")?.addEventListener("click", () => {
     clearDraftContext();
   });
+
+  // Drag-and-drop images onto the chat area
+  const chatWrap = document.querySelector(".chat-thread-wrap");
+  if (chatWrap) {
+    chatWrap.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      (e as DragEvent).dataTransfer!.dropEffect = "copy";
+      chatWrap.classList.add("drop-active");
+    });
+    chatWrap.addEventListener("dragleave", () => {
+      chatWrap.classList.remove("drop-active");
+    });
+    chatWrap.addEventListener("drop", (e) => {
+      e.preventDefault();
+      chatWrap.classList.remove("drop-active");
+      const files = (e as DragEvent).dataTransfer?.files;
+      if (!files) return;
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) continue;
+        void submitImageReference(file);
+        break;
+      }
+    });
+  }
 
   $("reference-note-form")?.addEventListener("submit", (event) => {
     event.preventDefault();
