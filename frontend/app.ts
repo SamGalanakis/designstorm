@@ -344,31 +344,28 @@ function getAllMentionItems(): MentionItem[] {
   return merged;
 }
 
-function updateComposerContextVisibility(): void {
-  const ctx = document.querySelector(".composer-context");
-  if (!ctx) return;
-  const hasChips = selectedReferences.size > 0 || (draftIteratesOnId != null);
-  ctx.classList.toggle("has-chips", hasChips);
+function updateClearButton(): void {
+  const clearBtn = $("clear-selected-references") as HTMLElement | null;
+  if (!clearBtn) return;
+  const hasContext = selectedReferences.size > 0 || draftIteratesOnId != null;
+  clearBtn.style.display = hasContext ? "" : "none";
 }
 
 function renderSelectedReferences(): void {
   const container = $("selected-references");
   if (!container) return;
-  const clearBtn = $("clear-selected-references") as HTMLElement | null;
   if (selectedReferences.size === 0) {
     container.innerHTML = "";
-    if (clearBtn) clearBtn.style.display = "none";
-    updateComposerContextVisibility();
+    updateClearButton();
     return;
   }
-  if (clearBtn) clearBtn.style.display = "";
   container.innerHTML = Array.from(selectedReferences.values()).map((item) => (
     `<button class="selected-reference-chip" type="button" data-remove-reference="${escapeHtml(item.handle)}">
       <span>${escapeHtml(item.label)}</span>
       <span aria-hidden="true">&times;</span>
     </button>`
   )).join("");
-  updateComposerContextVisibility();
+  updateClearButton();
 }
 
 function renderDraftIteration(): void {
@@ -377,12 +374,12 @@ function renderDraftIteration(): void {
   if (!draftIteratesOnId || !draftIteratesOnLabel) {
     element.innerHTML = "";
     element.hidden = true;
-    updateComposerContextVisibility();
+    updateClearButton();
     return;
   }
   element.hidden = false;
   element.innerHTML = `<button class="draft-iteration-chip" type="button" data-clear-iteration="true">Iterating on ${escapeHtml(draftIteratesOnLabel)} <span aria-hidden="true">&times;</span></button>`;
-  updateComposerContextVisibility();
+  updateClearButton();
 }
 
 function clearDraftContext(): void {

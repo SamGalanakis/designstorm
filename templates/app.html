@@ -147,19 +147,16 @@
 
             <!-- Fixed composer -->
             <div class="composer-bar">
-              <div class="composer-inner">
-                <div class="composer-context">
-                  <div id="selected-references" class="selected-reference-list"></div>
-                  <div id="draft-iteration" class="draft-iteration" hidden></div>
-                  <button id="clear-selected-references" class="mini-link" type="button" style="font-size: 9px; display: none;">&times;</button>
-                </div>
-
-                <form id="session-message-form" class="session-message-form">
+              <form id="session-message-form" class="session-message-form">
+                <div class="composer-input-wrap">
+                  <div id="selected-references" class="composer-tags"></div>
+                  <div id="draft-iteration" class="composer-tags" hidden></div>
                   <textarea id="session-composer" rows="1" placeholder="Message..."></textarea>
                   <div id="mention-menu" class="mention-menu" hidden></div>
-                  <button id="session-send" class="btn btn-accent" type="submit">Send</button>
-                </form>
-              </div>
+                </div>
+                <button id="clear-selected-references" class="composer-clear" type="button" style="display: none;">&times;</button>
+                <button id="session-send" class="btn btn-accent" type="submit">Send</button>
+              </form>
             </div>
           </div>
 
