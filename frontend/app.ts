@@ -344,6 +344,13 @@ function getAllMentionItems(): MentionItem[] {
   return merged;
 }
 
+function updateComposerContextVisibility(): void {
+  const ctx = document.querySelector(".composer-context");
+  if (!ctx) return;
+  const hasChips = selectedReferences.size > 0 || (draftIteratesOnId != null);
+  ctx.classList.toggle("has-chips", hasChips);
+}
+
 function renderSelectedReferences(): void {
   const container = $("selected-references");
   if (!container) return;
@@ -351,6 +358,7 @@ function renderSelectedReferences(): void {
   if (selectedReferences.size === 0) {
     container.innerHTML = "";
     if (clearBtn) clearBtn.style.display = "none";
+    updateComposerContextVisibility();
     return;
   }
   if (clearBtn) clearBtn.style.display = "";
@@ -360,6 +368,7 @@ function renderSelectedReferences(): void {
       <span aria-hidden="true">&times;</span>
     </button>`
   )).join("");
+  updateComposerContextVisibility();
 }
 
 function renderDraftIteration(): void {
@@ -368,10 +377,12 @@ function renderDraftIteration(): void {
   if (!draftIteratesOnId || !draftIteratesOnLabel) {
     element.innerHTML = "";
     element.hidden = true;
+    updateComposerContextVisibility();
     return;
   }
   element.hidden = false;
   element.innerHTML = `<button class="draft-iteration-chip" type="button" data-clear-iteration="true">Iterating on ${escapeHtml(draftIteratesOnLabel)} <span aria-hidden="true">&times;</span></button>`;
+  updateComposerContextVisibility();
 }
 
 function clearDraftContext(): void {

@@ -1103,16 +1103,16 @@ h1, h2, h3 {
   gap: 8px;
 }
 
-/* Context chips row — hidden when empty */
+/* Context chips row — hidden until JS adds chips */
 .composer-context {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
 }
 
-.composer-context:not(:has(.selected-reference-chip, .draft-iteration-chip)) {
-  display: none;
+.composer-context.has-chips {
+  display: flex;
 }
 
 .selected-reference-list {
