@@ -17,7 +17,11 @@ COPY migrations ./migrations
 RUN cargo build --release
 
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl \
+    chromium fonts-liberation fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+ENV CHROMIUM_PATH=/usr/bin/chromium
 WORKDIR /app
 COPY --from=builder /app/target/release/designstorm /app/server
 COPY --from=assets /app/static/app.js /app/static/app.js

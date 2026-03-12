@@ -81,7 +81,7 @@ impl ScreenshotService {
         let (browser, mut handler) =
             chromiumoxide::Browser::launch(
                 chromiumoxide::BrowserConfig::builder()
-                    .chrome_executable("/usr/bin/chromium")
+                    .chrome_executable(std::env::var("CHROMIUM_PATH").unwrap_or_else(|_| "/usr/bin/chromium".into()))
                     .arg("--headless=new")
                     .arg("--disable-gpu")
                     .arg("--no-sandbox")
