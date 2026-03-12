@@ -113,32 +113,33 @@
         <div class="chat-and-gallery">
           <!-- Chat column -->
           <div class="chat-thread-wrap">
+            <div class="chat-toolbar">
+              <button
+                class="sidebar-toggle"
+                type="button"
+                data-on:click="$_sidebarHidden = !$_sidebarHidden"
+                data-attr:aria-expanded="!$_sidebarHidden"
+                aria-label="Toggle sidebar"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+              </button>
+              <button
+                class="ref-toggle"
+                type="button"
+                data-on:click="$_refsOpen = !$_refsOpen"
+                data-class:is-active="$_refsOpen"
+              >
+                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+                Refs
+              </button>
+            </div>
+
             <div id="session-messages" class="chat-thread">
               {{ messages_html|safe }}
             </div>
 
             <!-- Composer -->
             <div class="composer-bar">
-              <div class="composer-toolbar">
-                <button
-                  class="sidebar-toggle"
-                  type="button"
-                  data-on:click="$_sidebarHidden = !$_sidebarHidden"
-                  data-attr:aria-expanded="!$_sidebarHidden"
-                  aria-label="Toggle sidebar"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
-                </button>
-                <button
-                  class="ref-toggle"
-                  type="button"
-                  data-on:click="$_refsOpen = !$_refsOpen"
-                  data-class:is-active="$_refsOpen"
-                >
-                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
-                  Refs
-                </button>
-              </div>
               <form id="session-message-form" class="session-message-form">
                 <textarea id="session-composer" rows="2" placeholder="Message..."></textarea>
                 <div id="mention-menu" class="mention-menu" hidden></div>
