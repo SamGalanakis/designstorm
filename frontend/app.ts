@@ -655,6 +655,10 @@ function bindStudioEvents(): void {
   });
   $("session-composer")?.addEventListener("keydown", (event) => {
     if (event.key === "Escape") hideMentionMenu();
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      $("session-message-form")?.dispatchEvent(new Event("submit", { cancelable: true }));
+    }
   });
 
   $("clear-selected-references")?.addEventListener("click", () => {

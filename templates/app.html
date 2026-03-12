@@ -98,42 +98,45 @@
 
   <!-- ═══ Main area ═══ -->
   <div class="studio-main">
+    <!-- Hidden elements for JS compatibility -->
+    <input id="active-session-title" type="hidden" value="{{ active_session_title }}" />
+    <span id="active-session-updated" hidden>{{ active_session_updated_label }}</span>
+    <span id="studio-status" hidden></span>
+    <div id="selected-references" hidden></div>
+    <div id="draft-iteration" hidden></div>
+    <button id="clear-selected-references" type="button" hidden></button>
+
+    <!-- Full-width top bar -->
+    <div class="studio-topbar">
+      <button
+        class="sidebar-toggle"
+        type="button"
+        data-on:click="$_sidebarHidden = !$_sidebarHidden"
+        data-attr:aria-expanded="!$_sidebarHidden"
+        aria-label="Toggle sidebar"
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+      </button>
+      <span class="studio-topbar-brand">Design Storm</span>
+      <span class="studio-topbar-spacer"></span>
+      <button
+        class="ref-toggle"
+        type="button"
+        data-on:click="$_refsOpen = !$_refsOpen"
+        data-class:is-active="$_refsOpen"
+      >
+        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+        Refs
+      </button>
+    </div>
+
     <!-- ═══ Body: conversation + refs ═══ -->
     <div class="studio-body">
       <div class="studio-conversation">
-        <!-- Hidden elements for JS compatibility -->
-        <input id="active-session-title" type="hidden" value="{{ active_session_title }}" />
-        <span id="active-session-updated" hidden>{{ active_session_updated_label }}</span>
-        <span id="studio-status" hidden></span>
-        <div id="selected-references" hidden></div>
-        <div id="draft-iteration" hidden></div>
-        <button id="clear-selected-references" type="button" hidden></button>
-
         <!-- Two-column: chat left, gallery right -->
         <div class="chat-and-gallery">
           <!-- Chat column -->
           <div class="chat-thread-wrap">
-            <div class="chat-toolbar">
-              <button
-                class="sidebar-toggle"
-                type="button"
-                data-on:click="$_sidebarHidden = !$_sidebarHidden"
-                data-attr:aria-expanded="!$_sidebarHidden"
-                aria-label="Toggle sidebar"
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
-              </button>
-              <button
-                class="ref-toggle"
-                type="button"
-                data-on:click="$_refsOpen = !$_refsOpen"
-                data-class:is-active="$_refsOpen"
-              >
-                <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
-                Refs
-              </button>
-            </div>
-
             <div id="session-messages" class="chat-thread">
               {{ messages_html|safe }}
             </div>
