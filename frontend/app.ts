@@ -224,11 +224,11 @@ function renderInlineMessageHtml(input: string): string {
   html = html.replace(/\*\*([^\n*][^\n]*?[^\n*]?)\*\*/g, `<strong class="chat-md-strong">$1</strong>`);
   html = html.replace(/~~([^\n~][^\n]*?[^\n~]?)~~/g, `<s class="chat-md-strike">$1</s>`);
   html = html.replace(
-    /(^|[\s([{"'])\*([^*\s][^*\n]*?[^*\s]?)\*(?=$|[\s),.!?;:\]"}'])/g,
+    /(^|[\s(\[{"'])\*([^*\s][^*\n]*?[^*\s]?)\*(?=$|[\s),.!?;:\]"}'])/g,
     `$1<em class="chat-md-em">$2</em>`,
   );
   html = html.replace(
-    /(^|[\s([{"'])_([^_\s][^_\n]*?[^_\s]?)_(?=$|[\s),.!?;:\]"}'])/g,
+    /(^|[\s(\[{"'])_([^_\s][^_\n]*?[^_\s]?)_(?=$|[\s),.!?;:\]"}'])/g,
     `$1<em class="chat-md-em">$2</em>`,
   );
 

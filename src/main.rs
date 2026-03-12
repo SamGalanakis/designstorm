@@ -79,11 +79,11 @@ static INLINE_STRONG_RE: LazyLock<Regex> =
 static INLINE_STRIKE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"~~([^\n~][^\n]*?[^\n~]?)~~").expect("inline strike regex"));
 static INLINE_EM_STAR_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(^|[\s([{"'])\*([^*\s][^*\n]*?[^*\s]?)\*($|[\s),.!?;:\]"}'])"#)
+    Regex::new(r#"(^|[\s(\[{"'])\*([^*\s][^*\n]*?[^*\s]?)\*($|[\s),.!?;:\]"}'])"#)
         .expect("inline emphasis regex")
 });
 static INLINE_EM_UNDERSCORE_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(^|[\s([{"'])_([^_\s][^_\n]*?[^_\s]?)_($|[\s),.!?;:\]"}'])"#)
+    Regex::new(r#"(^|[\s(\[{"'])_([^_\s][^_\n]*?[^_\s]?)_($|[\s),.!?;:\]"}'])"#)
         .expect("inline emphasis underscore regex")
 });
 
@@ -5856,4 +5856,21 @@ fn render_inline_message_html(input: &str) -> String {
     html = html.replace('\n', "<br>");
 
     restore_html_segments(html, &segments)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_inline_message_html;
+
+    #[test]
+    fn renders_star_emphasis_without_poisoning_regexes() {
+        let html = render_inline_message_html("before *focus* after");
+        assert_eq!(html, r#"before <em class="chat-md-em">focus</em> after"#);
+    }
+
+    #[test]
+    fn renders_underscore_emphasis_after_open_bracket() {
+        let html = render_inline_message_html("(_detail_)");
+        assert_eq!(html, r#"(<em class="chat-md-em">detail</em>)"#);
+    }
 }
