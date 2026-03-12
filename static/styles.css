@@ -1186,6 +1186,9 @@ h1, h2, h3 {
   font-size: 12px;
   font-weight: 500;
   color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mention-item-kind {
@@ -1195,6 +1198,11 @@ h1, h2, h3 {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-3);
+  white-space: nowrap;
+}
+
+.mention-item.is-other-session {
+  opacity: 0.55;
 }
 
 /* ─── Reference drawer ─── */

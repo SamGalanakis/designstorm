@@ -391,12 +391,14 @@ function renderMentionMenu(items: MentionItem[]): void {
     hideMentionMenu();
     return;
   }
-  menu.innerHTML = items.slice(0, 8).map((item) => (
-    `<button class="mention-item" type="button" data-mention-handle="${escapeHtml(item.handle)}" data-mention-label="${escapeHtml(item.label)}">
-      <span class="mention-item-title">${escapeHtml(item.label)}</span>
-      <span class="mention-item-kind">${escapeHtml(item.kind)}</span>
-    </button>`
-  )).join("");
+  const activeSessionId = getActiveSessionId();
+  menu.innerHTML = items.slice(0, 8).map((item) => {
+    const isOther = item.sessionId && item.sessionId !== activeSessionId;
+    return `<button class="mention-item${isOther ? " is-other-session" : ""}" type="button" data-mention-handle="${escapeHtml(item.handle)}" data-mention-label="${escapeHtml(item.label)}">
+      <span class="mention-item-title">${escapeHtml(shortLabel(item.label))}</span>
+      <span class="mention-item-kind">${escapeHtml(item.kind)}${isOther ? " · other" : ""}</span>
+    </button>`;
+  }).join("");
   menu.hidden = false;
 }
 
@@ -417,11 +419,20 @@ function updateMentionState(): void {
   renderMentionMenu(items);
 }
 
+function shortLabel(label: string): string {
+  // Take text before " — " or " - ", or first 30 chars
+  const dash = label.indexOf(" — ");
+  const hyphen = dash === -1 ? label.indexOf(" - ") : dash;
+  const short = hyphen > 0 ? label.slice(0, hyphen) : label;
+  return short.length > 30 ? short.slice(0, 30) + "…" : short;
+}
+
 function insertMention(handle: string, label: string): void {
   const textarea = $("session-composer") as HTMLTextAreaElement | null;
   if (!textarea || !mentionState) return;
-  const nextValue = `${textarea.value.slice(0, mentionState.start)}@${label} ${textarea.value.slice(mentionState.end)}`;
-  const nextCursor = mentionState.start + label.length + 2;
+  const short = shortLabel(label);
+  const nextValue = `${textarea.value.slice(0, mentionState.start)}@${short} ${textarea.value.slice(mentionState.end)}`;
+  const nextCursor = mentionState.start + short.length + 2;
   textarea.value = nextValue;
   textarea.focus();
   textarea.setSelectionRange(nextCursor, nextCursor);
