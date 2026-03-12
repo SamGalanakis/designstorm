@@ -82,10 +82,10 @@ impl ScreenshotService {
             chromiumoxide::Browser::launch(
                 chromiumoxide::BrowserConfig::builder()
                     .chrome_executable(std::env::var("CHROMIUM_PATH").unwrap_or_else(|_| "/usr/bin/chromium".into()))
-                    .arg("--headless=new")
-                    .arg("--disable-gpu")
-                    .arg("--no-sandbox")
-                    .arg("--disable-dev-shm-usage")
+                    .no_sandbox()
+                    .new_headless_mode()
+                    .arg("disable-gpu")
+                    .arg("disable-dev-shm-usage")
                     .window_size(1280, 900)
                     .build()
                     .map_err(|e| format!("browser config error: {e}"))?,
