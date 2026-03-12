@@ -749,6 +749,47 @@ function bindStudioEvents(): void {
     });
   });
 
+  // Smart reference add form
+  const refInput = $("ref-add-input") as HTMLInputElement | null;
+  const refTypeBadge = $("ref-add-type");
+  const refMeta = $("ref-add-meta");
+  const refTitle = $("ref-add-title") as HTMLInputElement | null;
+  const urlPattern = /^https?:\/\/\S+$/i;
+
+  function detectRefType(value: string): "link" | "note" {
+    return urlPattern.test(value.trim()) ? "link" : "note";
+  }
+
+  refInput?.addEventListener("input", () => {
+    const val = refInput.value.trim();
+    const type = detectRefType(val);
+    if (refTypeBadge) refTypeBadge.textContent = type;
+    if (refMeta) refMeta.hidden = !val;
+  });
+
+  $("reference-add-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const val = refInput?.value.trim() ?? "";
+    if (!val) return;
+    const type = detectRefType(val);
+    const title = refTitle?.value.trim() ?? "";
+    if (type === "link") {
+      void submitReferenceForm("link", { url: val, title, body: "" }).then(() => {
+        if (refInput) refInput.value = "";
+        if (refTitle) refTitle.value = "";
+        if (refMeta) refMeta.hidden = true;
+        if (refTypeBadge) refTypeBadge.textContent = "note";
+      });
+    } else {
+      void submitReferenceForm("text", { title, body: val }).then(() => {
+        if (refInput) refInput.value = "";
+        if (refTitle) refTitle.value = "";
+        if (refMeta) refMeta.hidden = true;
+        if (refTypeBadge) refTypeBadge.textContent = "note";
+      });
+    }
+  });
+
   document.addEventListener("click", (event) => {
     const target = event.target as HTMLElement | null;
     if (!target) return;

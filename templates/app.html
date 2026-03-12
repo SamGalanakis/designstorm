@@ -167,29 +167,38 @@
       <aside class="reference-drawer" data-class:is-open="$_refsOpen">
         <div class="reference-drawer-head">
           <span class="eyebrow">References</span>
-          <button class="btn btn-ghost btn-sm" type="button" data-on:click="$_refsOpen = false" style="height: 24px; padding: 0 8px; font-size: 10px;">&times;</button>
+          <button class="ref-drawer-close" type="button" data-on:click="$_refsOpen = false" aria-label="Close">&times;</button>
         </div>
 
         <div class="reference-drawer-body">
-          <div class="reference-create-grid">
-            <form id="reference-note-form" class="reference-form">
-              <input id="reference-note-title" type="text" placeholder="Note title" />
-              <textarea id="reference-note-body" rows="2" placeholder="Art direction note or constraint"></textarea>
-              <button class="btn btn-ghost btn-sm" type="submit">Add</button>
-            </form>
+          <!-- Smart add form -->
+          <form id="reference-add-form" class="ref-add">
+            <div class="ref-add-row">
+              <input id="ref-add-input" class="ref-add-input" type="text" placeholder="Paste URL, type a note, or drop an image..." autocomplete="off" />
+              <label class="ref-add-upload" title="Upload image">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 11l4-4 3 3 2-2 3 3"/><rect x="1" y="1" width="14" height="14" rx="2"/><circle cx="5" cy="5" r="1.5"/></svg>
+                <input id="reference-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
+              </label>
+            </div>
+            <div id="ref-add-meta" class="ref-add-meta" hidden>
+              <input id="ref-add-title" class="ref-add-title" type="text" placeholder="Title (optional)" autocomplete="off" />
+            </div>
+            <div class="ref-add-footer">
+              <span id="ref-add-type" class="ref-add-type">note</span>
+              <button class="ref-add-submit" type="submit">Add</button>
+            </div>
+          </form>
 
-            <form id="reference-link-form" class="reference-form">
-              <input id="reference-link-title" type="text" placeholder="Link title" />
-              <input id="reference-link-url" type="url" placeholder="https://example.com" />
-              <textarea id="reference-link-body" rows="1" placeholder=""></textarea>
-              <button class="btn btn-ghost btn-sm" type="submit">Add</button>
-            </form>
-
-            <label class="reference-upload">
-              <span>Upload image reference</span>
-              <input id="reference-image-input" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" />
-            </label>
-          </div>
+          <!-- Hidden legacy forms for JS compat -->
+          <form id="reference-note-form" hidden>
+            <input id="reference-note-title" type="hidden" />
+            <textarea id="reference-note-body" hidden></textarea>
+          </form>
+          <form id="reference-link-form" hidden>
+            <input id="reference-link-title" type="hidden" />
+            <input id="reference-link-url" type="hidden" />
+            <textarea id="reference-link-body" hidden></textarea>
+          </form>
 
           <div id="reference-list" class="reference-list">
             {{ reference_list_html|safe }}
