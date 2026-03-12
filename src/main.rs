@@ -1517,10 +1517,44 @@ async fn post_session_message(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
-    Json(payload): Json<SessionMessageRequest>,
+    mut multipart: Multipart,
 ) -> Result<Json<SessionMessageResponse>, AppError> {
     let viewer = require_viewer(&state, &headers).await?;
-    let status = handle_session_message(&state, &viewer, id, payload).await?;
+    let mut payload_json: Option<String> = None;
+    let mut images: Vec<Vec<u8>> = Vec::new();
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
+    {
+        match field.name() {
+            Some("payload") => {
+                payload_json = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::BadRequest(format!("Bad payload field: {e}")))?,
+                );
+            }
+            Some("image") => {
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::BadRequest(format!("Bad image field: {e}")))?;
+                if !data.is_empty() {
+                    images.push(data.to_vec());
+                }
+            }
+            _ => {}
+        }
+    }
+    let payload: SessionMessageRequest = serde_json::from_str(
+        payload_json
+            .as_deref()
+            .ok_or_else(|| AppError::BadRequest("Missing payload field.".to_string()))?,
+    )
+    .map_err(|e| AppError::BadRequest(format!("Invalid payload JSON: {e}")))?;
+    let status = handle_session_message(&state, &viewer, id, payload, images).await?;
     Ok(Json(
         build_session_response(&state, viewer.id, id, &status).await?,
     ))
@@ -4134,6 +4168,7 @@ async fn run_session_agent(
     selected_reference_handles: Vec<String>,
     reference_snapshot: &serde_json::Value,
     iterates_on: Option<&StormRunRecord>,
+    images: Vec<Vec<u8>>,
 ) -> Result<(lash_core::AssembledTurn, Option<StudioMakeDesignCall>), AppError> {
     let loaded_provider = load_provider_for_user(state, viewer.id).await?;
     let Some(loaded_provider) = loaded_provider else {
@@ -4174,11 +4209,18 @@ async fn run_session_agent(
     let mut engine = LashRuntime::from_state(config, tools, AgentStateEnvelope::default())
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;
+    let mut items: Vec<InputItem> = vec![InputItem::Text {
+        text: compose_session_agent_prompt(messages, reference_snapshot, iterates_on),
+    }];
+    let mut image_blobs = HashMap::new();
+    for (i, blob) in images.into_iter().enumerate() {
+        let id = format!("img-{}", i + 1);
+        items.push(InputItem::ImageRef { id: id.clone() });
+        image_blobs.insert(id, blob);
+    }
     let input = TurnInput {
-        items: vec![InputItem::Text {
-            text: compose_session_agent_prompt(messages, reference_snapshot, iterates_on),
-        }],
-        image_blobs: HashMap::new(),
+        items,
+        image_blobs,
         mode: None,
         plan_file: None,
     };
@@ -4369,6 +4411,7 @@ async fn handle_session_message(
     viewer: &Viewer,
     session_id: Uuid,
     payload: SessionMessageRequest,
+    images: Vec<Vec<u8>>,
 ) -> Result<String, AppError> {
     let session = get_owned_design_session(&state.db, viewer.id, session_id).await?;
     let has_provider = load_provider_for_user(state, viewer.id).await?.is_some();
@@ -4378,11 +4421,16 @@ async fn handle_session_message(
         ));
     }
     let body = payload.body.trim().to_string();
-    if body.is_empty() {
+    if body.is_empty() && images.is_empty() {
         return Err(AppError::BadRequest(
             "Message body is required.".to_string(),
         ));
     }
+    let body = if body.is_empty() {
+        format!("[{} image{} attached]", images.len(), if images.len() == 1 { "" } else { "s" })
+    } else {
+        body
+    };
 
     let selected_reference_handles = normalize_reference_handles(payload.reference_ids);
     let default_iterates_on_id =
@@ -4416,6 +4464,7 @@ async fn handle_session_message(
         selected_reference_handles.clone(),
         &reference_snapshot,
         iterates_on.as_ref(),
+        images,
     )
     .await?;
 

@@ -101,6 +101,7 @@ let lastSavedTitle = "";
 const selectedReferences = new Map<string, MentionItem>();
 let draftIteratesOnId: string | null = null;
 let draftIteratesOnLabel: string | null = null;
+const pendingImages: File[] = [];
 
 function $(id: string): HTMLElement | null {
   return document.getElementById(id);
@@ -355,10 +356,32 @@ function renderDraftIteration(): void {
   // and sent as iteratesOnId on submit. No visual element needed.
 }
 
+function updateImagePills(): void {
+  let container = document.querySelector(".composer-image-pills");
+  if (pendingImages.length === 0) {
+    container?.remove();
+    return;
+  }
+  if (!container) {
+    container = document.createElement("div");
+    container.className = "composer-image-pills";
+    const form = $("session-message-form");
+    form?.insertBefore(container, form.firstChild);
+  }
+  container.innerHTML = pendingImages.map((file, i) =>
+    `<span class="image-pill">
+      <span class="image-pill-name">${escapeHtml(file.name.length > 20 ? file.name.slice(0, 18) + "…" : file.name)}</span>
+      <button class="image-pill-remove" type="button" data-remove-image="${i}" aria-label="Remove">&times;</button>
+    </span>`
+  ).join("");
+}
+
 function clearDraftContext(): void {
   selectedReferences.clear();
   draftIteratesOnId = null;
   draftIteratesOnLabel = null;
+  pendingImages.length = 0;
+  updateImagePills();
   renderSelectedReferences();
   renderDraftIteration();
 }
@@ -568,7 +591,7 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
   const submit = $("session-send") as HTMLButtonElement | null;
   if (!composer || !submit) return;
   const body = composer.value.trim();
-  if (!body) {
+  if (!body && pendingImages.length === 0) {
     composer.focus();
     return;
   }
@@ -578,12 +601,15 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
   if (thread) {
     const now = new Date();
     const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }).toLowerCase();
+    const imgNote = pendingImages.length > 0
+      ? `<span class="chat-message-images">${pendingImages.length} image${pendingImages.length > 1 ? "s" : ""} attached</span>`
+      : "";
     const msgHtml = `<article class="chat-message is-user">
   <header class="chat-message-head">
     <span class="chat-message-role">You</span>
     <span class="chat-message-meta">${time}</span>
   </header>
-  <div class="chat-message-body">${escapeHtml(body)}</div>
+  <div class="chat-message-body">${escapeHtml(body)}${imgNote}</div>
 </article>
 <article class="chat-message is-assistant is-thinking" id="thinking-indicator">
   <header class="chat-message-head">
@@ -599,6 +625,7 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
 
   const referenceIds = Array.from(selectedReferences.keys());
   const iteratesOnId = draftIteratesOnId;
+  const images = pendingImages.splice(0);
 
   // Clear input and context right away
   composer.value = "";
@@ -608,11 +635,15 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
 
   submit.disabled = true;
   try {
+    const formData = new FormData();
+    formData.append("payload", JSON.stringify({ body, referenceIds, iteratesOnId }));
+    for (const img of images) {
+      formData.append("image", img);
+    }
     const response = await fetch(`/sessions/${getActiveSessionId()}/messages`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body, referenceIds, iteratesOnId }),
+      body: formData,
     });
     if (!response.ok) {
       // Remove thinking indicator on error
@@ -713,22 +744,9 @@ function bindStudioEvents(): void {
       const file = item.getAsFile();
       if (!file) continue;
       ce.preventDefault();
-      const ta = $("session-composer") as HTMLTextAreaElement;
-      const cursor = ta.selectionStart ?? ta.value.length;
-      const marker = `[uploading image...]`;
-      const before = ta.value.slice(0, cursor);
-      const after = ta.value.slice(ta.selectionEnd ?? cursor);
-      const pad = before.length > 0 && !before.endsWith(" ") ? " " : "";
-      ta.value = `${before}${pad}${marker}${after}`;
-      ta.setSelectionRange(cursor + pad.length + marker.length, cursor + pad.length + marker.length);
-
-      void submitImageReference(file).then(() => {
-        // Replace marker with nothing — the image is now a reference
-        ta.value = ta.value.replace(marker, "").replace(/  +/g, " ").trim();
-        ta.style.height = "auto";
-        ta.style.height = Math.min(ta.scrollHeight, 180) + "px";
-      });
-      break; // handle one image per paste
+      pendingImages.push(file);
+      updateImagePills();
+      break;
     }
   });
 
@@ -754,9 +772,9 @@ function bindStudioEvents(): void {
       if (!files) return;
       for (const file of Array.from(files)) {
         if (!file.type.startsWith("image/")) continue;
-        void submitImageReference(file);
-        break;
+        pendingImages.push(file);
       }
+      updateImagePills();
     });
   }
 
@@ -862,6 +880,16 @@ function bindStudioEvents(): void {
       const handle = removeChip.dataset.removeReference ?? "";
       selectedReferences.delete(handle);
       renderSelectedReferences();
+      return;
+    }
+
+    const removeImage = target.closest<HTMLElement>("[data-remove-image]");
+    if (removeImage) {
+      const idx = parseInt(removeImage.dataset.removeImage ?? "", 10);
+      if (!isNaN(idx) && idx >= 0 && idx < pendingImages.length) {
+        pendingImages.splice(idx, 1);
+        updateImagePills();
+      }
       return;
     }
 

@@ -1740,6 +1740,56 @@ h1, h2, h3 {
   50% { opacity: 1; }
 }
 
+/* ─── Image pills in composer ─── */
+
+.composer-image-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 0 8px;
+}
+
+.image-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--cyan-bg);
+  border: 1px solid var(--cyan-border);
+  font-size: 11px;
+  color: var(--cyan);
+  font-family: "JetBrains Mono", monospace;
+}
+
+.image-pill-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.image-pill-remove {
+  all: unset;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-3);
+  padding: 0 2px;
+}
+
+.image-pill-remove:hover {
+  color: var(--red);
+}
+
+.chat-message-images {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--cyan-2);
+  font-style: italic;
+}
+
 /* ─── Drop target for image drag-and-drop ─── */
 
 .chat-thread-wrap.drop-active {
