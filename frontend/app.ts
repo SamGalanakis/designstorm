@@ -562,18 +562,38 @@ async function submitSessionMessage(event: SubmitEvent): Promise<void> {
     return;
   }
 
+  // Optimistically render the user message and clear input immediately
+  const thread = $("session-messages");
+  if (thread) {
+    const now = new Date();
+    const time = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }).toLowerCase();
+    const msgHtml = `<article class="chat-message is-user">
+  <header class="chat-message-head">
+    <span class="chat-message-role">You</span>
+    <span class="chat-message-meta">${time}</span>
+  </header>
+  <div class="chat-message-body">${escapeHtml(body)}</div>
+</article>`;
+    thread.insertAdjacentHTML("beforeend", msgHtml);
+    thread.scrollTop = thread.scrollHeight;
+  }
+
+  const referenceIds = Array.from(selectedReferences.keys());
+  const iteratesOnId = draftIteratesOnId;
+
+  // Clear input and context right away
+  composer.value = "";
+  composer.style.height = "auto";
+  clearDraftContext();
+  composer.focus();
+
   submit.disabled = true;
-  setStatus("Thinking...");
   try {
     const response = await fetch(`/sessions/${getActiveSessionId()}/messages`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        body,
-        referenceIds: Array.from(selectedReferences.keys()),
-        iteratesOnId: draftIteratesOnId,
-      }),
+      body: JSON.stringify({ body, referenceIds, iteratesOnId }),
     });
     if (!response.ok) {
       setStatus(await response.text());
