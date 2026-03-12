@@ -3935,6 +3935,8 @@ struct StudioMakeDesignCall {
 }
 
 struct SessionToolProvider {
+    state: AppState,
+    user_id: Uuid,
     session_id: Uuid,
     allowed_reference_handles: Vec<String>,
     default_iterates_on_id: Option<Uuid>,
@@ -3943,17 +3945,218 @@ struct SessionToolProvider {
 
 impl SessionToolProvider {
     fn new(
+        state: AppState,
+        user_id: Uuid,
         session_id: Uuid,
         allowed_reference_handles: Vec<String>,
         default_iterates_on_id: Option<Uuid>,
         pending_call: Arc<Mutex<Option<StudioMakeDesignCall>>>,
     ) -> Self {
         Self {
+            state,
+            user_id,
             session_id,
             allowed_reference_handles,
             default_iterates_on_id,
             pending_call,
         }
+    }
+
+    fn db(&self) -> &PgPool {
+        &self.state.db
+    }
+
+    async fn list_designs(&self) -> ToolResult {
+        let rows = match sqlx::query_as::<_, StormRunRow>(
+            r#"
+            SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url,
+                   submitted, created_at, workspace_dir, parent_ids, session_id, iterates_on_id,
+                   position_x, position_y, width, height
+            FROM storm_runs
+            WHERE owner_user_id = $1 AND session_id = $2
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(self.user_id)
+        .bind(self.session_id)
+        .fetch_all(self.db())
+        .await
+        {
+            Ok(rows) => rows,
+            Err(e) => return ToolResult::err_fmt(format_args!("Failed to load designs: {e}")),
+        };
+
+        let designs: Vec<serde_json::Value> = rows
+            .into_iter()
+            .map(StormRunRecord::from)
+            .map(|run| {
+                json!({
+                    "id": run.id,
+                    "handle": format!("design:{}", run.id),
+                    "title": run.title,
+                    "summary": run.summary,
+                    "previewUrl": run.preview_url,
+                    "iteratesOnId": run.iterates_on_id,
+                    "createdAt": run.created_at.to_rfc3339(),
+                })
+            })
+            .collect();
+
+        ToolResult::ok(json!({ "designs": designs, "count": designs.len() }))
+    }
+
+    async fn list_references(&self) -> ToolResult {
+        let rows = match load_session_references(self.db(), self.user_id, self.session_id).await {
+            Ok(rows) => rows,
+            Err(e) => {
+                return ToolResult::err_fmt(format_args!("Failed to load references: {e}"))
+            }
+        };
+
+        let refs: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "id": r.id,
+                    "handle": format!("ref:{}", r.id),
+                    "kind": r.kind,
+                    "title": r.title,
+                    "createdAt": r.created_at.to_rfc3339(),
+                })
+            })
+            .collect();
+
+        ToolResult::ok(json!({ "references": refs, "count": refs.len() }))
+    }
+
+    async fn view_design(&self, args: &serde_json::Value) -> ToolResult {
+        let Some(design_id_str) = args
+            .get("design_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        else {
+            return ToolResult::err_fmt("Missing required parameter: design_id");
+        };
+        let design_id = match Uuid::parse_str(design_id_str) {
+            Ok(id) => id,
+            Err(_) => return ToolResult::err_fmt("design_id must be a valid UUID"),
+        };
+        let run = match sqlx::query_as::<_, StormRunRow>(
+            r#"
+            SELECT id, owner_user_id, prompt, title, summary, assistant_summary, preview_url,
+                   submitted, created_at, workspace_dir, parent_ids, session_id, iterates_on_id,
+                   position_x, position_y, width, height
+            FROM storm_runs
+            WHERE id = $1 AND owner_user_id = $2
+            "#,
+        )
+        .bind(design_id)
+        .bind(self.user_id)
+        .fetch_optional(self.db())
+        .await
+        {
+            Ok(Some(row)) => StormRunRecord::from(row),
+            Ok(None) => return ToolResult::err_fmt("Design not found"),
+            Err(e) => return ToolResult::err_fmt(format_args!("DB error: {e}")),
+        };
+
+        // Read the workspace HTML/CSS for context
+        let index_path = run.workspace_dir.join("index.html");
+        let styles_path = run.workspace_dir.join("styles.css");
+        let html = tokio::fs::read_to_string(&index_path)
+            .await
+            .unwrap_or_default();
+        let css = tokio::fs::read_to_string(&styles_path)
+            .await
+            .unwrap_or_default();
+
+        ToolResult::ok(json!({
+            "id": run.id,
+            "handle": format!("design:{}", run.id),
+            "title": run.title,
+            "summary": run.summary,
+            "assistantSummary": run.assistant_summary,
+            "prompt": run.prompt,
+            "previewUrl": run.preview_url,
+            "iteratesOnId": run.iterates_on_id,
+            "createdAt": run.created_at.to_rfc3339(),
+            "htmlExcerpt": truncate_for_tool(&html, 3000),
+            "cssExcerpt": truncate_for_tool(&css, 2000),
+        }))
+    }
+
+    async fn view_reference(&self, args: &serde_json::Value) -> ToolResult {
+        let Some(ref_id_str) = args
+            .get("reference_id")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        else {
+            return ToolResult::err_fmt("Missing required parameter: reference_id");
+        };
+        let ref_id = match Uuid::parse_str(ref_id_str) {
+            Ok(id) => id,
+            Err(_) => return ToolResult::err_fmt("reference_id must be a valid UUID"),
+        };
+        let reference = match get_owned_reference_item(self.db(), self.user_id, ref_id).await {
+            Ok(r) => r,
+            Err(_) => return ToolResult::err_fmt("Reference not found"),
+        };
+
+        let mut result = json!({
+            "id": reference.id,
+            "handle": format!("ref:{}", reference.id),
+            "kind": reference.kind,
+            "title": reference.title,
+            "content": reference.content_json,
+        });
+
+        // For image references, try to load the image data from S3 and return it
+        if reference.kind == "image" {
+            if let Some(asset_id_str) = reference.content_json.get("assetId").and_then(|v| v.as_str()) {
+                let mime = reference
+                    .content_json
+                    .get("contentType")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("image/png")
+                    .to_string();
+                if let Ok(asset_id) = Uuid::parse_str(asset_id_str) {
+                    if let Some(storage) = self.state.artifact_storage.as_ref() {
+                        let s3_key_row = sqlx::query_as::<_, (String,)>(
+                            "SELECT s3_key FROM assets WHERE id = $1 AND owner_user_id = $2",
+                        )
+                        .bind(asset_id)
+                        .bind(self.user_id)
+                        .fetch_optional(self.db())
+                        .await;
+                        if let Ok(Some((s3_key,))) = s3_key_row {
+                            if let Ok(response) = storage
+                                .client
+                                .get_object()
+                                .bucket(&storage.bucket)
+                                .key(&s3_key)
+                                .send()
+                                .await
+                            {
+                                if let Ok(body) = response.body.collect().await {
+                                    let data = body.into_bytes().to_vec();
+                                    let image = lash_core::ToolImage {
+                                        mime,
+                                        data,
+                                        label: reference.title.clone(),
+                                    };
+                                    return ToolResult::with_images(true, result, vec![image]);
+                                }
+                            }
+                        }
+                    }
+                }
+                result["note"] = json!("Image data could not be loaded, but the asset metadata is available.");
+            }
+        }
+
+        ToolResult::ok(result)
     }
 
     async fn make_design(&self, args: &serde_json::Value) -> ToolResult {
@@ -4029,23 +4232,74 @@ impl SessionToolProvider {
 #[async_trait::async_trait]
 impl ToolProvider for SessionToolProvider {
     fn definitions(&self) -> Vec<ToolDefinition> {
-        vec![ToolDefinition {
-            name: "make_design".into(),
-            description: vec![lash_core::ToolText::new(
-                "Queue one asynchronous design generation job for this session. Use it when the user wants new designs, refinements, branches, or iterations. Pass only reference_ids from the selected handles listed in the prompt.",
-                [lash_core::ExecutionMode::NativeTools],
-            )],
-            params: vec![
-                ToolParam::typed("prompt", "str"),
-                ToolParam::optional("reference_ids", "list[str]"),
-                ToolParam::optional("iterates_on_id", "str"),
-                ToolParam::optional("title", "str"),
-            ],
-            returns: "dict".into(),
-            examples: vec![],
-            hidden: false,
-            inject_into_prompt: true,
-        }]
+        let native = [lash_core::ExecutionMode::NativeTools];
+        vec![
+            ToolDefinition {
+                name: "list_designs".into(),
+                description: vec![lash_core::ToolText::new(
+                    "List all designs created in this session. Returns id, title, summary, and preview URL for each design.",
+                    native,
+                )],
+                params: vec![],
+                returns: "dict".into(),
+                examples: vec![],
+                hidden: false,
+                inject_into_prompt: true,
+            },
+            ToolDefinition {
+                name: "list_references".into(),
+                description: vec![lash_core::ToolText::new(
+                    "List all references attached to this session (notes, links, images). Returns id, kind, and title for each.",
+                    native,
+                )],
+                params: vec![],
+                returns: "dict".into(),
+                examples: vec![],
+                hidden: false,
+                inject_into_prompt: true,
+            },
+            ToolDefinition {
+                name: "view_design".into(),
+                description: vec![lash_core::ToolText::new(
+                    "View detailed information about a specific design including its prompt, summary, and HTML/CSS source excerpts. Use the design id from list_designs.",
+                    native,
+                )],
+                params: vec![ToolParam::typed("design_id", "str")],
+                returns: "dict".into(),
+                examples: vec![],
+                hidden: false,
+                inject_into_prompt: true,
+            },
+            ToolDefinition {
+                name: "view_reference".into(),
+                description: vec![lash_core::ToolText::new(
+                    "View a specific reference's full content. For text references returns the body, for links the URL and notes, for images returns the image data. Use the reference id from list_references.",
+                    native,
+                )],
+                params: vec![ToolParam::typed("reference_id", "str")],
+                returns: "dict".into(),
+                examples: vec![],
+                hidden: false,
+                inject_into_prompt: true,
+            },
+            ToolDefinition {
+                name: "make_design".into(),
+                description: vec![lash_core::ToolText::new(
+                    "Queue one asynchronous design generation job for this session. Use it when the user wants new designs, refinements, branches, or iterations. Pass only reference_ids from the selected handles listed in the prompt.",
+                    native,
+                )],
+                params: vec![
+                    ToolParam::typed("prompt", "str"),
+                    ToolParam::optional("reference_ids", "list[str]"),
+                    ToolParam::optional("iterates_on_id", "str"),
+                    ToolParam::optional("title", "str"),
+                ],
+                returns: "dict".into(),
+                examples: vec![],
+                hidden: false,
+                inject_into_prompt: true,
+            },
+        ]
     }
 
     async fn execute(&self, name: &str, args: &serde_json::Value) -> ToolResult {
@@ -4057,6 +4311,10 @@ impl ToolProvider for SessionToolProvider {
         );
         let started = Instant::now();
         let result = match name {
+            "list_designs" => self.list_designs().await,
+            "list_references" => self.list_references().await,
+            "view_design" => self.view_design(args).await,
+            "view_reference" => self.view_reference(args).await,
             "make_design" => self.make_design(args).await,
             _ => ToolResult::err_fmt(format_args!("Unknown tool: {name}")),
         };
@@ -4087,17 +4345,17 @@ fn session_prompt_overrides() -> Vec<PromptSectionOverride> {
         PromptSectionOverride {
             section: PromptSectionName::ExecutionContract,
             mode: PromptOverrideMode::Replace,
-            content: "Either answer conversationally or call make_design exactly once when the user is asking for designs to be made, refined, branched, or iterated. Keep the final reply short.".to_string(),
+            content: "Either answer conversationally, use read-only tools to inspect session context, or call make_design exactly once when the user is asking for designs to be made, refined, branched, or iterated. Keep the final reply short.".to_string(),
         },
         PromptSectionOverride {
             section: PromptSectionName::ToolAccess,
             mode: PromptOverrideMode::Replace,
-            content: "The only custom tool is make_design. There is no shell, filesystem, or hidden workspace. Never invent reference handles or use more than one make_design call.".to_string(),
+            content: "Your tools: list_designs (list session designs), list_references (list session references), view_design (inspect a design's details and source), view_reference (view a reference's content — returns image data for image refs), make_design (queue a design job — max one per turn). There is no shell, filesystem, or hidden workspace. Never invent reference handles.".to_string(),
         },
         PromptSectionOverride {
             section: PromptSectionName::Guidelines,
             mode: PromptOverrideMode::Replace,
-            content: "Use the selected references when they matter. If the user is still discussing intent, respond without calling tools. If the user wants output now, queue a job.".to_string(),
+            content: "Use list_designs/list_references to explore session context when the user asks about existing work. Use view_design/view_reference to inspect specific items. Use the selected references when they matter. If the user is still discussing intent, respond without calling make_design. If the user wants output now, queue a job.".to_string(),
         },
         PromptSectionOverride {
             section: PromptSectionName::Memory,
@@ -4179,6 +4437,8 @@ async fn run_session_agent(
 
     let pending_call = Arc::new(Mutex::new(None));
     let provider = SessionToolProvider::new(
+        state.clone(),
+        viewer.id,
         session_id,
         selected_reference_handles,
         iterates_on.map(|run| run.id),
