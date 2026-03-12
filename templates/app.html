@@ -99,68 +99,76 @@
     <!-- ═══ Body: conversation + refs ═══ -->
     <div class="studio-body">
       <div class="studio-conversation">
-        <!-- Scrollable thread -->
-        <div class="chat-thread-wrap">
-          <!-- Inline header: title + status -->
-          <div class="chat-header">
-            <button
-              class="sidebar-toggle"
-              type="button"
-              data-on:click="$_sessionsOpen = !$_sessionsOpen"
-              data-attr:aria-expanded="$_sessionsOpen"
-              aria-label="Toggle sidebar"
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
-            </button>
+        <!-- Top bar -->
+        <div class="chat-header">
+          <button
+            class="sidebar-toggle"
+            type="button"
+            data-on:click="$_sessionsOpen = !$_sessionsOpen"
+            data-attr:aria-expanded="$_sessionsOpen"
+            aria-label="Toggle sidebar"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h12"/></svg>
+          </button>
 
-            <input
-              id="active-session-title"
-              class="session-title-input"
-              type="text"
-              value="{{ active_session_title }}"
-              autocomplete="off"
-              aria-label="Session title"
-            />
+          <input
+            id="active-session-title"
+            class="session-title-input"
+            type="text"
+            value="{{ active_session_title }}"
+            autocomplete="off"
+            aria-label="Session title"
+          />
 
-            <span id="active-session-updated" class="session-title-meta" style="position: absolute; left: -9999px;">{{ active_session_updated_label }}</span>
+          <span id="active-session-updated" class="session-title-meta" style="position: absolute; left: -9999px;">{{ active_session_updated_label }}</span>
 
-            <span id="studio-status"></span>
+          <span id="studio-status"></span>
 
-            <button
-              class="ref-toggle"
-              type="button"
-              data-on:click="$_refsOpen = !$_refsOpen"
-              data-class:is-active="$_refsOpen"
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
-              Refs
-            </button>
-          </div>
-
-          <div id="session-messages" class="chat-thread">
-            {{ messages_html|safe }}
-          </div>
-
-          <!-- Design gallery renders below messages -->
-          <div id="design-gallery" class="design-gallery">
-            {{ gallery_html|safe }}
-          </div>
+          <button
+            class="ref-toggle"
+            type="button"
+            data-on:click="$_refsOpen = !$_refsOpen"
+            data-class:is-active="$_refsOpen"
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+            Refs
+          </button>
         </div>
 
-        <!-- Fixed composer -->
-        <div class="composer-bar">
-          <div class="composer-inner">
-            <div class="composer-context">
-              <div id="selected-references" class="selected-reference-list"></div>
-              <div id="draft-iteration" class="draft-iteration" hidden></div>
-              <button id="clear-selected-references" class="mini-link" type="button" style="font-size: 9px; display: none;">&times;</button>
+        <!-- Two-column: chat left, gallery right -->
+        <div class="chat-and-gallery">
+          <!-- Chat column -->
+          <div class="chat-thread-wrap">
+            <div id="session-messages" class="chat-thread">
+              {{ messages_html|safe }}
             </div>
 
-            <form id="session-message-form" class="session-message-form">
-              <textarea id="session-composer" rows="1" placeholder="Describe a direction, refine a design, or discuss..."></textarea>
-              <div id="mention-menu" class="mention-menu" hidden></div>
-              <button id="session-send" class="btn btn-accent" type="submit">Send</button>
-            </form>
+            <!-- Fixed composer -->
+            <div class="composer-bar">
+              <div class="composer-inner">
+                <div class="composer-context">
+                  <div id="selected-references" class="selected-reference-list"></div>
+                  <div id="draft-iteration" class="draft-iteration" hidden></div>
+                  <button id="clear-selected-references" class="mini-link" type="button" style="font-size: 9px; display: none;">&times;</button>
+                </div>
+
+                <form id="session-message-form" class="session-message-form">
+                  <textarea id="session-composer" rows="1" placeholder="Describe a direction, refine a design, or discuss..."></textarea>
+                  <div id="mention-menu" class="mention-menu" hidden></div>
+                  <button id="session-send" class="btn btn-accent" type="submit">Send</button>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <!-- Gallery column -->
+          <div class="gallery-panel">
+            <div class="gallery-panel-head">
+              <span class="eyebrow">Designs</span>
+            </div>
+            <div id="design-gallery" class="design-gallery">
+              {{ gallery_html|safe }}
+            </div>
           </div>
         </div>
       </div>
