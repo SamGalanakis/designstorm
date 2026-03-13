@@ -864,6 +864,24 @@ async function submitImageReference(file: File): Promise<void> {
   await applySnapshot(snapshot, { preserveDraft: true });
 }
 
+function extractImageFiles(dataTransfer: DataTransfer | null | undefined): File[] {
+  if (!dataTransfer) return [];
+
+  const itemImages = Array.from(dataTransfer.items ?? [])
+    .filter((item) => item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+  if (itemImages.length > 0) return itemImages;
+
+  return Array.from(dataTransfer.files ?? []).filter((file) => file.type.startsWith("image/"));
+}
+
+async function submitImageReferences(files: File[]): Promise<void> {
+  for (const file of files) {
+    await submitImageReference(file);
+  }
+}
+
 async function deleteReference(refId: string): Promise<void> {
   const response = await fetch(`/sessions/${getActiveSessionId()}/references/${refId}`, {
     method: "DELETE",
@@ -1070,6 +1088,7 @@ function bindStudioEvents(): void {
   const refTypeBadge = $("ref-add-type");
   const refMeta = $("ref-add-meta");
   const refTitle = $("ref-add-title") as HTMLInputElement | null;
+  const refAddForm = $("reference-add-form");
   const urlPattern = /^https?:\/\/\S+$/i;
 
   function detectRefType(value: string): "link" | "note" {
@@ -1083,7 +1102,42 @@ function bindStudioEvents(): void {
     if (refMeta) refMeta.hidden = !val;
   });
 
-  $("reference-add-form")?.addEventListener("submit", (event) => {
+  const submitReferenceTransfer = (dataTransfer: DataTransfer | null | undefined): boolean => {
+    const files = extractImageFiles(dataTransfer);
+    if (files.length === 0) return false;
+    void submitImageReferences(files);
+    return true;
+  };
+
+  refAddForm?.addEventListener("paste", (event) => {
+    const clipboardEvent = event as ClipboardEvent;
+    if (!submitReferenceTransfer(clipboardEvent.clipboardData)) return;
+    event.preventDefault();
+  });
+
+  refAddForm?.addEventListener("dragover", (event) => {
+    const dragEvent = event as DragEvent;
+    if (extractImageFiles(dragEvent.dataTransfer).length === 0) return;
+    event.preventDefault();
+    dragEvent.dataTransfer!.dropEffect = "copy";
+    refAddForm.classList.add("drop-active");
+  });
+
+  refAddForm?.addEventListener("dragleave", (event) => {
+    const dragEvent = event as DragEvent;
+    const relatedTarget = dragEvent.relatedTarget as Node | null;
+    if (relatedTarget && refAddForm.contains(relatedTarget)) return;
+    refAddForm.classList.remove("drop-active");
+  });
+
+  refAddForm?.addEventListener("drop", (event) => {
+    refAddForm.classList.remove("drop-active");
+    const dragEvent = event as DragEvent;
+    if (!submitReferenceTransfer(dragEvent.dataTransfer)) return;
+    event.preventDefault();
+  });
+
+  refAddForm?.addEventListener("submit", (event) => {
     event.preventDefault();
     const val = refInput?.value.trim() ?? "";
     if (!val) return;

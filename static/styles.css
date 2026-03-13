@@ -1341,6 +1341,11 @@ h1, h2, h3 {
   border-color: var(--cyan-border);
 }
 
+.ref-add.drop-active {
+  border-color: var(--cyan-border);
+  background: var(--cyan-bg);
+}
+
 .ref-add-row {
   display: flex;
   align-items: center;
