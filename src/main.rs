@@ -26,12 +26,14 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use cookie::{Cookie, SameSite};
 use futures_util::StreamExt as FuturesStreamExt;
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use lash_core::plugin::{StaticPluginFactory, ToolSurfaceOverride};
 use lash_core::{
-    AgentCapabilities, AgentStateEnvelope, HostProfile, InputItem, LashRuntime, PromptOverrideMode,
-    PromptSectionName, PromptSectionOverride, Provider, RuntimeConfig, ToolDefinition, ToolParam,
-    ToolProvider, ToolResult, TurnInput, oauth,
+    AgentStateEnvelope, HostProfile, InputItem, LashRuntime, PluginHost, PluginSpec,
+    PromptOverrideMode, PromptSectionName, PromptSectionOverride, Provider, ProviderOptions,
+    RuntimeHostConfig, RuntimeServices, SessionPolicy, ToolDefinition, ToolParam, ToolProvider,
+    ToolResult, ToolSurfaceContribution, TurnInput, default_context_strategy, oauth,
     provider::OPENAI_GENERIC_DEFAULT_BASE_URL,
-    tools::{FetchUrl, ToolSet, WebSearch},
+    tools::{FetchUrl, WebSearch},
 };
 use mime_guess::from_path;
 use regex::{Captures, Regex};
@@ -67,6 +69,7 @@ use walkdir::WalkDir;
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::FileOptions};
 
 const SESSION_COOKIE_NAME: &str = "designstorm_session";
+const LASH_MAX_CONTEXT_TOKENS: usize = 200_000;
 const DATASTAR_CDN: &str =
     "https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js";
 static INLINE_CODE_RE: LazyLock<Regex> =
@@ -1037,103 +1040,80 @@ impl StormToolProvider {
 #[async_trait::async_trait]
 impl ToolProvider for StormToolProvider {
     fn definitions(&self) -> Vec<ToolDefinition> {
-        let defs = vec![
+        vec![
             ToolDefinition {
                 name: "workspace_list".into(),
-                description: vec![lash_core::ToolText::new(
-                    "List the current artifact workspace. Use this to inspect available files before reading or editing them.",
-                    [lash_core::ExecutionMode::NativeTools],
-                )],
+                description: "List the current artifact workspace. Use this to inspect available files before reading or editing them.".into(),
                 params: vec![],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "workspace_read".into(),
-                description: vec![lash_core::ToolText::new(
-                    "Read a UTF-8 text file from the current artifact workspace. Paths must stay inside the workspace.",
-                    [lash_core::ExecutionMode::NativeTools],
-                )],
+                description: "Read a UTF-8 text file from the current artifact workspace. Paths must stay inside the workspace.".into(),
                 params: vec![ToolParam::typed("path", "str")],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "workspace_write".into(),
-                description: vec![lash_core::ToolText::new(
-                    "Create or overwrite a text file inside the current artifact workspace. Use this to author index.html, styles.css, and supporting docs.",
-                    [lash_core::ExecutionMode::NativeTools],
-                )],
+                description: "Create or overwrite a text file inside the current artifact workspace. Use this to author index.html, styles.css, and supporting docs.".into(),
                 params: vec![
                     ToolParam::typed("path", "str"),
                     ToolParam::typed("content", "str"),
                 ],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "render_result".into(),
-                description: vec![lash_core::ToolText::new(
-                    "Validate that the current workspace can be previewed and return the preview URL.",
-                    [lash_core::ExecutionMode::NativeTools],
-                )],
+                description: "Validate that the current workspace can be previewed and return the preview URL.".into(),
                 params: vec![],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "view_result".into(),
-                description: vec![lash_core::ToolText::new(
-                    "Inspect the current artifact result as structured excerpts plus the preview URL. Use this after rendering to critique or refine the output.",
-                    [lash_core::ExecutionMode::NativeTools],
-                )],
+                description: "Inspect the current artifact result as structured excerpts plus the preview URL. Use this after rendering to critique or refine the output.".into(),
                 params: vec![],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "submit_result".into(),
-                description: vec![lash_core::ToolText::new(
-                    "Mark the current artifact as the candidate output for this storm run. Call this after you are satisfied with the HTML result.",
-                    [lash_core::ExecutionMode::NativeTools],
-                )],
+                description: "Mark the current artifact as the candidate output for this storm run. Call this after you are satisfied with the HTML result.".into(),
                 params: vec![
                     ToolParam::optional("title", "str"),
                     ToolParam::optional("summary", "str"),
                 ],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "copy_input".into(),
-                description: vec![lash_core::ToolText::new(
-                    "Copy a file from the inputs/ directory into the workspace so it becomes part of the output artifact. Use this when you want to include a provided asset (image, font, etc.) in your HTML result.",
-                    [lash_core::ExecutionMode::NativeTools],
-                )],
+                description: "Copy a file from the inputs/ directory into the workspace so it becomes part of the output artifact. Use this when you want to include a provided asset (image, font, etc.) in your HTML result.".into(),
                 params: vec![
                     ToolParam::typed("source", "str"),
                     ToolParam::typed("destination", "str"),
                 ],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
-        ];
-
-        defs
+        ]
     }
 
     async fn execute(&self, name: &str, args: &serde_json::Value) -> ToolResult {
@@ -1953,6 +1933,7 @@ async fn exchange_claude_auth(
                 access_token: tokens.access_token,
                 refresh_token: tokens.refresh_token,
                 expires_at: tokens.expires_at,
+                options: ProviderOptions::default(),
             };
             save_provider_credentials(&state, viewer.id, &provider).await?;
             clear_provider_pending(&state.db, viewer.id).await?;
@@ -2066,6 +2047,7 @@ async fn poll_codex_auth(
                 refresh_token: tokens.refresh_token,
                 expires_at: tokens.expires_at,
                 account_id: tokens.account_id,
+                options: ProviderOptions::default(),
             };
 
             save_provider_credentials(&state, viewer.id, &provider).await?;
@@ -4135,6 +4117,7 @@ fn server_fallback_provider(config: &Config) -> Option<Provider> {
         .map(|api_key| Provider::OpenAiGeneric {
             api_key: api_key.clone(),
             base_url: config.openai_generic_base_url.clone(),
+            options: ProviderOptions::default(),
         })
 }
 
@@ -4743,62 +4726,46 @@ impl SessionToolProvider {
 #[async_trait::async_trait]
 impl ToolProvider for SessionToolProvider {
     fn definitions(&self) -> Vec<ToolDefinition> {
-        let native = [lash_core::ExecutionMode::NativeTools];
         vec![
             ToolDefinition {
                 name: "list_designs".into(),
-                description: vec![lash_core::ToolText::new(
-                    "List all designs created in this session. Returns id, title, summary, and preview URL for each design.",
-                    native,
-                )],
+                description: "List all designs created in this session. Returns id, title, summary, and preview URL for each design.".into(),
                 params: vec![],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "list_references".into(),
-                description: vec![lash_core::ToolText::new(
-                    "List all references attached to this session (notes, links, images). Returns id, kind, and title for each.",
-                    native,
-                )],
+                description: "List all references attached to this session (notes, links, images). Returns id, kind, and title for each.".into(),
                 params: vec![],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "view_design".into(),
-                description: vec![lash_core::ToolText::new(
-                    "View a design by taking a live screenshot of the rendered page. Also returns metadata (title, summary, prompt). Falls back to HTML/CSS source excerpts if screenshots are unavailable. Use the design id from list_designs.",
-                    native,
-                )],
+                description: "View a design by taking a live screenshot of the rendered page. Also returns metadata (title, summary, prompt). Falls back to HTML/CSS source excerpts if screenshots are unavailable. Use the design id from list_designs.".into(),
                 params: vec![ToolParam::typed("design_id", "str")],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "view_reference".into(),
-                description: vec![lash_core::ToolText::new(
-                    "View a specific reference's full content. For text references returns the body, for links the URL and notes, for images returns the image data. Use the reference id from list_references.",
-                    native,
-                )],
+                description: "View a specific reference's full content. For text references returns the body, for links the URL and notes, for images returns the image data. Use the reference id from list_references.".into(),
                 params: vec![ToolParam::typed("reference_id", "str")],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
             ToolDefinition {
                 name: "make_design".into(),
-                description: vec![lash_core::ToolText::new(
-                    "Queue one asynchronous design generation job for this session. Use it when the user wants new designs, refinements, branches, or iterations. Pass only reference_ids from the selected handles listed in the prompt.",
-                    native,
-                )],
+                description: "Queue one asynchronous design generation job for this session. Use it when the user wants new designs, refinements, branches, or iterations. Pass only reference_ids from the selected handles listed in the prompt.".into(),
                 params: vec![
                     ToolParam::typed("prompt", "str"),
                     ToolParam::optional("reference_ids", "list[str]"),
@@ -4807,8 +4774,8 @@ impl ToolProvider for SessionToolProvider {
                 ],
                 returns: "dict".into(),
                 examples: vec![],
-                hidden: false,
-                inject_into_prompt: true,
+                enabled: true,
+                injected: true,
             },
         ]
     }
@@ -4844,42 +4811,27 @@ impl ToolProvider for SessionToolProvider {
 fn session_prompt_overrides() -> Vec<PromptSectionOverride> {
     vec![
         PromptSectionOverride {
-            section: PromptSectionName::Identity,
+            section: PromptSectionName::Intro,
             mode: PromptOverrideMode::Replace,
             content: "You are Design Storm Director, a chat-forward design agent that helps steer a session and can queue async design jobs.".to_string(),
         },
         PromptSectionOverride {
-            section: PromptSectionName::Personality,
-            mode: PromptOverrideMode::Replace,
-            content: "Be direct, visually literate, and concise. Prefer concrete design language over generic product phrasing.".to_string(),
-        },
-        PromptSectionOverride {
-            section: PromptSectionName::ExecutionContract,
+            section: PromptSectionName::Execution,
             mode: PromptOverrideMode::Replace,
             content: "Either answer conversationally, use read-only tools to inspect session context, or call make_design exactly once when the user is asking for designs to be made, refined, branched, or iterated. Keep the final reply short.".to_string(),
         },
         PromptSectionOverride {
-            section: PromptSectionName::ToolAccess,
+            section: PromptSectionName::Guidance,
+            mode: PromptOverrideMode::Replace,
+            content: "Be direct, visually literate, and concise. Prefer concrete design language over generic product phrasing. Use list_designs/list_references to explore session context when the user asks about existing work. Use view_design/view_reference to inspect specific items. Use the selected references when they matter. If the user is still discussing intent, respond without calling make_design. If the user wants output now, queue a job.".to_string(),
+        },
+        PromptSectionOverride {
+            section: PromptSectionName::Environment,
             mode: PromptOverrideMode::Replace,
             content: "Your tools: list_designs (list session designs), list_references (list session references), view_design (screenshot a rendered design + metadata), view_reference (view a reference's content — returns image data for image refs), make_design (queue a design job — max one per turn). There is no shell, filesystem, or hidden workspace. Never invent reference handles.".to_string(),
         },
         PromptSectionOverride {
-            section: PromptSectionName::Guidelines,
-            mode: PromptOverrideMode::Replace,
-            content: "Use list_designs/list_references to explore session context when the user asks about existing work. Use view_design/view_reference to inspect specific items. Use the selected references when they matter. If the user is still discussing intent, respond without calling make_design. If the user wants output now, queue a job.".to_string(),
-        },
-        PromptSectionOverride {
-            section: PromptSectionName::Memory,
-            mode: PromptOverrideMode::Disable,
-            content: String::new(),
-        },
-        PromptSectionOverride {
-            section: PromptSectionName::MemoryApi,
-            mode: PromptOverrideMode::Disable,
-            content: String::new(),
-        },
-        PromptSectionOverride {
-            section: PromptSectionName::Builtins,
+            section: PromptSectionName::AvailableTools,
             mode: PromptOverrideMode::Disable,
             content: String::new(),
         },
@@ -4955,29 +4907,33 @@ async fn run_session_agent(
         iterates_on.map(|run| run.id),
         pending_call.clone(),
     );
-    let tools = Arc::new(ToolSet::new() + provider);
-    let config = RuntimeConfig {
-        capabilities: build_runtime_capabilities(false),
-        model: loaded_provider
-            .provider
-            .default_agent_model("high")
-            .map(|(model, _)| model.to_string())
-            .unwrap_or_else(|| {
-                state
-                    .config
-                    .storm_model
-                    .clone()
-                    .unwrap_or_else(|| loaded_provider.provider.default_model().to_string())
-            }),
-        provider: loaded_provider.provider,
-        execution_mode: lash_core::ExecutionMode::NativeTools,
-        host_profile: HostProfile::Embedded,
-        headless: true,
-        session_id: Some(format!("studio-{}", Uuid::new_v4())),
-        prompt_overrides: session_prompt_overrides(),
-        ..RuntimeConfig::default()
-    };
-    let mut engine = LashRuntime::from_state(config, tools, AgentStateEnvelope::default())
+    let model = loaded_provider
+        .provider
+        .default_agent_model("high")
+        .map(|(model, _)| model.to_string())
+        .unwrap_or_else(|| {
+            state
+                .config
+                .storm_model
+                .clone()
+                .unwrap_or_else(|| loaded_provider.provider.default_model().to_string())
+        });
+    let policy = runtime_policy(
+        loaded_provider.provider.clone(),
+        model,
+        format!("studio-{}", Uuid::new_v4()),
+    );
+    let host = runtime_host_config(None, session_prompt_overrides());
+    let plugin_session = build_plugin_session(
+        vec![single_tool_plugin(
+            "designstorm_session_tools",
+            Arc::new(provider),
+        )],
+        hide_batch_tool(),
+    )
+    .map_err(AppError::Internal)?;
+    let services = RuntimeServices::new(plugin_session);
+    let mut engine = LashRuntime::from_state(policy, host, services, AgentStateEnvelope::default())
         .await
         .map_err(|error| AppError::Internal(error.to_string()))?;
     let mut items: Vec<InputItem> = vec![InputItem::Text {
@@ -4993,7 +4949,6 @@ async fn run_session_agent(
         items,
         image_blobs,
         mode: None,
-        plan_file: None,
     };
     let turn = engine.run_turn_assembled(input, CancellationToken::new());
     tokio::pin!(turn);
@@ -5281,67 +5236,30 @@ async fn handle_session_message(
         .unwrap_or_else(|| truncate_for_log(&assistant_message, 120)))
 }
 
-fn build_runtime_capabilities(with_web: bool) -> AgentCapabilities {
-    let mut capabilities = AgentCapabilities::default()
-        .disable(lash_core::CapabilityId::CoreRead)
-        .disable(lash_core::CapabilityId::CoreWrite)
-        .disable(lash_core::CapabilityId::Shell)
-        .disable(lash_core::CapabilityId::Tasks)
-        .disable(lash_core::CapabilityId::Planning)
-        .disable(lash_core::CapabilityId::Delegation)
-        .disable(lash_core::CapabilityId::Memory)
-        .disable(lash_core::CapabilityId::History)
-        .disable(lash_core::CapabilityId::Skills);
-    if !with_web {
-        capabilities = capabilities.disable(lash_core::CapabilityId::Web);
-    }
-    capabilities
-}
-
 fn prompt_overrides(role: StormAgentRole) -> Vec<PromptSectionOverride> {
     vec![
         PromptSectionOverride {
-            section: PromptSectionName::Identity,
+            section: PromptSectionName::Intro,
             mode: PromptOverrideMode::Replace,
             content: role.prompt_identity().to_string(),
         },
         PromptSectionOverride {
-            section: PromptSectionName::Personality,
-            mode: PromptOverrideMode::Replace,
-            content: "Be specific, visually opinionated, and economical. Avoid generic startup aesthetics. Prefer clear design rules, sharp contrast, and deliberate composition.".to_string(),
-        },
-        PromptSectionOverride {
-            section: PromptSectionName::ExecutionContract,
+            section: PromptSectionName::Execution,
             mode: PromptOverrideMode::Replace,
             content: "Work only inside the provided artifact workspace. Use the workspace tools to inspect and edit files, use render/view tools to verify the output, and call submit_result before you finish whenever you have a viable artifact.".to_string(),
         },
         PromptSectionOverride {
-            section: PromptSectionName::ToolAccess,
+            section: PromptSectionName::Guidance,
+            mode: PromptOverrideMode::Replace,
+            content: "Be specific, visually opinionated, and economical. Avoid generic startup aesthetics. Prefer clear design rules, sharp contrast, and deliberate composition. Generate static HTML that feels authored. Build a design-language page, not a CRUD app. Keep assets self-contained, make type and spacing choices legible, and use submit_result only after the preview is coherent. If a tool call fails, inspect the workspace, fix the cause, and continue. If the preview is weak, iterate instead of explaining why it would be weak.".to_string(),
+        },
+        PromptSectionOverride {
+            section: PromptSectionName::Environment,
             mode: PromptOverrideMode::Replace,
             content: "Your tools are intentionally narrow. There is no shell, no host filesystem access, and no subagent system. Every change must happen through the workspace, web, render, and submit tools.".to_string(),
         },
         PromptSectionOverride {
-            section: PromptSectionName::Guidelines,
-            mode: PromptOverrideMode::Replace,
-            content: "Generate static HTML that feels authored. Build a design-language page, not a CRUD app. Keep assets self-contained, make type and spacing choices legible, and use submit_result only after the preview is coherent.".to_string(),
-        },
-        PromptSectionOverride {
-            section: PromptSectionName::ErrorRecovery,
-            mode: PromptOverrideMode::Replace,
-            content: "If a tool call fails, inspect the workspace, fix the cause, and continue. If the preview is weak, iterate instead of explaining why it would be weak.".to_string(),
-        },
-        PromptSectionOverride {
-            section: PromptSectionName::Memory,
-            mode: PromptOverrideMode::Disable,
-            content: String::new(),
-        },
-        PromptSectionOverride {
-            section: PromptSectionName::MemoryApi,
-            mode: PromptOverrideMode::Disable,
-            content: String::new(),
-        },
-        PromptSectionOverride {
-            section: PromptSectionName::Builtins,
+            section: PromptSectionName::AvailableTools,
             mode: PromptOverrideMode::Disable,
             content: String::new(),
         },
@@ -5356,19 +5274,64 @@ fn compose_agent_prompt(role: StormAgentRole, prompt: String) -> String {
     }
 }
 
-async fn build_tool_provider(
-    role: StormAgentRole,
-    workspace: Arc<Mutex<WorkspaceRuntimeState>>,
-    runtime: StormRuntimeCtx,
-    screenshotter: Arc<OnceCell<ScreenshotService>>,
-    port: u16,
-) -> Arc<dyn ToolProvider> {
-    let custom = StormToolProvider::new(role, workspace, screenshotter, port);
-    let mut tools = ToolSet::new() + custom;
-    if let Some(key) = runtime.tavily_api_key.as_ref() {
-        tools = tools + WebSearch::new(key.clone()) + FetchUrl::new(key.clone());
+fn single_tool_plugin(
+    id: &'static str,
+    provider: Arc<dyn ToolProvider>,
+) -> Arc<dyn lash_core::PluginFactory> {
+    Arc::new(StaticPluginFactory::new(
+        id,
+        PluginSpec::new().with_tool_provider(provider),
+    ))
+}
+
+fn hide_batch_tool() -> ToolSurfaceContribution {
+    ToolSurfaceContribution {
+        overrides: vec![ToolSurfaceOverride {
+            tool_name: "batch".to_string(),
+            enabled: Some(false),
+            injected: Some(false),
+        }],
+        tool_list_notes: Vec::new(),
     }
-    Arc::new(tools)
+}
+
+fn runtime_policy(provider: Provider, model: String, session_id: String) -> SessionPolicy {
+    SessionPolicy {
+        model,
+        provider,
+        max_context_tokens: Some(LASH_MAX_CONTEXT_TOKENS),
+        session_id: Some(session_id),
+        execution_mode: lash_core::ExecutionMode::Standard,
+        context_strategy: default_context_strategy(),
+        ..SessionPolicy::default()
+    }
+}
+
+fn runtime_host_config(
+    base_dir: Option<PathBuf>,
+    prompt_overrides: Vec<PromptSectionOverride>,
+) -> RuntimeHostConfig {
+    RuntimeHostConfig {
+        host_profile: HostProfile::Embedded,
+        base_dir,
+        prompt_overrides,
+        ..RuntimeHostConfig::default()
+    }
+}
+
+fn build_plugin_session(
+    factories: Vec<Arc<dyn lash_core::PluginFactory>>,
+    tool_surface_overlay: ToolSurfaceContribution,
+) -> Result<Arc<lash_core::PluginSession>, String> {
+    PluginHost::new(factories)
+        .build_session_with_surface(
+            "root",
+            lash_core::ExecutionMode::Standard,
+            None,
+            tool_surface_overlay,
+            None,
+        )
+        .map_err(|error| error.to_string())
 }
 
 async fn run_design_agent(
@@ -5392,21 +5355,29 @@ async fn run_design_agent(
         prompt_len = prompt.len(),
         "initializing lash runtime"
     );
-    let tools = build_tool_provider(role, workspace, runtime.clone(), screenshotter, port).await;
-    let has_web = runtime.tavily_api_key.is_some();
-    let config = RuntimeConfig {
-        capabilities: build_runtime_capabilities(has_web),
-        model: model_for_role(&runtime.provider, &runtime.model, role),
-        provider: runtime.provider,
-        execution_mode: lash_core::ExecutionMode::NativeTools,
-        host_profile: HostProfile::Embedded,
-        headless: true,
-        session_id: Some(format!("storm-{}", Uuid::new_v4())),
-        prompt_overrides: prompt_overrides(role),
-        base_dir: Some(workspace_dir),
-        ..RuntimeConfig::default()
-    };
-    let mut engine = LashRuntime::from_state(config, tools, AgentStateEnvelope::default())
+    let mut factories = vec![single_tool_plugin(
+        "designstorm_workspace_tools",
+        Arc::new(StormToolProvider::new(role, workspace, screenshotter, port)),
+    )];
+    if let Some(key) = runtime.tavily_api_key.as_ref() {
+        factories.push(single_tool_plugin(
+            "designstorm_web_search",
+            Arc::new(WebSearch::new(key.clone())),
+        ));
+        factories.push(single_tool_plugin(
+            "designstorm_fetch_url",
+            Arc::new(FetchUrl::new(key.clone())),
+        ));
+    }
+    let plugin_session = build_plugin_session(factories, hide_batch_tool())?;
+    let policy = runtime_policy(
+        runtime.provider.clone(),
+        model_for_role(&runtime.provider, &runtime.model, role),
+        format!("storm-{}", Uuid::new_v4()),
+    );
+    let host = runtime_host_config(Some(workspace_dir), prompt_overrides(role));
+    let services = RuntimeServices::new(plugin_session);
+    let mut engine = LashRuntime::from_state(policy, host, services, AgentStateEnvelope::default())
         .await
         .map_err(|error| {
             error!(
@@ -5424,7 +5395,6 @@ async fn run_design_agent(
         }],
         image_blobs: HashMap::new(),
         mode: None,
-        plan_file: None,
     };
     info!(
         run_id = %run_id,

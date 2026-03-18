@@ -20,7 +20,7 @@ dotenvy = "0.15.7"
 futures-core = "0.3.31"
 futures-util = "0.3"
 jsonwebtoken = "9.3.1"
-lash-core = { git = "https://github.com/SamGalanakis/lash", rev = "e28673707acc5995370837c7e370a22dd24cc78e", package = "lash-core", default-features = false }
+lash-core = { git = "https://github.com/SamGalanakis/lash", rev = "e13a478ecbdc7bbce15865f02cbff9851906e6ef", package = "lash-core", default-features = false }
 mime_guess = "2.0.5"
 rand = "0.8"
 reqwest = { version = "0.12.15", default-features = false, features = ["json", "rustls-tls"] }
